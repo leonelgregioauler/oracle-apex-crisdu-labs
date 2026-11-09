@@ -1,0 +1,2185 @@
+page 25 (
+    name: Depositos Efetuados
+    title: Depositos Efetuados
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region depositos-efetuados (
+        name: Depositos Efetuados
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select /*FIRST_ROWS(100)*/depdia.idpgtoforn
+                     , depdia.iddepositodiarios
+                     , depdia.iddepositodiarios IDDEPOSITO
+                     , pck_romance.fnc_nomefilial(pck_romance.fnc_filialrepresentante(idrepresentante) ) Filial
+                     , pck_romance.fnc_nomerepresentante(idrepresentante) Representante
+                     , trunc(depdia.data)  Data_deposito
+                     , to_char(depdia.data,'rrrr')  ano
+                     , to_char(depdia.data,'MONTH')  MES
+                     , to_char(depdia.data,'IW/RRRR')  SEMANA
+                     , to_char(pgf.dtvencimento,'DD/MM/RRRR') Data_vencimento
+                     , nvl( ( select pck_romance.fnc_nomefornecedor(f.idfornecedor)
+                              from fornecedores f
+                              where f.idpessoa = contbanc.idpessoa ),pck_romance.fnc_nomefornecedor(contbanc.idfornecedor)) Depositado_para--nvl(contbanc.apelidofornecedor, contbanc.Fornecedor) Depositado_para
+                     , contbanc.idfornecedor
+                     , ( select b.nomebanco from bancos b where b.idbanco = contbanc.idbanco) Banco
+                     , contbanc.agencia ||', '||contbanc.conta agencia_conta
+                     , initcap(contbanc.beneficiario) beneficiario
+                     , depdia.valordeposito Valor_depositado
+                     , ( select descricao 
+                         from tipospagamentos t
+                         where t.codigo = depdia.tipo ) tipo
+                     , decode(depdia.comprovado,'S','Sem Comprovante'
+                                               ,'C','Cópia'
+                                               ,'M','Em Mãos'
+                                               ,'G','Com Gerente') Comprovado
+                     , depdia.nrocomprovante
+                     , depdia.observacao
+                     , depdia.observacaogerente "Obs. Gerente"
+                     , 'Nota Fiscal nº '||nvl(notafiscal.documento,notafiscal.nrnf) referente_a_doc
+                     , to_char(notafiscal.dtnf,'DD/MM/RRRR') data_doc
+                     , notafiscal.valortotal valor_doc
+                     , depdia.nroenvelope "Nro Envelope"
+                     , ( select f.semana from fechamentorepresentantes f where f.idfechamentorepres = depdia.idfechamentorepres ) Fechamento
+                     , decode(depdia.tipopagamento,'D','Depósito','B','Boleto','AB','Abatimento','T','Transferência', 'Não Informado')  "Tipo Pagamento"
+                     , ( select p.nomepessoa from pessoas p, filiais f where p.idpessoa = f.idpessoa and f.idfilial = pgf.idfilial ) "Filial Destino"
+                     , abatimento.documento "Nota Abatida"
+                     , abatimento.valor    "Valor Nota Abatida"
+                     , abatimento.datavencimento "Vencto Nota Abatida"
+                     , abatimento.emitente "Emitente Nota Abatida"
+                     , ( select cb.beneficiario||' - '||b.nomebanco
+                              ||' - '|| cb.agencia ||' - '||
+                              cb.conta
+                         from contasbancarias cb
+                            , bancos b
+                         where cb.idbanco         = b.idbanco 
+                           and cb.idcontabanc = ( select idcontabancraiz
+                                                  from contasbancarias
+                                                  where idcontabanc =  depdia.idcontabanc))  "Conta Raíz"
+                     , decode(depdia.pendencia,'MA', 'Valor Maior'
+                                       ,'ME', 'Valor Menor'
+                                       ,'NL', 'Não Localizado' ) pendencia
+                     , depdia.valorlocalizado
+                     , depdia.dataresolvido
+                     , depdia.idrepresentante
+                     , decode(depdia.transferencia,'S','Sim','Não') transferencia
+                     , decode(pgf.identificado,'S','Sim','Não') identificado
+                     , notafiscal.crisdu
+                     , ( select identificacao
+                         from identificacaodepositos i
+                         where i.ididentificacao = depdia.identificacao ) identificacao
+                     , ( select count(1)||' - '||listagg(trim(to_char(dd.valor_digitado,'999G999G999G999G990D00'))||'  '||dd.nroidentificacao_digitado||' - ') within group (order by 1)
+                         from depositosdiarios_leituraocr dd
+                         where dd.iddepositodiario = depdia.IDDEPOSITODIARIOS ) fotos             
+                     , decode(pgf.automatizar,'S','Sim','N','Não') automatizado
+                from depositosdiarios_orig depdia
+                   , pagamentosfornecedores pgf
+                   , contasbancarias contbanc
+                  /* , ( select cb.idcontabanc
+                            , cb.idfornecedor\* initcap(pf.apelido) ApelidoFornecedor
+                            , initcap(pf.nomepessoa) Fornecedor*\
+                            , initcap(bb.nomebanco) nomebanco
+                            , cb.agencia ||', '||cb.conta Agencia_Conta
+                            , initcap(cb.beneficiario) beneficiario
+                       from contasbancarias cb
+                          , fornecedores    ff
+                          , pessoas         pf
+                          , bancos          bb
+                       where cb.idfornecedor = ff.idfornecedor
+                         and ff.idpessoa     = pf.idpessoa
+                         and cb.idbanco      = bb.idbanco ) contbanc*/
+                  , ( select pagforn.idpgtoforn
+                           , nf.nrnf
+                           , nf.dtnf
+                           , sum(v.valor) valortotal
+                           , pagforn.dtvencimento
+                           , nf.documento
+                           ,  case
+                                  when ( select r.cnpj
+                                         from razoessociaisfornec r
+                                            , notasfiscais        n
+                                         where r.idrazaosocialforn = n.idrazaosocialfornemit
+                                           and n.idnotafiscal      = pagforn.idnotafiscal ) like '07318638%' then
+                                         'Sim'
+                                  when ( select r.cnpj
+                                         from razoessociaisfornec r
+                                            , notasfiscais        n
+                                         where r.idrazaosocialforn = n.idrazaosocialforndest 
+                                           and n.idnotafiscal      = pagforn.idnotafiscal ) like '07318638%' then
+                                         'Sim'
+                                  when ( select cnpj
+                                         from razoessociaisfiliais re
+                                            , notasfiscais        n
+                                         where re.idrazaosocialfilial = n.idrazaosocialfilemit 
+                                           and n.idnotafiscal      = pagforn.idnotafiscal ) like '07318638%' then
+                                         'Sim'
+                                  when ( select  cnpj
+                                         from razoessociaisfiliais re
+                                            , notasfiscais        n
+                                         where re.idrazaosocialfilial = n.idrazaosocialfildestino 
+                                           and n.idnotafiscal      = pagforn.idnotafiscal ) like '07318638%' then
+                                         'Sim'
+                                  else 
+                                    'Não'
+                                 end crisdu
+                      from pagamentosfornecedores pagforn
+                         , notasfiscais           nf
+                         , vencimentos            v
+                      where pagforn.idnotafiscal = nf.idnotafiscal
+                        and nf.idnotafiscal      = v.idnotafiscal
+                        group by pagforn.idpgtoforn
+                               , nf.nrnf
+                               , nf.dtnf
+                               , pagforn.dtvencimento 
+                               , pagforn.idnotafiscal
+                               , nf.documento ) notafiscal          
+                  ,  ( select nv.documento 
+                            , v.valor
+                            , v.datavencimento
+                            , v.idvencimento
+                            , pck_romance.fnc_nomefornecedor(nc.idfornemitente) emitente
+                         from vencimentosreceber v
+                            , notasfiscais nv 
+                            , notasfiscais nc
+                         where v.idnotafiscal = nv.idnotafiscal 
+                           and nv.idnotafiscalcompra = nc.idnotafiscal) abatimento
+                where pgf.idcontabanc  = contbanc.idcontabanc (+)
+                  and depdia.idpgtoforn      = notafiscal.idpgtoforn(+)
+                  and depdia.idpgtoforn      = pgf.idpgtoforn
+                  and depdia.idvencimentoabatimento = abatimento.idvencimento (+)
+                  and (:P25_IDFORNECEDOR    is null or pgf.idfornecedor       = :P25_IDFORNECEDOR    )
+                  and (:P25_IDREPRESENTANTE is null or depdia.idrepresentante = :P25_IDREPRESENTANTE )
+                  and (:P25_IDFILIAL        is null or exists ( select 1
+                                                                from representantes r
+                                                                   , gerentes g
+                                                                where r.idrepresentante = depdia.idrepresentante
+                                                                  and g.idgerente       = r.idgerente
+                                                                  and g.idfilial        = :P25_IDFILIAL ) )
+                  and ( :P25_DATA is null or trunc(depdia.data) = to_date(:P25_DATA,'DD/MM/RRRR' ) )
+                  and ( :P25_VALORDEPOSITO is null or depdia.valordeposito = to_number(:P25_VALORDEPOSITO ))
+                  and ( :P25_IDCONTABANC is null or depdia.idcontabanc = :P25_IDCONTABANC)
+                  AND :P25_FILTRAR IS NOT NULL
+                ```
+            pageItemsToSubmit: [
+                P25_IDFORNECEDOR
+                P25_IDFILIAL
+                P25_IDREPRESENTANTE
+                P25_DATA
+                P25_VALORDEPOSITO
+                P25_FILTRAR
+            ]
+        }
+        layout {
+            sequence: 10
+            slot: body-3
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToYOfZ
+        }
+        performance {
+            maxRowsToProcess: 100000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: This query returns more than 10,000 rows, please filter your data to ensure complete results.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            rowsPerPage: false
+            pivot: false
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 1
+        }
+
+        column AGENCIA_CONTA (
+            type: plainText
+            heading {
+                heading: Ag/Conta
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: AGENCIA_CONTA
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column ANO (
+            type: plainText
+            heading {
+                heading: Ano
+                alignment: center
+            }
+            layout {
+                sequence: 21
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: ANO
+                endUserAlias: V
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column AUTOMATIZADO (
+            type: plainText
+            heading {
+                heading: Automatizado
+                alignment: center
+            }
+            layout {
+                sequence: 119
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AV
+            }
+        )
+
+        column BANCO (
+            type: plainText
+            heading {
+                heading: Banco
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: BANCO
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column BENEFICIARIO (
+            type: plainText
+            heading {
+                heading: Beneficiário
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: BENEFICIARIO
+                endUserAlias: I
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column COMPROVADO (
+            type: plainText
+            heading {
+                heading: Comprovado
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: COMPROVADO
+                endUserAlias: L
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column CRISDU (
+            type: plainText
+            heading {
+                heading: Crisdu?
+                alignment: center
+            }
+            layout {
+                sequence: 89
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AS
+            }
+        )
+
+        column "Conta Raíz" (
+            type: plainText
+            heading {
+                heading: Conta Raíz
+                alignment: center
+            }
+            layout {
+                sequence: 32
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Conta_Raiz
+                endUserAlias: AG
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DATARESOLVIDO (
+            type: plainText
+            heading {
+                heading: Data Resolvido
+                alignment: center
+            }
+            layout {
+                sequence: 37
+            }
+            appearance {
+                formatMask: dd/mm/rrrr
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                htmlDomId: DATARESOLVIDO
+                endUserAlias: AL
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DATA_DEPOSITO (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                htmlDomId: DATA_DEPOSITO
+                endUserAlias: U
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DATA_DOC (
+            type: plainText
+            heading {
+                heading: Data Doc
+                alignment: center
+            }
+            layout {
+                sequence: 18
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: DATA_DOC
+                endUserAlias: S
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DATA_VENCIMENTO (
+            type: plainText
+            heading {
+                heading: Dt Vencto
+                alignment: center
+            }
+            layout {
+                sequence: 19
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: DATA_VENCIMENTO
+                endUserAlias: T
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DEPOSITADO_PARA (
+            type: plainText
+            heading {
+                heading: Destino
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: DEPOSITADO_PARA
+                endUserAlias: F
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Emitente Nota Abatida" (
+            type: plainText
+            heading {
+                heading: Emitente Nota Abatida
+                alignment: center
+            }
+            layout {
+                sequence: 31
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Emitente_Nota_Abatida
+                endUserAlias: AF
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column FECHAMENTO (
+            type: plainText
+            heading {
+                heading: Fechamento
+                alignment: center
+            }
+            layout {
+                sequence: 23
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: FECHAMENTO
+                endUserAlias: X
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: FILIAL
+                endUserAlias: B
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column FOTOS (
+            type: link
+            heading {
+                heading: Fotos
+                alignment: center
+            }
+            layout {
+                sequence: 109
+            }
+            link {
+                target: {
+                    page: 257
+                    items: {
+                        P257_IDDEPOSITODIARIO: #IDDEPOSITODIARIOS#
+                    }
+                    action: resetPagination
+                }
+                linkText: #FOTOS#
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AU
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Filial Destino" (
+            type: plainText
+            heading {
+                heading: Filial Destino
+                alignment: center
+            }
+            layout {
+                sequence: 25
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Filial_Destino
+                endUserAlias: Z
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDDEPOSITO (
+            type: plainText
+            heading {
+                heading: Iddeposito
+                alignment: center
+            }
+            layout {
+                sequence: 59
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AP
+            }
+        )
+
+        column IDDEPOSITODIARIOS (
+            type: link
+            heading {
+                heading: Editar
+                alignment: center
+            }
+            layout {
+                sequence: 1
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 37
+                    items: {
+                        P37_IDDEPOSITODIARIOS: #IDDEPOSITODIARIOS#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil.png" class="apex-edit-pencil" alt="">
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDDEPOSITODIARIOS
+                endUserAlias: A
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDENTIFICACAO (
+            type: plainText
+            heading {
+                heading: Identificação Interna
+                alignment: center
+            }
+            layout {
+                sequence: 99
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AT
+            }
+        )
+
+        column IDENTIFICADO (
+            type: plainText
+            heading {
+                heading: Identificado
+                alignment: center
+            }
+            layout {
+                sequence: 79
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AR
+            }
+        )
+
+        column IDFORNECEDOR (
+            type: plainText
+            heading {
+                heading: IDFORN
+                alignment: center
+            }
+            layout {
+                sequence: 33
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDFORNECEDOR
+                endUserAlias: AH
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDPGTOFORN (
+            type: plainText
+            heading {
+                heading: Idpgtoforn
+                alignment: center
+            }
+            layout {
+                sequence: 26
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDPGTOFORN
+                endUserAlias: AA
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDREPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Idrepresentante
+                alignment: center
+            }
+            layout {
+                sequence: 49
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AO
+            }
+        )
+
+        column MES (
+            type: plainText
+            heading {
+                heading: Mes
+                alignment: center
+            }
+            layout {
+                sequence: 38
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: MES
+                endUserAlias: AM
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column NROCOMPROVANTE (
+            type: plainText
+            heading {
+                heading: Identificação
+                alignment: center
+            }
+            layout {
+                sequence: 14
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: NROCOMPROVANTE
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Nota Abatida" (
+            type: plainText
+            heading {
+                heading: Nota Abatida
+                alignment: center
+            }
+            layout {
+                sequence: 28
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Nota_Abatida
+                endUserAlias: AC
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Nro Envelope" (
+            type: hidden
+            heading {
+                heading: Nro Envelope
+            }
+            layout {
+                sequence: 22
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Nro_Envelope
+                endUserAlias: W
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: OBSERVACAO
+                endUserAlias: N
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Obs. Gerente" (
+            type: plainText
+            heading {
+                heading: Obs. Gerente
+                alignment: center
+            }
+            layout {
+                sequence: 27
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Obs_Gerente
+                endUserAlias: AB
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column PENDENCIA (
+            type: plainText
+            heading {
+                heading: Pendência
+                alignment: center
+            }
+            layout {
+                sequence: 34
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: PENDENCIA
+                endUserAlias: AI
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column REFERENTE_A_DOC (
+            type: plainText
+            heading {
+                heading: Referente A NF
+                alignment: center
+            }
+            layout {
+                sequence: 16
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: REFERENTE_A_DOC
+                endUserAlias: O
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: REPRESENTANTE
+                endUserAlias: C
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SEMANA (
+            type: plainText
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 39
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: SEMANA
+                endUserAlias: AN
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column TIPO (
+            type: plainText
+            heading {
+                heading: Tipo
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: TIPO
+                endUserAlias: K
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column TRANSFERENCIA (
+            type: plainText
+            heading {
+                heading: Transferencia?
+                alignment: center
+            }
+            layout {
+                sequence: 69
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AQ
+            }
+        )
+
+        column "Tipo Pagamento" (
+            type: plainText
+            heading {
+                heading: Tipo Pagto
+                alignment: center
+            }
+            layout {
+                sequence: 24
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Tipo_Pagamento
+                endUserAlias: Y
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column VALORLOCALIZADO (
+            type: plainText
+            heading {
+                heading: Valor Localizado
+                alignment: center
+            }
+            layout {
+                sequence: 36
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VALORLOCALIZADO
+                endUserAlias: AK
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column VALOR_DEPOSITADO (
+            type: plainText
+            heading {
+                heading: Valor Dep
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VALOR_DEPOSITADO
+                endUserAlias: J
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column VALOR_DOC (
+            type: plainText
+            heading {
+                heading: Valor Doc.
+                alignment: center
+            }
+            layout {
+                sequence: 12
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VALOR_DOC
+                endUserAlias: Q
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Valor Nota Abatida" (
+            type: plainText
+            heading {
+                heading: Valor Nota Abatida
+                alignment: center
+            }
+            layout {
+                sequence: 29
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Valor_Nota_Abatida
+                endUserAlias: AD
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Vencto Nota Abatida" (
+            type: plainText
+            heading {
+                heading: Vencto Nota Abatida
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                htmlDomId: Vencto_Nota_Abatida
+                endUserAlias: AE
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 16983 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100
+            }
+
+            displayColumn AGENCIA_CONTA (
+                sequence: 8
+            )
+
+            displayColumn AUTOMATIZADO (
+                sequence: 28
+            )
+
+            displayColumn BANCO (
+                sequence: 7
+            )
+
+            displayColumn BENEFICIARIO (
+                sequence: 9
+            )
+
+            displayColumn CRISDU (
+                sequence: 25
+            )
+
+            displayColumn "Conta Raíz" (
+                sequence: 22
+            )
+
+            displayColumn DATA_DEPOSITO (
+                sequence: 4
+            )
+
+            displayColumn DATA_VENCIMENTO (
+                sequence: 11
+            )
+
+            displayColumn DEPOSITADO_PARA (
+                sequence: 6
+            )
+
+            displayColumn "Emitente Nota Abatida" (
+                sequence: 21
+            )
+
+            displayColumn FECHAMENTO (
+                sequence: 14
+            )
+
+            displayColumn FILIAL (
+                sequence: 2
+            )
+
+            displayColumn FOTOS (
+                sequence: 27
+            )
+
+            displayColumn "Filial Destino" (
+                sequence: 16
+            )
+
+            displayColumn IDDEPOSITODIARIOS (
+                sequence: 1
+            )
+
+            displayColumn IDENTIFICACAO (
+                sequence: 26
+            )
+
+            displayColumn IDENTIFICADO (
+                sequence: 24
+            )
+
+            displayColumn NROCOMPROVANTE (
+                sequence: 13
+            )
+
+            displayColumn "Nota Abatida" (
+                sequence: 18
+            )
+
+            displayColumn "Obs. Gerente" (
+                sequence: 17
+            )
+
+            displayColumn REFERENTE_A_DOC (
+                sequence: 23
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 3
+            )
+
+            displayColumn TIPO (
+                sequence: 10
+            )
+
+            displayColumn "Tipo Pagamento" (
+                sequence: 15
+            )
+
+            displayColumn VALOR_DEPOSITADO (
+                sequence: 5
+            )
+
+            displayColumn VALOR_DOC (
+                sequence: 12
+            )
+
+            displayColumn "Valor Nota Abatida" (
+                sequence: 19
+            )
+
+            displayColumn "Vencto Nota Abatida" (
+                sequence: 20
+            )
+
+            sort (
+                column: DATA_DEPOSITO
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: VALOR_DEPOSITADO
+            )
+
+            filter ir-condition (
+                column: COMPROVADO
+                operator: !=
+                value: Em Mãos
+                advanced {
+                    enabled: false
+                }
+            )
+
+            filter ir-condition-2 (
+                type: rowExpression
+                rowExpression: V = to_char(sysdate,'RRRR')
+                identification {
+                    name: Ano Atual
+                }
+            )
+
+        )
+
+        savedReport 2531690 (
+            visibility: alternativeDefault
+            name: Depósitos Dinheiro
+            view {
+                rowsPerPage: 100
+            }
+
+            displayColumn AGENCIA_CONTA (
+                sequence: 7
+            )
+
+            displayColumn AUTOMATIZADO (
+                sequence: 30
+            )
+
+            displayColumn BANCO (
+                sequence: 6
+            )
+
+            displayColumn BENEFICIARIO (
+                sequence: 8
+            )
+
+            displayColumn CRISDU (
+                sequence: 27
+            )
+
+            displayColumn DATARESOLVIDO (
+                sequence: 20
+            )
+
+            displayColumn DATA_DEPOSITO (
+                sequence: 3
+            )
+
+            displayColumn DATA_VENCIMENTO (
+                sequence: 10
+            )
+
+            displayColumn DEPOSITADO_PARA (
+                sequence: 5
+            )
+
+            displayColumn "Emitente Nota Abatida" (
+                sequence: 17
+            )
+
+            displayColumn FECHAMENTO (
+                sequence: 13
+            )
+
+            displayColumn FILIAL (
+                sequence: 1
+            )
+
+            displayColumn FOTOS (
+                sequence: 29
+            )
+
+            displayColumn IDDEPOSITO (
+                sequence: 24
+            )
+
+            displayColumn IDENTIFICACAO (
+                sequence: 28
+            )
+
+            displayColumn IDENTIFICADO (
+                sequence: 26
+            )
+
+            displayColumn IDREPRESENTANTE (
+                sequence: 23
+            )
+
+            displayColumn MES (
+                sequence: 21
+            )
+
+            displayColumn NROCOMPROVANTE (
+                sequence: 12
+            )
+
+            displayColumn "Nota Abatida" (
+                sequence: 14
+            )
+
+            displayColumn PENDENCIA (
+                sequence: 18
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 2
+            )
+
+            displayColumn SEMANA (
+                sequence: 22
+            )
+
+            displayColumn TIPO (
+                sequence: 9
+            )
+
+            displayColumn TRANSFERENCIA (
+                sequence: 25
+            )
+
+            displayColumn VALORLOCALIZADO (
+                sequence: 19
+            )
+
+            displayColumn VALOR_DEPOSITADO (
+                sequence: 4
+            )
+
+            displayColumn VALOR_DOC (
+                sequence: 11
+            )
+
+            displayColumn "Valor Nota Abatida" (
+                sequence: 15
+            )
+
+            displayColumn "Vencto Nota Abatida" (
+                sequence: 16
+            )
+
+            sort (
+                column: DATA_DEPOSITO
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: VALOR_DEPOSITADO
+            )
+
+            filter ir-condition (
+                column: COMPROVADO
+                operator: !=
+                value: Em Mãos
+                advanced {
+                    enabled: false
+                }
+            )
+
+            filter ir-condition-2 (
+                column: TIPO
+                operator: doesNotContain
+                value: Abatimento
+            )
+
+        )
+
+        savedReport 2531701 (
+            visibility: alternativeDefault
+            name: Depósitos Abatimentos
+            view {
+                rowsPerPage: 100
+            }
+
+            displayColumn AGENCIA_CONTA (
+                sequence: 7
+            )
+
+            displayColumn AUTOMATIZADO (
+                sequence: 30
+            )
+
+            displayColumn BANCO (
+                sequence: 6
+            )
+
+            displayColumn BENEFICIARIO (
+                sequence: 8
+            )
+
+            displayColumn CRISDU (
+                sequence: 27
+            )
+
+            displayColumn DATARESOLVIDO (
+                sequence: 20
+            )
+
+            displayColumn DATA_DEPOSITO (
+                sequence: 3
+            )
+
+            displayColumn DATA_VENCIMENTO (
+                sequence: 10
+            )
+
+            displayColumn DEPOSITADO_PARA (
+                sequence: 5
+            )
+
+            displayColumn "Emitente Nota Abatida" (
+                sequence: 17
+            )
+
+            displayColumn FECHAMENTO (
+                sequence: 13
+            )
+
+            displayColumn FILIAL (
+                sequence: 1
+            )
+
+            displayColumn FOTOS (
+                sequence: 29
+            )
+
+            displayColumn IDDEPOSITO (
+                sequence: 24
+            )
+
+            displayColumn IDENTIFICACAO (
+                sequence: 28
+            )
+
+            displayColumn IDENTIFICADO (
+                sequence: 26
+            )
+
+            displayColumn IDREPRESENTANTE (
+                sequence: 23
+            )
+
+            displayColumn MES (
+                sequence: 21
+            )
+
+            displayColumn NROCOMPROVANTE (
+                sequence: 12
+            )
+
+            displayColumn "Nota Abatida" (
+                sequence: 14
+            )
+
+            displayColumn PENDENCIA (
+                sequence: 18
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 2
+            )
+
+            displayColumn SEMANA (
+                sequence: 22
+            )
+
+            displayColumn TIPO (
+                sequence: 9
+            )
+
+            displayColumn TRANSFERENCIA (
+                sequence: 25
+            )
+
+            displayColumn VALORLOCALIZADO (
+                sequence: 19
+            )
+
+            displayColumn VALOR_DEPOSITADO (
+                sequence: 4
+            )
+
+            displayColumn VALOR_DOC (
+                sequence: 11
+            )
+
+            displayColumn "Valor Nota Abatida" (
+                sequence: 15
+            )
+
+            displayColumn "Vencto Nota Abatida" (
+                sequence: 16
+            )
+
+            sort (
+                column: DATA_DEPOSITO
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: VALOR_DEPOSITADO
+            )
+
+            filter ir-condition (
+                column: COMPROVADO
+                operator: !=
+                value: Em Mãos
+                advanced {
+                    enabled: false
+                }
+            )
+
+            filter ir-condition-2 (
+                column: TIPO
+                operator: contains
+                value: Abatimento
+            )
+
+        )
+
+        savedReport 3339868 (
+            visibility: alternativeDefault
+            name: Depósitos para Sim ADM
+            view {
+                groupBy: true
+                default: groupBy
+                rowsPerPage: 200
+            }
+
+            displayColumn AGENCIA_CONTA (
+                sequence: 7
+            )
+
+            displayColumn AUTOMATIZADO (
+                sequence: 37
+            )
+
+            displayColumn BANCO (
+                sequence: 6
+            )
+
+            displayColumn BENEFICIARIO (
+                sequence: 8
+            )
+
+            displayColumn CRISDU (
+                sequence: 34
+            )
+
+            displayColumn "Conta Raíz" (
+                sequence: 23
+            )
+
+            displayColumn DATARESOLVIDO (
+                sequence: 27
+            )
+
+            displayColumn DATA_DEPOSITO (
+                sequence: 3
+            )
+
+            displayColumn DATA_VENCIMENTO (
+                sequence: 10
+            )
+
+            displayColumn DEPOSITADO_PARA (
+                sequence: 5
+            )
+
+            displayColumn "Emitente Nota Abatida" (
+                sequence: 22
+            )
+
+            displayColumn FECHAMENTO (
+                sequence: 14
+            )
+
+            displayColumn FILIAL (
+                sequence: 1
+            )
+
+            displayColumn FOTOS (
+                sequence: 36
+            )
+
+            displayColumn "Filial Destino" (
+                sequence: 16
+            )
+
+            displayColumn IDDEPOSITO (
+                sequence: 31
+            )
+
+            displayColumn IDENTIFICACAO (
+                sequence: 35
+            )
+
+            displayColumn IDENTIFICADO (
+                sequence: 33
+            )
+
+            displayColumn IDFORNECEDOR (
+                sequence: 24
+            )
+
+            displayColumn IDPGTOFORN (
+                sequence: 17
+            )
+
+            displayColumn IDREPRESENTANTE (
+                sequence: 30
+            )
+
+            displayColumn MES (
+                sequence: 28
+            )
+
+            displayColumn NROCOMPROVANTE (
+                sequence: 12
+            )
+
+            displayColumn "Nota Abatida" (
+                sequence: 19
+            )
+
+            displayColumn "Nro Envelope" (
+                sequence: 13
+            )
+
+            displayColumn "Obs. Gerente" (
+                sequence: 18
+            )
+
+            displayColumn PENDENCIA (
+                sequence: 25
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 2
+            )
+
+            displayColumn SEMANA (
+                sequence: 29
+            )
+
+            displayColumn TIPO (
+                sequence: 9
+            )
+
+            displayColumn TRANSFERENCIA (
+                sequence: 32
+            )
+
+            displayColumn "Tipo Pagamento" (
+                sequence: 15
+            )
+
+            displayColumn VALORLOCALIZADO (
+                sequence: 26
+            )
+
+            displayColumn VALOR_DEPOSITADO (
+                sequence: 4
+            )
+
+            displayColumn VALOR_DOC (
+                sequence: 11
+            )
+
+            displayColumn "Valor Nota Abatida" (
+                sequence: 20
+            )
+
+            displayColumn "Vencto Nota Abatida" (
+                sequence: 21
+            )
+
+            sort (
+                column: DATA_DEPOSITO
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: VALOR_DEPOSITADO
+            )
+
+            filter ir-condition (
+                column: COMPROVADO
+                operator: !=
+                value: Em Mãos
+                advanced {
+                    enabled: false
+                }
+            )
+
+            filter ir-condition-2 (
+                column: DATA_DEPOSITO
+                operator: between
+                from: 20140804000000
+                to: 20140809000000
+            )
+
+            filter ir-condition-3 (
+                column: "Filial Destino"
+                operator: contains
+                value: Sim Ind. ADM
+            )
+
+            groupByColumn (
+                column: DEPOSITADO_PARA
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByColumn (
+                column: DATA_DEPOSITO
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByAggregate (
+                heading: Valor Depósito
+                aggregate {
+                    column: VALOR_DEPOSITADO
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: FML999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region filtro (
+        name: Filtro
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body-1
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+            renderComponents: belowContent
+        }
+    )
+
+    pageItem P25_DATA (
+        type: datePickerJquery
+        label {
+            label: Data
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: dd/mm/rrrr
+            width: 12
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P25_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 70
+            region: @filtro
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P25_IDCONTABANC (
+        type: popupLov
+        label {
+            label: Conta
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+            initialFetch: onUserRequest
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomepessoa(c.idpessoa)|| ' --- '||  c.beneficiario||' - '|| agencia||'/'||conta||' - '||  b.nomebanco display_value
+                     , c.idcontabanc return_value
+                from contasbancarias c
+                   , bancos b
+                where c.idbanco = b.idbanco
+                  and c.ativo = 'S'
+                  and (:P25_IDFORNECEDOR is null or exists ( select 1
+                                                             from fornecedores f
+                                                             where f.idpessoa  = c.idpessoa
+                                                               and f.idfornecedor = :P25_IDFORNECEDOR ) )
+                order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todas -
+        }
+        cascadingLov {
+            parentItems: P25_IDFORNECEDOR
+        }
+        layout {
+            sequence: 20
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 90
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P25_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nome     display_value
+                     , idfilial return_value
+                from vw_filiais
+                ```
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 30
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P25_IDFORNECEDOR (
+        type: popupLov
+        label {
+            label: Fornecedor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(pe.apelido) display_value
+                     , fe.idfornecedor return_value
+                from fornecedores fe
+                    , pessoas     pe
+                where fe.idpessoa = pe.idpessoa 
+                  and exists ( select 1
+                               from pagamentosfornecedores pp
+                                  , depositosdiarios       dd
+                               where pp.idpgtoforn = dd.idpgtoforn   
+                                 and pp.idfornecedor = fe.idfornecedor )
+                order by 1
+                ```
+            nullDisplayValue: " - Todos -"
+        }
+        layout {
+            sequence: 10
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 90
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P25_IDREPRESENTANTE (
+        type: popupLov
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomepessoa(r.idpessoa) ||' - '||pck_romance.fnc_nomefilial(g.idfilial)     display_value
+                     , r.idrepresentante     return_value
+                from representantes r
+                   , gerentes g
+                where r.idgerente = g.idgerente
+                  and r.ativo = 'S'
+                  and (:P25_IDFILIAL  is null or g.idfilial = :P25_IDFILIAL  )
+                order by 1  
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todos -
+        }
+        cascadingLov {
+            parentItems: P25_IDFILIAL
+        }
+        layout {
+            sequence: 40
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 60
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P25_VALORDEPOSITO (
+        type: numberField
+        label {
+            label: Valor
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 60
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: Filtrar
+        label: Filtrar
+        layout {
+            sequence: 10
+            region: @filtro
+            slot: belowBox
+            horizontalAlignment: left
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction filtrar (
+        name: filtrar
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @filtrar
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: FILTRAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    branch (
+        name: Filtrar
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 25
+                items: {
+                    P25_IDFORNECEDOR: &P25_IDFORNECEDOR.
+                    P25_IDFILIAL: &P25_IDFILIAL.
+                    P25_IDREPRESENTANTE: &P25_IDREPRESENTANTE.
+                    P25_DATA: &P25_DATA.
+                    P25_VALORDEPOSITO: &P25_VALORDEPOSITO.
+                    P25_FILTRAR: S
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

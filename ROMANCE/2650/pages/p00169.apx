@@ -1,0 +1,986 @@
+page 169 (
+    name: Extrato Conta
+    title: Extrato Conta
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        width: 70%
+        height: 90%
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region contas-para-depositar (
+        name: Contas para Depositar
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ( select pck_romance.fnc_nomepessoa( c.idpessoa)
+                         from contasbancarias c
+                         where c.idcontabanc = e.idcontabancaria ) destino
+                     , pck_cadastros_rmc.fnc_retornacontabancaria(e.idcontabancaria) conta
+                     , ( select max(ee.datamovimento)
+                         from extratoscontasbancarias ee
+                         where ee.idcontabancaria = e.idcontabancaria 
+                           and ee.idvencimento    is not null
+                           and ee.datamovimento   < sysdate ) ultimovencimento
+                     , sum(e.valormovimento) saldo                                        
+                     , e.idcontabancaria
+                from extratoscontasbancarias e       
+                where e.datamovimento   <= :P265_DATABASEDEPOSITOS
+                  and e.contabilizar     = 'S'
+                  and e.idcontabancaria = :P169_IDCONTABANCARIA
+                  and e.identificado    = :P169_IDENTIFICADO 
+                --having sum(e.valormovimento) < 0
+                group by e.idcontabancaria  
+                
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--accent1
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 4521835442511806184
+        }
+
+        column CONTA (
+            type: plainText
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DESTINO (
+            type: plainText
+            heading {
+                heading: Destino
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column IDCONTABANCARIA (
+            type: plainText
+            heading {
+                heading: Idcontabancaria
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column ULTIMOVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Último Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        savedReport 15073479 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CONTA (
+                sequence: 1
+            )
+
+            displayColumn DESTINO (
+                sequence: 4
+            )
+
+            displayColumn SALDO (
+                sequence: 2
+            )
+
+            displayColumn ULTIMOVENCIMENTO (
+                sequence: 3
+            )
+
+        )
+
+    )
+
+    region extrato-completo (
+        name: Extrato Completo
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ( select pck_romance.fnc_nomepessoa( c.idpessoa)
+                         from contasbancarias c
+                         where c.idcontabanc = e.idcontabancaria ) destino
+                     , pck_cadastros_rmc.fnc_retornacontabancaria(e.idcontabancaria) conta   
+                     , e.datamovimento
+                     , e.valormovimento
+                     , e.descricao motivo                    
+                     , ( select nn.documento
+                         from notasfiscais nn
+                            , vencimentos  vv
+                         where nn.idnotafiscal = vv.idnotafiscal
+                           and ( vv.idvencimento = e.idvencimento
+                              or vv.idvencimento = e.idvencimento_orig ) )  detalhe   
+                     , ( select pck_romance.fnc_nomefilial(nf.idfilialdestino) empresadestino
+                         from vencimentos v
+                            , notasfiscais nf
+                         where ( v.idvencimento = e.idvencimento
+                              or v.idvencimento = e.idvencimento_orig )
+                           and nf.idnotafiscal = v.idnotafiscal ) empresadestino
+                from extratoscontasbancarias e       
+                where e.datamovimento   <= :P265_DATABASEDEPOSITOS
+                  and e.contabilizar     = 'S'
+                  and e.idcontabancaria = :P169_IDCONTABANCARIA
+                  and e.identificado    = :P169_IDENTIFICADO 
+                  and ( :P169_FILTRO = 'C'
+                        or (:P169_FILTRO = 'F' and e.valormovimento < 0)
+                        or (:P169_FILTRO = 'D' and e.valormovimento >0 ) )
+                order by e.idextratocontabancaria desc
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1507507251634266505
+        }
+
+        column CONTA (
+            type: plainText
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column DATAMOVIMENTO (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column DESTINO (
+            type: plainText
+            heading {
+                heading: Destino
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column DETALHE (
+            type: plainText
+            heading {
+                heading: Detalhe
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column EMPRESADESTINO (
+            type: plainText
+            heading {
+                heading: Empresa Destino
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column MOTIVO (
+            type: plainText
+            heading {
+                heading: Motivo
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column VALORMOVIMENTO (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15075244 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 1000
+            }
+
+            displayColumn CONTA (
+                sequence: 4
+            )
+
+            displayColumn DATAMOVIMENTO (
+                sequence: 1
+            )
+
+            displayColumn DESTINO (
+                sequence: 6
+            )
+
+            displayColumn DETALHE (
+                sequence: 5
+            )
+
+            displayColumn EMPRESADESTINO (
+                sequence: 7
+            )
+
+            displayColumn MOTIVO (
+                sequence: 2
+            )
+
+            displayColumn VALORMOVIMENTO (
+                sequence: 3
+            )
+
+            sort (
+                column: DATAMOVIMENTO
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: VALORPAGAR
+            )
+
+            aggregate (
+                column: VALORMOVIMENTO
+            )
+
+            controlBreak (
+                column: DESTINO
+                layout {
+                    sequence: 1
+                }
+            )
+
+            controlBreak (
+                column: CONTA
+                layout {
+                    sequence: 2
+                }
+            )
+
+        )
+
+    )
+
+    region extrato-de-faturas (
+        name: Extrato de Faturas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select  idextratocontabancaria
+                     , ( select pck_romance.fnc_nomepessoa( c.idpessoa)
+                         from contasbancarias c
+                         where c.idcontabanc = e.idcontabancaria ) destino
+                     , pck_cadastros_rmc.fnc_retornacontabancaria(e.idcontabancaria) conta   
+                     , e.datamovimento datamovimento
+                     , 'Fatura '||nn.documento motivo  
+                     , pck_romance.fnc_nomefilial(nn.idfilialdestino) empresadestino
+                     , e.valormovimento valorpagar
+                     , nvl(vv.valorpago,0) valorpago  
+                     , extract(month from e.datamovimento) mes
+                     , e.idcontabancaria
+                from extratoscontasbancarias e 
+                   , notasfiscais nn
+                   , vencimentos  vv      
+                where nn.idnotafiscal = vv.idnotafiscal
+                  and e.contabilizar  = 'S'
+                  and ( vv.idvencimento = e.idvencimento
+                     or vv.idvencimento = e.idvencimento_orig )
+                  and e.valormovimento < 0                                                
+                  and exists ( select 1
+                               from contasbancarias c
+                               where c.idcontabanc = e.idcontabancaria
+                                 and ( :P169_IDFORNECEDOR is null or c.idpessoa = :P169_IDFORNECEDOR ) 
+                                 and ( :P169_IDCONTABANCARIA is null or c.idcontabanc = :P169_IDCONTABANCARIA) )
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            footerText: <font color="blue"> Este relatório mostra valores gerais, sem levar em conta o filtro de data da tela anterior.</font>
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 5539494371829612794
+        }
+
+        column CONTA (
+            type: plainText
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DATAMOVIMENTO (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DESTINO (
+            type: plainText
+            heading {
+                heading: Destino
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column EMPRESADESTINO (
+            type: plainText
+            heading {
+                heading: Empresa Destino
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column IDCONTABANCARIA (
+            type: plainText
+            heading {
+                heading: Idcontabancaria
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column IDEXTRATOCONTABANCARIA (
+            type: plainText
+            heading {
+                heading: Idextratocontabancaria
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column MES (
+            type: plainText
+            heading {
+                heading: Mês
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column MOTIVO (
+            type: plainText
+            heading {
+                heading: Movimento
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column VALORPAGAR (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column VALORPAGO (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 39712795 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn APXWS_CC_001 (
+                sequence: 6
+            )
+
+            displayColumn DATAMOVIMENTO (
+                sequence: 1
+            )
+
+            displayColumn EMPRESADESTINO (
+                sequence: 3
+            )
+
+            displayColumn MOTIVO (
+                sequence: 2
+            )
+
+            displayColumn VALORPAGAR (
+                sequence: 4
+            )
+
+            displayColumn VALORPAGO (
+                sequence: 5
+            )
+
+            computation APXWS_CC_001 (
+                identifier: C01
+                source {
+                    expression: " G + H"
+                    dataType: number
+                }
+                label {
+                    column: Saldo
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+            )
+
+            sort (
+                column: IDEXTRATOCONTABANCARIA
+                sort {
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: DATAMOVIMENTO
+                sort {
+                    sequence: 2
+                }
+            )
+
+            aggregate (
+                column: VALORPAGAR
+            )
+
+            aggregate (
+                column: VALORPAGO
+            )
+
+            aggregate (
+                column: APXWS_CC_001
+            )
+
+            highlight ir-condition (
+                name: A Pagar
+                condition {
+                    column: APXWS_CC_001
+                    operator: <
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #FC0000
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Pago
+                condition {
+                    column: APXWS_CC_001
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #00C914
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P169_FILTRO (
+        type: selectList
+        label {
+            label: Filtro
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:- Extrato Completo -;C,Depósitos;D,Faturas;F
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @extrato-completo
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: C
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_IDCONTABANCARIA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @contas-para-depositar
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_IDENTIFICADO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 30
+            region: @contas-para-depositar
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_IDFORNECEDOR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 20
+            region: @contas-para-depositar
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button close (
+        buttonName: CLOSE
+        label: Fechar
+        layout {
+            sequence: 10
+            region: @contas-para-depositar
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 265
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process atualiza-extratos-vencimentos-pagos (
+        name: Atualiza Extratos/Vencimentos pagos
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  -- Call the procedure
+                  pck_financeiro_rmc.prc_atualizafaturaspagas( pidpessoa => :P169_IDFORNECEDOR
+                                                             , pidcontabancaria => :P169_IDCONTABANCARIA);
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeRegions
+        }
+        advanced {
+            executionMappingIdentifier: 3971287505712249977
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P169_IDFORNECEDOR
+        }
+    )
+
+)
+

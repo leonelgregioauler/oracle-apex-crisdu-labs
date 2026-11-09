@@ -1,0 +1,721 @@
+page 466 (
+    name: CapCar Fornecedores
+    title: CapCar Fornecedores
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region capcar (
+        name: CapCar
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select fornecedor
+                     , nvl(apagar_v1,0) apagar_v1
+                     , case 
+                         when nvl(apagar_v2,0) < 0 then 
+                           apagar_v2 * -1
+                         when nvl(apagar_v2,0) > 0 then 
+                           apagar_v2 * -1
+                         else
+                           nvl(apagar_v2,0)
+                       end apagar_v2
+                     , nvl(receber_v1,0) receber_v1
+                     , nvl(receber_v2,0) receber_v2
+                from (
+                      select initcap(p.nomepessoa) fornecedor
+                           , ( select sum(vc.valor)-nvl(sum(vc.desconto),0)
+                               from vencimentos vc
+                                  , notasfiscais nf
+                               where nf.idnotafiscal = vc.idnotafiscal
+                                 and nf.idfornemitente = f.idfornecedor
+                                 and trunc(vc.datavencimento) <= to_date(:P466_DATAFIM,'DD/MM/RRRR')
+                                 and extract(year from vc.datavencimento) >= 2022
+                                 and exists ( select 1
+                                              from pagamentosfornecedores pf
+                                              where pf.idfornecedor = f.idfornecedor
+                                                and pf.idvencimento = vc.idvencimento
+                                                and ( pf.valorpago + nvl(pf.desconto,0) - pf.valorpagar ) < 0 
+                                                /*and ( pf.valorpago + nvl(pf.desconto,0) - nvl(pf.acrescimo,0) ) < pf.valorpagar )*/ ) ) apagar_v1
+                           , ( select sum(e.valormovimento)
+                               from extratoscontasbancarias e
+                                  , contasbancarias c
+                               where e.idcontabancaria  = c.idcontabanc
+                                 and c.idpessoa         = f.idpessoa 
+                                 and e.contabilizar     = 'S'
+                                 and e.tipopagamento    in ('D','T','P')
+                                 and trunc(e.datamovimento) <= to_date(:P466_DATAFIM,'DD/MM/RRRR') ) apagar_v2
+                           , ( select sum(w.a_receber)
+                               from resultado_fornecedores w
+                               where w.idfornecedor = f.idfornecedor
+                                 and w.vencimento <= to_date(:P466_DATAFIM,'DD/MM/RRRR')) receber_v1
+                           , ( select sum(vr.valor) 
+                               from notasfiscais nv 
+                                   , vencimentosreceber vr
+                                where nv.tiponota = 'V'
+                                  and nv.idnotafiscal     = vr.idnotafiscal
+                                  and nv.transferenciaentrefiliaisrom = 'N'
+                                  and nv.idfornecedordestino = f.idfornecedor
+                                  and nv.idcompratransferencia is null
+                                  and not exists ( select 1
+                                                   from depositosdiarios d
+                                                   where d.idvencimentoabatimento = vr.idvencimento )
+                                 and trunc(vr.datavencimento) <= to_date(:P466_DATAFIM,'DD/MM/RRRR')
+                                 and not exists ( select 1
+                                                  from depositosdiarios_orig dd
+                                                  where dd.idvencimentoabatimento = vr.idvencimento )
+                                 and trunc(vr.datavencimento) >= to_date('01/01/2023','DD/MM/RRRR') ) receber_v2
+                      from fornecedores f
+                         , pessoas p
+                      where f.idpessoa = p.idpessoa
+                        and exists (select 1
+                                      from extratoscontasbancarias ex
+                                         , contasbancarias c
+                                     where ex.idcontabancaria = c.idcontabanc
+                                       and c.idpessoa         = p.idpessoa
+                                       and extract(year from ex.datamovimento) >= 2022
+                                       and ex.contabilizar = 'S' ) 
+                        and (:P466_FORNECEDOR is null or f.idfornecedor = :P466_FORNECEDOR)
+                        and (:P466_TIPOFORNECEDORES is null or f.tipo_fornecedor in ( select regexp_substr(:P466_TIPOFORNECEDORES, '[^/]+', 1, level) 
+                                                                                           from dual
+                                                                                connect by level <= regexp_count(:P466_TIPOFORNECEDORES, '/') + 1 ) ) ) t
+                where (  ( nvl(apagar_v1,0) + nvl(apagar_v2,0) ) != 0 
+                      or ( nvl(receber_v1,0) + nvl(receber_v2,0) ) != 0 )
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado. Verifique os filtros.
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        download {
+            filename: contas_a_pagar
+        }
+        advanced {
+            savedReportMappingIdentifier: 2320873458479045690
+        }
+
+        column APAGAR_V1 (
+            type: plainText
+            heading {
+                heading: Apagar V1
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column APAGAR_V2 (
+            type: plainText
+            heading {
+                heading: Apagar V2
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column FORNECEDOR (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column RECEBER_V1 (
+            type: plainText
+            heading {
+                heading: Receber V1
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column RECEBER_V2 (
+            type: plainText
+            heading {
+                heading: Receber V2
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15067505 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn APAGAR_V1 (
+                sequence: 2
+            )
+
+            displayColumn APAGAR_V2 (
+                sequence: 3
+            )
+
+            displayColumn APXWS_CC_001 (
+                sequence: 4
+            )
+
+            displayColumn APXWS_CC_002 (
+                sequence: 7
+            )
+
+            displayColumn APXWS_CC_003 (
+                sequence: 8
+            )
+
+            displayColumn FORNECEDOR (
+                sequence: 1
+            )
+
+            displayColumn RECEBER_V1 (
+                sequence: 5
+            )
+
+            displayColumn RECEBER_V2 (
+                sequence: 6
+            )
+
+            computation APXWS_CC_001 (
+                identifier: C01
+                source {
+                    expression: F + G
+                    dataType: number
+                }
+                label {
+                    column: Total A Pagar
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+            )
+
+            computation APXWS_CC_002 (
+                identifier: C02
+                source {
+                    expression: H + I
+                    dataType: number
+                }
+                label {
+                    column: Total A Receber
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+            )
+
+            computation APXWS_CC_003 (
+                identifier: C03
+                source {
+                    expression: "( H + I ) - ( F + G ) "
+                    dataType: number
+                }
+                label {
+                    column: Saldo
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+            )
+
+            sort (
+                column: FORNECEDOR
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: APXWS_CC_001
+            )
+
+            aggregate (
+                column: V1
+            )
+
+            aggregate (
+                column: V2
+            )
+
+            aggregate (
+                column: APXWS_CC_002
+            )
+
+            aggregate (
+                column: APXWS_CC_003
+            )
+
+            aggregate (
+                column: RECEBER_V1
+            )
+
+            aggregate (
+                column: RECEBER_V2
+            )
+
+            aggregate (
+                column: APAGAR_V1
+            )
+
+            aggregate (
+                column: APAGAR_V2
+            )
+
+            filter ir-condition (
+                column: FORNECEDOR
+                operator: in
+                value: Adayr Amaral De Lima Confeccao (Mimar), Akik Lingerie Ltda, Aleks Color De Friburgo Ind. E Com. De Roupas Ltda, Amabile Moda Intima Ltda, Ana P L F Marques Confeccoes (Lovely), C J Macedo Confeccoes Me (Cine Confeccoes), Confeccoes M & N Dias Ltda (Totter), Costa Rica Malhas E Confeccoes Ltda 0001-47, D Dos Santos Moda Intima, Elisabete A. Trage Atacado Me, Essencial Moda Intima Industria De Confeccoes Ltda, Febre Negra Ind. E Comercio, Feratex Industria E Comercio De Malhas Ltda, Figueira Barbosa Confeccoes De Roupas Intimas Ltda (Figueira), Guithy Confeccao E Comercio De Artigos Do Vestuario Ltda Me, G3 Friburgo Confeccao De Lingerie Ltda (Class Lingerie), Jaquel Confeccoes De Lingerie E Artigos Do Vestuario Ltda (Evidenza), Jescri De Friburgo Moda Intima Ltda, Laracris Confeccoes Ltda (Jancris), Leluc Lingerie Ltda (Leluc), Livia Ferro Neves Montechiari Industria E Comercio De Roupas Ltda (Intimitali), Loren Industria E Comercio De Cosmeticos Ltda, Love Fashion, M. A. De Oliveira Fernandes Confeccoes Ltda (D Marcelles), Malhas D'Estefano Ltda (By Fiapo), Marbely Confeccao E Comercio D, Marisi Teresinha Santiago Paterno (Mpr Textil), Mk Barboza Ind. E Com. De Roupas Ltda (Maria Pimenta), Naturally Woman, Paiva E Norberto Ltda-Me (Paiva), Paxa Confeccoes Ltda, Poll Confeccoes Ltda (Toy Box), R Garboggini Industria E Comercio De Roupas Ltda (Regina), Rc Confecção Ltda, Rosativa Lingerie Ltda Epp, Sex Model Lingerie Ltda, Sexy Fantasy, Simone Salazar Da Silva Eireli, Stk Industria Textil Ltda, Tokme Friburgo Confeccoes Ltda (Tokme), Vibo De Friburgo Confeccoes Ltda, Victory, Vitoria Industria E Comercio De Confeccoes Eireli, Vivini Industria E Comercio De Confeccoes Ltda Epp, W A M Lingerie E Confeccoes Ltda (Le Casual)
+            )
+
+            highlight ir-condition-2 (
+                name: Total
+                condition {
+                    column: APXWS_CC_001
+                    operator: >
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #147A00
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-3 (
+                name: A Receber
+                condition {
+                    column: APXWS_CC_003
+                    operator: >
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #147A00
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    region filtro (
+        name: Filtro
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P466_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Data Vencimento Até
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtro
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P466_FORNECEDOR (
+        type: popupLov
+        label {
+            label: Fornecedor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomefornecedor(idfornecedor) display_value
+                     , fe.idfornecedor return_value
+                from catal.fornecedores fe
+                where fe.ativo = 'S'
+                  /*and exists ( select 1
+                                from roman.notasfiscais nv 
+                                   , roman.vencimentosreceber vr
+                                   , roman.depositosdiarios_orig dd
+                                where nv.tiponota = 'V'
+                                  and nv.idnotafiscal     = vr.idnotafiscal
+                                  and vr.idvencimento     = dd.idvencimentoabatimento(+)  
+                                  and nv.idfornecedordestino = fe.idfornecedor
+                                  and not exists ( select 1
+                                                   from roman.depositosdiarios d
+                                                   where d.idvencimentoabatimento = vr.idvencimento ) )*/
+                order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: Todos
+        }
+        layout {
+            sequence: 60
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+    )
+
+    pageItem P466_TIPOFORNECEDORES (
+        type: selectMany
+        label {
+            label: Tipo de Fornecedores
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select v.descricao, v.sigla
+                        from roman.siglasistema s
+                           , roman.valorsiglasistema v
+                       where s.idsiglasistema = v.idsiglasistema
+                         and s.nomesigla      = 'TIPO_FORNECEDOR';
+                ```
+        }
+        multipleValues {
+            separator: /
+        }
+        layout {
+            sequence: 70
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+    )
+
+    pageItem P466_ULTIMAIMPORTACAO (
+        type: displayOnly
+        label {
+            alignment: left
+        }
+        settings {
+            format: html
+        }
+        layout {
+            sequence: 40
+            region: @filtro
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select '<font color="blue"><h3>Última importação realizada: '||to_char(c.dataprocessado,'DD/MM/RRRR HH24:MI:SS')||'</h3></font>' texto
+                from contasarecebervirtualage c
+                where c.idcontasarecebervirutalage = ( select max(cr.idcontasarecebervirutalage)
+                                                       from contasarecebervirtualage cr
+                                                       where cr.processado = 'S'
+                                                         and cr.dataprocessado is not null )
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    dynamicAction refresh (
+        name: Refresh
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P466_DATAINICIO
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: FILTRAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction refresh-data-fim (
+        name: Refresh Data Fim
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P466_DATAFIM
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: FILTRAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction refresh-fornecedor (
+        name: Refresh Fornecedor
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P466_FORNECEDOR
+        }
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction refresh-tipo-fornecedores (
+        name: Refresh Tipo Fornecedores
+        execution {
+            sequence: 40
+        }
+        when {
+            selectionType: items
+            items: P466_TIPOFORNECEDORES
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: FILTRAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process popula-datas (
+        name: Popula Datas
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  select trunc(sysdate)
+                  into :P466_DATAFIM
+                  from dual;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 1506752574790674387
+        }
+        serverSideCondition {
+            type: itemIsNull
+            item: P466_DATAFIM
+        }
+    )
+
+    branch (
+        name: Go To Page 466
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 466
+                items: {
+                    P466_DATAFIM: &P466_DATAFIM.
+                    P466_FORNECEDOR: &P466_FORNECEDOR.
+                    P466_TIPOFORNECEDORES: &P466_TIPOFORNECEDORES.
+                }
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: FILTRAR
+        }
+    )
+
+)
+

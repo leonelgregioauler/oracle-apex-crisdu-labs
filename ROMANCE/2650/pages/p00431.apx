@@ -1,0 +1,2551 @@
+page 431 (
+    name: Entradas do Virtual Age
+    title: Entradas do Virtual Age
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function confirmaentrada() {
+            	var answer = confirm("Deseja realmente Integrar esta Entrada?")
+            	if (answer){
+            		apex.submit('INTEGRAR');
+            	}
+                    else
+                    {
+                    document.getElementById('P431_IDENTRADA').value = '';
+                    }
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region entradas-não-integradas (
+        name: Entradas não Integradas
+        type: interactiveGrid
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select e.identradavirtualage
+                     , e.codigoempresa
+                     , ( select ee.nome||' - '||ee.cnpj
+                         from empresasvirtualage ee
+                         where ee.codigoempresa = e.codigoempresa 
+                         fetch first 1 rows only) empresa
+                     , e.codigofornecedor
+                     , ( select listagg(pck_romance.fnc_nomefornecedor(r.idfornecedor),', ') within group (order by 1)
+                         from  razoessociaisfornec r
+                         where r.codigovirtualage = e.codigofornecedor 
+                         fetch first 1 rows only) fornecedor
+                     , ( select listagg(r.idfornecedor ||' - '|| roman.pck_romance.fnc_nomefornecedor(r.idfornecedor) || ' - ', chr(10)) within group (order by 1)
+                         from  razoessociaisfornec r
+                         where r.codigovirtualage = e.codigofornecedor 
+                         fetch first 1 rows only) idfornecedor
+                     , e.duplicata
+                     , e.parcela
+                     , e.dataentrada 
+                     , e.dataemissao
+                     , e.datainclusao
+                     , e.datavencimento
+                     , e.codigodespesa
+                     , ( select s.nomeconta
+                         from subcontasfinanceiras s
+                         where s.codigovirtualage = e.codigodespesa 
+                         fetch first 1 rows only) conta
+                     , e.codigocentrodecusto
+                     , ( select c.nome
+                         from centrodecustos c
+                         where c.codigovirtualage = e.codigocentrodecusto 
+                         fetch first 1 rows only) centrodecusto
+                     , e.idmatrizdespesa
+                     /*, nvl( e.idmatrizdespesa, ( select md.idmatrizregra 
+                                                 from roman.matrizregrasdespesas md
+                                                    , roman.subcontasfinanceiras s
+                                                    , roman.centrodecustos c
+                                                    , roman.razoessociaisfornec r
+                                                    , roman.empresasvirtualage e
+                                                 where c.idcentrodecusto = md.idcentrodecusto
+                                                   and s.idsubcontafinan = md.idsubcontafinan
+                                                   and r.idfornecedor    = md.idfornecedor
+                                                   and md.idfilial       = e.idfilial
+                                                   and s.codigovirtualage = e.codigodespesa
+                                                   and c.codigovirtualage = e.codigocentrodecusto
+                                                   and r.codigovirtualage = e.codigofornecedor
+                                                   and e.codigoempresa    = e.codigoempresa ) )idmatrizdespesa*/
+                     , e.valorduplicata
+                     , e.valorpagar
+                     , e.observacao
+                     , e.unidadedenegocio
+                     , e.cnpj
+                     , e.formapagamento
+                     , case when exists ( select 1 
+                                          from ( select rf.codigovirtualage, count(*) 
+                                                 from roman.razoessociaisfornec rf
+                                                 where rf.codigovirtualage = e.codigofornecedor
+                                                 having count(*) > 1
+                                                 group by rf.codigovirtualage)) then 'Fornecedores com o mesmo Código Virtual Age'
+                            when exists( select 1
+                                         from roman.notasfiscais nf 
+                                         where nf.documento = e.duplicata
+                                           and nf.idfornemitente = ( select rf.idfornecedor
+                                                                     from roman.razoessociaisfornec rf
+                                                                     where rf.codigovirtualage = e.codigofornecedor ) ) then 'Entrada Já Integrada'
+                            
+                            when not exists ( select 1
+                                          from roman.razoessociaisfornec rz
+                                          where rz.codigovirtualage = e.codigofornecedor ) then 'Fornecedor Não Possui Amarração'
+                            when not exists ( select 1
+                                              from roman.centrodecustos c 
+                                              where c.codigovirtualage = e.codigocentrodecusto ) then 'Centro de Custo Não Possui Amarração'
+                            when not exists ( select 1
+                                              from roman.subcontasfinanceiras s
+                                              where s.codigovirtualage = e.codigodespesa ) then 'Subconta financeira  Não Possui Amarração'
+                            when not exists ( select 1
+                                              from roman.matrizregrasdespesas m 
+                                              where m.idfornecedor    = ( select rf.idfornecedor
+                                                                          from roman.razoessociaisfornec rf
+                                                                          where rf.codigovirtualage = e.codigofornecedor )
+                                                and m.idfilial        = ( select ev.idfilial
+                                                                          from roman.empresasvirtualage ev
+                                                                          where ev.codigoempresa = e.codigoempresa ) 
+                                                and m.idcentrodecusto = ( select c.idcentrodecusto
+                                                                          from roman.centrodecustos c 
+                                                                          where c.codigovirtualage = e.codigocentrodecusto )) then 'Matriz de Despesa Inexistente'
+                            when not exists ( select 1
+                                          from roman.empresasvirtualage ev
+                                          where ev.codigoempresa = e.codigoempresa
+                                            and ev.idfilial is null ) then 'Empresa Virtual Age Não Vinculada a Filial'
+                       else '-'
+                       end erro
+                     
+                from entradasvirtualage e
+                where nvl(e.processado,'N') = 'N'
+                  and e.idnotafiscal is null
+                  and trunc(e.dataentrada) between to_date(:P431_DATAINICIO,'DD/MM/RRRR') and to_date(:P431_DATAFIM,'DD/MM/RRRR')
+                
+                ```
+            pageItemsToSubmit: P431_IDENTRADA
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P431_SITUACAO
+            value: N
+        }
+        edit {
+            enabled: true
+            allowedOperations: [
+                update
+                delete
+            ]
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        toolbar {
+            controls: [
+                searchCol
+                searchField
+                actionsMenu
+                resetButton
+                saveButton
+            ]
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+            sendAsEmail: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 2118320740500643302
+        }
+
+        savedReport PRIMARY (
+            visibility: primary
+            view {
+                default: grid
+            }
+            singleRowView {
+                displayedColumns: true
+            }
+
+            displayColumn (
+                column: @APEX$ROW_ACTION
+                layout {
+                    frozen: true
+                    sequence: 0
+                }
+            )
+
+            displayColumn (
+                column: @IDENTRADAVIRTUALAGE
+                layout {
+                    width: 105
+                    sequence: 1
+                }
+            )
+
+            displayColumn (
+                column: @CODIGOEMPRESA
+                layout {
+                    width: 115
+                    sequence: 2
+                }
+            )
+
+            displayColumn (
+                column: @EMPRESA
+                layout {
+                    width: 283
+                    sequence: 3
+                }
+            )
+
+            displayColumn (
+                column: @CODIGOFORNECEDOR
+                layout {
+                    width: 129
+                    sequence: 4
+                }
+            )
+
+            displayColumn (
+                column: @FORNECEDOR
+                layout {
+                    width: 492
+                    sequence: 5
+                }
+            )
+
+            displayColumn (
+                column: @DUPLICATA
+                layout {
+                    width: 78
+                    sequence: 6
+                }
+            )
+
+            displayColumn (
+                column: @PARCELA
+                layout {
+                    width: 72
+                    sequence: 7
+                }
+            )
+
+            displayColumn (
+                column: @DATAENTRADA
+                layout {
+                    width: 104
+                    sequence: 8
+                }
+            )
+
+            displayColumn (
+                column: @DATAEMISSAO
+                layout {
+                    width: 102
+                    sequence: 9
+                }
+            )
+
+            displayColumn (
+                column: @DATAINCLUSAO
+                layout {
+                    width: 105
+                    sequence: 10
+                }
+            )
+
+            displayColumn (
+                column: @DATAVENCIMENTO
+                layout {
+                    width: 123
+                    sequence: 11
+                }
+            )
+
+            displayColumn (
+                column: @CODIGODESPESA
+                layout {
+                    width: 108
+                    sequence: 12
+                }
+            )
+
+            displayColumn (
+                column: @CONTA
+                layout {
+                    width: 192
+                    sequence: 13
+                }
+            )
+
+            displayColumn (
+                column: @CODIGOCENTRODECUSTO
+                layout {
+                    width: 155
+                    sequence: 14
+                }
+            )
+
+            displayColumn (
+                column: @VALORDUPLICATA
+                layout {
+                    width: 119
+                    sequence: 16
+                }
+            )
+
+            displayColumn (
+                column: @VALORPAGAR
+                layout {
+                    width: 89
+                    sequence: 17
+                }
+            )
+
+            displayColumn (
+                column: @OBSERVACAO
+                layout {
+                    width: 602.984375
+                    sequence: 19
+                }
+            )
+
+            displayColumn (
+                column: @UNIDADEDENEGOCIO
+                layout {
+                    width: 161
+                    sequence: 20
+                }
+            )
+
+            displayColumn (
+                column: @CNPJ
+                layout {
+                    width: 112
+                    sequence: 21
+                }
+            )
+
+            displayColumn (
+                column: @FORMAPAGAMENTO
+                layout {
+                    width: 148
+                    sequence: 22
+                }
+            )
+
+            displayColumn (
+                column: @ERRO
+                layout {
+                    width: 284
+                    sequence: 19
+                }
+            )
+
+            displayColumn (
+                column: @CENTRODECUSTO
+                layout {
+                    width: 150
+                    sequence: 15
+                }
+            )
+
+            displayColumn (
+                column: @IDMATRIZDESPESA
+                layout {
+                    show: false
+                    width: 241
+                    sequence: 23
+                }
+            )
+
+            displayColumn (
+                column: @IDFORNECEDOR
+                layout {
+                    width: 104
+                    sequence: 24
+                }
+            )
+
+        )
+
+        column APEX$ROW_ACTION (
+            type: actionsMenu
+            layout {
+                sequence: 20
+            }
+        )
+
+        column APEX$ROW_SELECTOR (
+            type: rowSelector
+            layout {
+                sequence: 10
+            }
+        )
+
+        column CENTRODECUSTO (
+            type: textarea
+            heading {
+                heading: Centro de Custo
+            }
+            layout {
+                sequence: 170
+            }
+            validation {
+                maxLength: 1000
+            }
+            source {
+                databaseColumn: CENTRODECUSTO
+                dataType: varchar2
+                queryOnly: true
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column CNPJ (
+            type: textField
+            heading {
+                heading: CNPJ
+                alignment: center
+            }
+            layout {
+                sequence: 220
+            }
+            validation {
+                maxLength: 30
+            }
+            source {
+                databaseColumn: CNPJ
+                dataType: varchar2
+                queryOnly: true
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+            }
+        )
+
+        column CODIGOCENTRODECUSTO (
+            type: numberField
+            heading {
+                heading: Código Centro de Custo
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 160
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: CODIGOCENTRODECUSTO
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column CODIGODESPESA (
+            type: numberField
+            heading {
+                heading: Código Despesa
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: CODIGODESPESA
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column CODIGOEMPRESA (
+            type: numberField
+            heading {
+                heading: Código Empresa
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            validation {
+                valueRequired: true
+            }
+            source {
+                databaseColumn: CODIGOEMPRESA
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column CODIGOFORNECEDOR (
+            type: numberField
+            heading {
+                heading: Código Fornecedor
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            validation {
+                valueRequired: true
+            }
+            source {
+                databaseColumn: CODIGOFORNECEDOR
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column CONTA (
+            type: textField
+            heading {
+                heading: Despesa
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            validation {
+                maxLength: 50
+            }
+            source {
+                databaseColumn: CONTA
+                dataType: varchar2
+                queryOnly: true
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+            }
+        )
+
+        column DATAEMISSAO (
+            type: datePickerJquery
+            heading {
+                heading: Data Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: DATAEMISSAO
+                dataType: date
+                queryOnly: true
+            }
+        )
+
+        column DATAENTRADA (
+            type: datePickerJquery
+            heading {
+                heading: Data Entrada
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: DATAENTRADA
+                dataType: date
+                queryOnly: true
+            }
+        )
+
+        column DATAINCLUSAO (
+            type: datePickerJquery
+            heading {
+                heading: Data Inclusão
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: DATAINCLUSAO
+                dataType: date
+                queryOnly: true
+            }
+        )
+
+        column DATAVENCIMENTO (
+            type: datePickerJquery
+            heading {
+                heading: Data Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: DATAVENCIMENTO
+                dataType: date
+                queryOnly: true
+            }
+        )
+
+        column DUPLICATA (
+            type: textarea
+            heading {
+                heading: Duplicata
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            validation {
+                maxLength: 100
+            }
+            source {
+                databaseColumn: DUPLICATA
+                dataType: varchar2
+                queryOnly: true
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column EMPRESA (
+            type: textarea
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            validation {
+                maxLength: 1023
+            }
+            source {
+                databaseColumn: EMPRESA
+                dataType: varchar2
+                queryOnly: true
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column ERRO (
+            type: textField
+            heading {
+                heading: Motivo
+                alignment: center
+            }
+            layout {
+                sequence: 240
+            }
+            validation {
+                maxLength: 43
+            }
+            source {
+                databaseColumn: ERRO
+                dataType: varchar2
+                queryOnly: true
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+            }
+        )
+
+        column FORMAPAGAMENTO (
+            type: textarea
+            heading {
+                heading: Forma de Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 230
+            }
+            validation {
+                maxLength: 100
+            }
+            source {
+                databaseColumn: FORMAPAGAMENTO
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column FORNECEDOR (
+            type: textarea
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            validation {
+                maxLength: 4000
+            }
+            source {
+                databaseColumn: FORNECEDOR
+                dataType: varchar2
+                queryOnly: true
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column IDENTRADAVIRTUALAGE (
+            type: numberField
+            heading {
+                heading: ID Entrada VA
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            validation {
+                valueRequired: true
+            }
+            source {
+                databaseColumn: IDENTRADAVIRTUALAGE
+                dataType: number
+                primaryKey: true
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column IDFORNECEDOR (
+            type: numberField
+            heading {
+                heading: Idfornecedor
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 260
+                columnAlignment: end
+            }
+            validation {
+                maxLength: 4000
+            }
+            source {
+                databaseColumn: IDFORNECEDOR
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+        )
+
+        column IDMATRIZDESPESA (
+            type: hidden
+            layout {
+                sequence: 250
+            }
+            source {
+                databaseColumn: IDMATRIZDESPESA
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column OBSERVACAO (
+            type: textarea
+            heading {
+                heading: Observação
+            }
+            layout {
+                sequence: 200
+            }
+            validation {
+                maxLength: 4000
+            }
+            source {
+                databaseColumn: OBSERVACAO
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column PARCELA (
+            type: numberField
+            heading {
+                heading: Parcela
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: PARCELA
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column UNIDADEDENEGOCIO (
+            type: textarea
+            heading {
+                heading: Unidade de Negócio
+                alignment: center
+            }
+            layout {
+                sequence: 210
+            }
+            validation {
+                maxLength: 100
+            }
+            source {
+                databaseColumn: UNIDADEDENEGOCIO
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column VALORDUPLICATA (
+            type: numberField
+            heading {
+                heading: Valor Duplicata
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 180
+            }
+            source {
+                databaseColumn: VALORDUPLICATA
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column VALORPAGAR (
+            type: hidden
+            layout {
+                sequence: 190
+            }
+            source {
+                databaseColumn: VALORPAGAR
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+    )
+
+    region entradas-não-integradas-x (
+        name: Entradas não Integradas x
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select e.identradavirtualage
+                     , e.codigoempresa
+                     , ( select ee.nome||' - '||ee.cnpj
+                         from empresasvirtualage ee
+                         where ee.codigoempresa = e.codigoempresa ) empresa
+                     , e.codigofornecedor
+                     , ( select listagg(pck_romance.fnc_nomefornecedor(r.idfornecedor),', ') within group (order by 1)
+                         from  razoessociaisfornec r
+                         where r.codigovirtualage = e.codigofornecedor ) fornecedor
+                     , e.duplicata
+                     , e.parcela
+                     , e.dataentrada 
+                     , e.dataemissao
+                     , e.datainclusao
+                     , e.datavencimento
+                     , e.codigodespesa
+                     , ( select s.nomeconta
+                         from subcontasfinanceiras s
+                         where s.codigovirtualage = e.codigodespesa ) conta
+                     , e.codigocentrodecusto
+                     , ( select c.nome
+                         from centrodecustos c
+                         where c.codigovirtualage = e.codigocentrodecusto ) centrodecusto
+                     , e.idmatrizdespesa
+                     , e.valorduplicata
+                     , e.valorpagar
+                     , e.observacao
+                     , e.unidadedenegocio
+                     , e.cnpj
+                     , e.formapagamento
+                     , case when exists( select 1
+                                         from roman.notasfiscais nf 
+                                         where nf.documento = e.duplicata
+                                           and nf.idfornemitente = ( select rf.idfornecedor
+                                                                     from roman.razoessociaisfornec rf
+                                                                     where rf.codigovirtualage = e.codigofornecedor ) ) then 'Entrada Já Integrada'
+                            when exists ( select 1
+                                          from roman.empresasvirtualage ev
+                                          where ev.codigoempresa = e.codigoempresa
+                                            and ev.idfilial is null ) then 'Empresa Virtual Age Não Vinculada a Filial'
+                            when not exists ( select 1
+                                          from roman.razoessociaisfornec rz
+                                          where rz.codigovirtualage = e.codigofornecedor ) then 'Fornecedor Não Possui Amarração'
+                            when not exists ( select 1
+                                              from roman.centrodecustos c 
+                                              where c.codigovirtualage = e.codigocentrodecusto ) then 'Centro de Custo Não Possui Amarração'
+                            when not exists ( select 1
+                                              from roman.subcontasfinanceiras s
+                                              where s.codigovirtualage = e.codigodespesa ) then 'Subconta financeira  Não Possui Amarração'
+                            when not exists ( select 1
+                                              from roman.matrizregrasdespesas m 
+                                              where m.idfornecedor = ( select rf.idfornecedor
+                                                                       from roman.razoessociaisfornec rf
+                                                                       where rf.codigovirtualage = e.codigofornecedor )
+                                                and m.idfilial     = ( select ev.idfilial
+                                                                       from roman.empresasvirtualage ev
+                                                                       where ev.codigoempresa = e.codigoempresa )  ) then 'Matriz de Despesa Inexistente'
+                       else '-'
+                       end erro
+                     , '<a href="javascript:document.getElementById(''P431_IDENTRADA'').value = '||identradavirtualage||';confirmaentrada();">Integrar</a>' Integrar
+                from entradasvirtualage e
+                where nvl(e.processado,'N') = 'N'
+                  and e.idnotafiscal is null
+                  and trunc(e.dataentrada) between to_date(:P431_DATAINICIO,'DD/MM/RRRR') and to_date(:P431_DATAFIM,'DD/MM/RRRR')
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhuma entrada localizada!
+        }
+        advanced {
+            savedReportMappingIdentifier: 613976755583197628
+        }
+
+        column CENTRODECUSTO (
+            type: plainText
+            heading {
+                heading: Centro de Custo
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column CNPJ (
+            type: plainText
+            heading {
+                heading: CNPJ
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column CODIGOCENTRODECUSTO (
+            type: plainText
+            heading {
+                heading: Cód. Centro de Custo
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column CODIGODESPESA (
+            type: plainText
+            heading {
+                heading: Cód. Despesa
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column CODIGOEMPRESA (
+            type: plainText
+            heading {
+                heading: Cód. Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column CODIGOFORNECEDOR (
+            type: plainText
+            heading {
+                heading: Cód. Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column CONTA (
+            type: plainText
+            heading {
+                heading: Despesa
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Data Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column DATAENTRADA (
+            type: plainText
+            heading {
+                heading: Data Entrada
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column DATAINCLUSAO (
+            type: plainText
+            heading {
+                heading: Data Inclusão
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column DATAVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Data Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column DUPLICATA (
+            type: plainText
+            heading {
+                heading: Duplicata
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column ERRO (
+            type: plainText
+            heading {
+                heading: Motivo
+                alignment: center
+            }
+            layout {
+                sequence: 240
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column FORMAPAGAMENTO (
+            type: plainText
+            heading {
+                heading: Forma de Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 220
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column FORNECEDOR (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column IDENTRADAVIRTUALAGE (
+            type: hidden
+            heading {
+                heading: Identradavirtualage
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDMATRIZDESPESA (
+            type: hidden
+            heading {
+                heading: Matriz
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column INTEGRAR (
+            type: plainText
+            heading {
+                heading: Integrar
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: W
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 190
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column PARCELA (
+            type: plainText
+            heading {
+                heading: Parcela
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column UNIDADEDENEGOCIO (
+            type: plainText
+            heading {
+                heading: Unidade de Negócio
+                alignment: center
+            }
+            layout {
+                sequence: 200
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column VALORDUPLICATA (
+            type: plainText
+            heading {
+                heading: Valor Duplicata
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column VALORPAGAR (
+            type: hidden
+            heading {
+                heading: Valorpagar
+            }
+            layout {
+                sequence: 180
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 8679770 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CENTRODECUSTO (
+                sequence: 14
+            )
+
+            displayColumn CNPJ (
+                sequence: 18
+            )
+
+            displayColumn CODIGOCENTRODECUSTO (
+                sequence: 13
+            )
+
+            displayColumn CODIGODESPESA (
+                sequence: 11
+            )
+
+            displayColumn CODIGOEMPRESA (
+                sequence: 1
+            )
+
+            displayColumn CODIGOFORNECEDOR (
+                sequence: 3
+            )
+
+            displayColumn CONTA (
+                sequence: 12
+            )
+
+            displayColumn DATAEMISSAO (
+                sequence: 8
+            )
+
+            displayColumn DATAENTRADA (
+                sequence: 7
+            )
+
+            displayColumn DATAINCLUSAO (
+                sequence: 9
+            )
+
+            displayColumn DATAVENCIMENTO (
+                sequence: 10
+            )
+
+            displayColumn DUPLICATA (
+                sequence: 5
+            )
+
+            displayColumn EMPRESA (
+                sequence: 2
+            )
+
+            displayColumn ERRO (
+                sequence: 20
+            )
+
+            displayColumn FORMAPAGAMENTO (
+                sequence: 19
+            )
+
+            displayColumn FORNECEDOR (
+                sequence: 4
+            )
+
+            displayColumn INTEGRAR (
+                sequence: 21
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 16
+            )
+
+            displayColumn PARCELA (
+                sequence: 6
+            )
+
+            displayColumn UNIDADEDENEGOCIO (
+                sequence: 17
+            )
+
+            displayColumn VALORDUPLICATA (
+                sequence: 15
+            )
+
+        )
+
+    )
+
+    region entradas-realizadas (
+        name: Entradas Realizadas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distinct
+                     --e.identradavirtualage
+                      e.codigoempresa
+                     , ( select ee.nome||' - '||ee.cnpj
+                         from empresasvirtualage ee
+                         where ee.codigoempresa = e.codigoempresa 
+                         fetch first 1 rows only ) empresa
+                     , e.codigofornecedor
+                     , ( select pck_romance.fnc_nomefornecedor(r.idfornecedor)
+                         from  razoessociaisfornec r
+                         where r.codigovirtualage = e.codigofornecedor 
+                         fetch first 1 rows only) fornecedor
+                     , e.duplicata
+                     , e.parcela
+                     , e.dataentrada 
+                     , e.dataemissao
+                     , e.datainclusao
+                     , e.datavencimento
+                     , e.codigodespesa
+                     , ( select s.nomeconta
+                         from subcontasfinanceiras s
+                         where s.codigovirtualage = e.codigodespesa 
+                         fetch first 1 rows only) conta
+                     , e.codigocentrodecusto
+                     , ( select c.nome
+                         from centrodecustos c
+                         where c.codigovirtualage = e.codigocentrodecusto 
+                         fetch first 1 rows only) centrodecusto
+                     , e.idmatrizdespesa
+                     , e.valorduplicata
+                     , e.valorpagar
+                     , e.observacao
+                     , e.idnotafiscal
+                from entradasvirtualage e
+                where e.processado = 'S'
+                  and trunc(dataprocessado) between to_date(:P431_DATAINICIO,'DD/MM/RRRR') and to_date(:P431_DATAFIM,'DD/MM/RRRR')
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P431_SITUACAO
+            value: S
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhuma entrada localizada!
+        }
+        advanced {
+            savedReportMappingIdentifier: 18100633545232906
+        }
+
+        column CENTRODECUSTO (
+            type: plainText
+            heading {
+                heading: Centro de Custo
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column CODIGOCENTRODECUSTO (
+            type: plainText
+            heading {
+                heading: Cód. Centro de Custo
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column CODIGODESPESA (
+            type: plainText
+            heading {
+                heading: Cód. Despesa
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column CODIGOEMPRESA (
+            type: plainText
+            heading {
+                heading: Cód. Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column CODIGOFORNECEDOR (
+            type: plainText
+            heading {
+                heading: Cód. Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column CONTA (
+            type: plainText
+            heading {
+                heading: Despesa
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Data Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column DATAENTRADA (
+            type: plainText
+            heading {
+                heading: Data Entrada
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column DATAINCLUSAO (
+            type: plainText
+            heading {
+                heading: Data Inclusão
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column DATAVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Data Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column DUPLICATA (
+            type: plainText
+            heading {
+                heading: Duplicata
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column FORNECEDOR (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column IDMATRIZDESPESA (
+            type: hidden
+            heading {
+                heading: Matriz
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDNOTAFISCAL (
+            type: link
+            heading {
+                heading: Ir P/ Nota
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 27
+                    items: {
+                        P27_IDNOTAFISCAL: #IDNOTAFISCAL#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil.png" class="apex-edit-pencil" alt="">
+                linkAttributes: target="_blank"
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 190
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column PARCELA (
+            type: plainText
+            heading {
+                heading: Parcela
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column VALORDUPLICATA (
+            type: plainText
+            heading {
+                heading: Valor Duplicata
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column VALORPAGAR (
+            type: hidden
+            heading {
+                heading: Valorpagar
+            }
+            layout {
+                sequence: 180
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 181160 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CENTRODECUSTO (
+                sequence: 14
+            )
+
+            displayColumn CODIGOCENTRODECUSTO (
+                sequence: 13
+            )
+
+            displayColumn CODIGODESPESA (
+                sequence: 11
+            )
+
+            displayColumn CODIGOEMPRESA (
+                sequence: 1
+            )
+
+            displayColumn CODIGOFORNECEDOR (
+                sequence: 3
+            )
+
+            displayColumn CONTA (
+                sequence: 12
+            )
+
+            displayColumn DATAEMISSAO (
+                sequence: 8
+            )
+
+            displayColumn DATAENTRADA (
+                sequence: 7
+            )
+
+            displayColumn DATAINCLUSAO (
+                sequence: 9
+            )
+
+            displayColumn DATAVENCIMENTO (
+                sequence: 10
+            )
+
+            displayColumn DUPLICATA (
+                sequence: 5
+            )
+
+            displayColumn EMPRESA (
+                sequence: 2
+            )
+
+            displayColumn FORNECEDOR (
+                sequence: 4
+            )
+
+            displayColumn IDMATRIZDESPESA (
+                sequence: 15
+            )
+
+            displayColumn IDNOTAFISCAL (
+                sequence: 19
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 18
+            )
+
+            displayColumn PARCELA (
+                sequence: 6
+            )
+
+            displayColumn VALORDUPLICATA (
+                sequence: 16
+            )
+
+            displayColumn VALORPAGAR (
+                sequence: 17
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P431_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        default {
+            type: expression
+            plsqlExpression: trunc(sysdate)
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P431_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        default {
+            type: expression
+            plsqlExpression: trunc(sysdate)
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P431_IDENTRADA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @entradas-não-integradas
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P431_SITUACAO (
+        type: radioGroup
+        label {
+            label: Situação
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Integrada;S,Não Integrada;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: S
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button integrar (
+        buttonName: INTEGRAR
+        label: Integrar
+        layout {
+            sequence: 10
+            region: @entradas-não-integradas
+            slot: top
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--primary
+            ]
+        }
+        behavior {
+            executeValidations: false
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction busca-id-da-linha (
+        name: Busca ID da Linha
+        execution {
+            sequence: 20
+        }
+        when {
+            event: region/interactiveGrid/interactivegridselectionchange
+            selectionType: region
+            region: @entradas-não-integradas
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    var i, get_valueids = ":",  I_SELECTED_VAL,
+                    
+                    model = this.data.model;
+                    
+                    for ( i = 0; i < this.data.selectedRecords.length; i++ ) {
+                    
+                          I_SELECTED_VAL = model.getValue( this.data.selectedRecords[i], "IDENTRADAVIRTUALAGE");
+                    	     
+                    		 get_valueids += model.getValue (this.data.selectedRecords[i],"IDENTRADAVIRTUALAGE") + ":";
+                    }
+                    
+                    apex.item( "P431_IDENTRADA" ).setValue ( get_valueids);
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process entradas-não-integradas-grid-save-interactive-grid-data (
+        name: Entradas não Integradas Grid - Save Interactive Grid Data
+        type: interactiveGridAutoRowProcessing
+        editableRegion: @entradas-não-integradas
+        execution {
+            sequence: 30
+        }
+        advanced {
+            executionMappingIdentifier: 2118323448155643329
+        }
+    )
+
+    process processa-entrada-virtual (
+        name: Processa Entrada Virtual
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                 --
+                 vidnota number;
+                 vidmatriz number;
+                 vmatrizdespesa number;
+                 vcodigoempresa number;
+                 vcodigofornecedor number;
+                 vcodigocentrodecusto number;
+                 vcodigodespesa number;
+                 vduplicata number;
+                 --
+                begin
+                  --
+                  for i in (SELECT t.Column_Value AS identradavirtualage
+                            FROM TABLE (Apex_String.Split(RTRIM(LTRIM(:P431_IDENTRADA, ':'), ':'),':')) t
+                            --FROM TABLE (Apex_String.Split(RTRIM(LTRIM(29696, ':'), ':'),':')) t
+                            where t.Column_Value is not null)               
+                  loop 
+                    --
+                    begin 
+                      --  Encontra informações para buscar a matriz.
+                      select ev.codigoempresa
+                           , ev.codigofornecedor
+                           , ev.codigocentrodecusto
+                           , ev.codigodespesa
+                           , ev.duplicata
+                        into vcodigoempresa
+                           , vcodigofornecedor
+                           , vcodigocentrodecusto
+                           , vcodigodespesa
+                           , vduplicata
+                     from roman.entradasvirtualage ev
+                    where ev.identradavirtualage = i.identradavirtualage;
+                    
+                 /*   raise_application_error(-20001, ' emp ' || vcodigoempresa ||
+                                                    ' for ' ||vcodigofornecedor ||
+                                                    ' cc '  || vcodigocentrodecusto ||
+                                                    ' desp ' ||vcodigodespesa ||
+                                                    ' dup ' ||vduplicata);*/
+                    
+                    --
+                    -- Pega a matriz de despesa por filial fornecedor. 
+                    select md.idmatrizregra 
+                      into vidmatriz
+                    from roman.matrizregrasdespesas md
+                       , roman.subcontasfinanceiras s
+                       , roman.centrodecustos c
+                       , roman.razoessociaisfornec r
+                       , roman.empresasvirtualage e
+                    where c.idcentrodecusto = md.idcentrodecusto
+                      and s.idsubcontafinan = md.idsubcontafinan
+                      and r.idfornecedor    = md.idfornecedor
+                      and md.idfilial       = e.idfilial
+                      and s.codigovirtualage = vcodigodespesa
+                      and c.codigovirtualage = vcodigocentrodecusto
+                      and r.codigovirtualage = vcodigofornecedor
+                      and e.codigoempresa    = vcodigoempresa ;
+                      
+                     -- raise_application_error(-20001, ' idmatriz ' || vidmatriz ||' - '||  vduplicata || ' - '|| vcodigofornecedor);
+                
+                      
+                      
+                      -- faz update se houver alguma entra com matriz nula. 
+                      update roman.entradasvirtualage ev
+                      set ev.idmatrizdespesa = vidmatriz
+                      where ev.duplicata = vduplicata
+                       and ev.codigofornecedor = vcodigofornecedor
+                       and ev.idmatrizdespesa is null ;
+                      --
+                      commit; 
+                    end; 
+                   
+                  --raise_application_error(-20001,i.identradavirtualage );  --Testa se esta pegando os dados do check selecionado. 
+                  --
+                   roman.pck_notasfiscais_rmc.prc_reprocessa_entradava(pidentrada => i.identradavirtualage,
+                                                                       pusuario => v('APP_USER'));
+                
+                  --
+                  begin
+                    -- 
+                    select nf.idnotafiscal
+                      into vidnota
+                    from roman.notasfiscais nf 
+                    where nf.documento = vduplicata
+                      and nf.idfornemitente = vcodigofornecedor;
+                    
+                    --  
+                     exception
+                        when others then
+                         raise_application_error(-20001,'Verificar dados, nota não integrada !' );
+                        -- null;
+                    --
+                    if vidnota is not null then
+                     --
+                     apex_application.g_print_success_message := '<span style="color : white ">Integrado com sucesso! </span>';
+                     --
+                   end if;
+                 end;
+                  
+                 end loop;     
+                end;
+                
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        advanced {
+            executionMappingIdentifier: 867985942155934534
+        }
+        serverSideCondition {
+            whenButtonPressed: @integrar
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 431
+                items: {
+                    P431_SITUACAO: &P431_SITUACAO.
+                    P431_DATAINICIO: &P431_DATAINICIO.
+                    P431_DATAFIM: &P431_DATAFIM.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

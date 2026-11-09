@@ -1,0 +1,2098 @@
+page 395 (
+    name: Lista de Transferências
+    title: Lista de Transferências
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function abrejanela(pid)
+            {
+              window.open('f?p=&APP_ID.:187:&SESSION.::NO:187:P187_IDNOTAVENDA:'+pid ,'analisar','toolbar=no,location=no,status=no,menubar=no,scrollbars=no,resizable=no,width=1000,height=800,screenX=100,screenY =200'); 
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region filtro (
+        name: Filtro
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+            renderComponents: belowContent
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region filtro-2 (
+        name: Filtro
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+            renderComponents: belowContent
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region transferências (
+        name: Transferências
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nf.IDNOTAFISCAL
+                     , to_char(nf.dtnf,'RRRR') ANO
+                     , to_char(nf.dtnf,'MONTH') mes
+                     , nf.nrnf 
+                     , decode( nf.tiponota, 'T', 'Transferência'
+                                          , 'C', 'Compra'
+                                          , 'R', 'Reserva/Ordem Pgto'
+                                          , 'D', 'Despesa') "Tipo NF"
+                     , pck_romance.fnc_nomefilial(pidfilial => nf.idfilialemitente  ) Emitente
+                     , pck_romance.fnc_nomefilial(pidfilial => nf.idfilialdestino ) "Filial Destino"
+                     , pck_romance.fnc_nometransportadora(pidtransp => nf.idtransportadora )  "Transportadora"
+                     , nf.dtnf 
+                     , ( select sum(valor) from vencimentos v where v.idnotafiscal = nf.idnotafiscal ) totalvencimentos
+                     , ( select sum((nvl(qtd_pp,0) + nvl(qtd_p,0) + nvl(qtd_m,0) + nvl(qtd_g,0) + nvl(qtd_gg,0) + nvl(qtd_egg,0)+ nvl(qtd_exgg,0) + nvl(qtd_u,0)) * inf.custound)
+                         from itemnf inf
+                         where inf.idnotafiscal = nf.idnotafiscal ) totalitens
+                     , ( select sum(valor) + ( sum(valor) *0.1)   from vencimentos v where v.idnotafiscal = nf.idnotafiscal ) valortotalfilial
+                     , decode(NF.SITUACAO,'A','Ativa/Aprovado'
+                                         ,'C','Cancelada'
+                                         ,'P','Aguardando Aprovação'
+                                         ,'E','Aguardando Envio para Aprovação'
+                                         ,'Ativa') Situacao
+                     , decode(NF.SITUACAOFILIAL,'A','Aguardando Recebimento','R','Recebida','P','Parcialmente Recebida') "Situação Recebimento"
+                     , nf.documento 
+                     , initcap(nf.USUARIO) "Usuário"
+                     , nf.conhecimentotransporte "CTE"
+                     , nf.observacao "Observação"
+                  /*   , ( select sum(valor) 
+                         from fabri.vencimentosnotavenda v 
+                         where v.idnotavenda = ( select idnotavenda
+                                                    from fabri.notasvendas nv
+                                                    where nv.nrodocumento = nf.documento ) ) totalvencimentosfabrica
+                     , ( select sum((nvl(qtd_pp,0) + nvl(qtd_p,0) + nvl(qtd_m,0) + nvl(qtd_g,0) + nvl(qtd_gg,0) + nvl(qtd_egg,0) + nvl(qtd_u,0)) * inv.valorvenda)
+                         from fabri.itensnotavenda inv
+                         where inv.idnotavenda = ( select idnotavenda
+                                                    from fabri.notasvendas nv
+                                                    where nv.nrodocumento = nf.documento ) ) totalitensfabrica*/
+                     , ( select pc.idpedidocompra from pedidoscompras pc where pc.idpedidocompra = nf.idpedidocompra ) "Pedido de Compra"
+                     , DATARECEBIMENTO "Data Recebimento"
+                     , nf.idsemananota 
+                     , pck_util.fnc_semanaid(nf.idsemananota ) semana
+                     ,(select count(1) from anexosnotasfiscais a where a.idnotafiscal = nf.idnotafiscal) "Qtd Anexos"
+                     , pck_estoque.fnc_verifidivergconfnota(nf.idnotafiscal) "Possui divergência"
+                     , volumes 
+                     , DATAINCLUSAO
+                     , decode(nf.antecipacao,'S','Sim','Não') antecipacao
+                from notasfiscais nf
+                where tiponota = 'T'
+                  and situacao != 'E'
+                  and (:P395_IDFORNECEDOR      is null or nf.idfornemitente = :P395_IDFORNECEDOR )
+                  and (:P395_IDFILIALEMITENTE  is null or nf.idfilialemitente = :P395_IDFILIALEMITENTE   )
+                  and (:P395_DOCUMENTO         is null or trim(nf.documento) = trim(:P395_DOCUMENTO) )
+                  and (:P395_SEMANA            is null or nf.idsemananota  = :P395_SEMANA)
+                  and (:P395_ANO               = 0 or extract(year from nf.dtnf) = :P395_ANO )
+                  and (:P395_FILTRAR_DATA      = 'N' or trunc(nf.DATAINCLUSAO) between to_date(:P395_DATAINICIO) and to_date(:P395_DATAFIM) )
+                  and (:P395_TIPOFILIALDESTINO = 'X' or pck_romance.fnc_tipofilial(nf.idfilialdestino) = :P395_TIPOFILIALDESTINO )
+                  and (:P395_SITUACAORECEBIMENTO = 'T'
+                       or nf.situacaofilial = :P395_SITUACAORECEBIMENTO )
+                  and (:P395_TIPOPRODUTO       = 'T' 
+                       or ( :P395_TIPOPRODUTO       = 'V' and exists ( select 1
+                                                                      from itemnf it
+                                                                         , produtos p
+                                                                      where it.idnotafiscal = nf.idnotafiscal
+                                                                        and it.idproduto    = p.idproduto
+                                                                        and p.venda         = 'S' ) )
+                       or ( :P395_TIPOPRODUTO       = 'I' and exists ( select 1
+                                                                      from itemnf it
+                                                                         , produtos p
+                                                                      where it.idnotafiscal = nf.idnotafiscal
+                                                                        and it.idproduto    = p.idproduto
+                                                                        and p.venda         = 'N' ) ) )
+                
+                ```
+            pageItemsToSubmit: [
+                P395_TIPOFILIALDESTINO
+                P395_IDFORNECEDOR
+                P395_TIPOPRODUTO
+                P395_DOCUMENTO
+                P395_ANO
+                P395_SEMANA
+                P395_IDFILIALEMITENTE
+                P395_SITUACAORECEBIMENTO
+                P395_FILTRAR_DATA
+                P395_DATAINICIO
+                P395_DATAFIM
+            ]
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        link {
+            linkColumn: customTarget
+            target: {
+                page: 396
+                items: {
+                    P396_IDNOTAFISCAL: #IDNOTAFISCAL#
+                }
+            }
+            linkIcon: <img src="#IMAGE_PREFIX#menu/pencil16x16.gif"  border="0">
+            conditionType: expression
+            plsqlExpression: pck_util.fnc_verificaacesso(2653,v('APP_USER')) = 'S' -- VER_EDITAR_NOTA_FISCAL (T9892351)
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: This query returns more than 10,000 rows, please filter your data to ensure complete results.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            rowsPerPage: false
+            pivot: false
+            savePublicReport: true
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 5237501056718149562
+        }
+
+        column ANO (
+            type: plainText
+            heading {
+                heading: Ano
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: ANO
+                endUserAlias: K
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column ANTECIPACAO (
+            type: plainText
+            heading {
+                heading: Antecipação
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AL
+            }
+        )
+
+        column CTE (
+            type: plainText
+            heading {
+                heading: Cte
+                alignment: center
+            }
+            layout {
+                sequence: 23
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: CTE
+                endUserAlias: W
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DATAINCLUSAO (
+            type: plainText
+            heading {
+                heading: Data Inclusão
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AK
+            }
+        )
+
+        column DOCUMENTO (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 21
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: DOCUMENTO
+                endUserAlias: U
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DTNF (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 17
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                htmlDomId: DTNF
+                endUserAlias: Q
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Data Recebimento" (
+            type: plainText
+            heading {
+                heading: Data Recebimento
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            appearance {
+                formatMask: dd/mm/rrrr
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                htmlDomId: Data Recebimento
+                endUserAlias: AD
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column EMITENTE (
+            type: plainText
+            heading {
+                heading: Emitente
+                alignment: center
+            }
+            layout {
+                sequence: 14
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: EMITENTE
+                endUserAlias: N
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Filial Destino" (
+            type: plainText
+            heading {
+                heading: Filial Destino
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Filial Destino
+                endUserAlias: O
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDNOTAFISCAL (
+            type: plainText
+            heading {
+                heading: ID
+                alignment: center
+            }
+            layout {
+                sequence: 9
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDNOTAFISCAL
+                endUserAlias: I
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDSEMANANOTA (
+            type: plainText
+            heading {
+                heading: Idsemananota
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AE
+            }
+        )
+
+        column MES (
+            type: plainText
+            heading {
+                heading: Mes
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AJ
+            }
+        )
+
+        column NRNF (
+            type: plainText
+            heading {
+                heading: Nrnf
+                alignment: center
+            }
+            layout {
+                sequence: 12
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: NRNF
+                endUserAlias: L
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Observação (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 24
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Observação
+                endUserAlias: X
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Pedido de Compra" (
+            type: plainText
+            heading {
+                heading: Pedido de compra
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column "Possui divergência" (
+            type: plainText
+            heading {
+                heading: Possui divergência
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        column "Qtd Anexos" (
+            type: link
+            heading {
+                heading: Qtd anexos
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 72
+                    items: {
+                        P72_IDNOTAFISCAL: #IDNOTAFISCAL#
+                    }
+                    action: resetPagination
+                }
+                linkText: #Qtd Anexos#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column SEMANA (
+            type: plainText
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: SEMANA
+                endUserAlias: J
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SITUACAO (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 19
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: SITUACAO
+                endUserAlias: S
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Situação Recebimento" (
+            type: plainText
+            heading {
+                heading: Situação Recebimento
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Situação Recebimento
+                endUserAlias: T
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column TOTALITENS (
+            type: plainText
+            heading {
+                heading: Total Itens
+                alignment: center
+            }
+            layout {
+                sequence: 26
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALITENS
+                endUserAlias: Z
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column TOTALVENCIMENTOS (
+            type: plainText
+            heading {
+                heading: Total Vencimentos
+                alignment: center
+            }
+            layout {
+                sequence: 25
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALVENCIMENTOS
+                endUserAlias: Y
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Tipo NF" (
+            type: plainText
+            heading {
+                heading: Tipo
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Tipo NF
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Transportadora (
+            type: plainText
+            heading {
+                heading: Transportadora
+                alignment: center
+            }
+            layout {
+                sequence: 16
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Transportadora
+                endUserAlias: P
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Usuário (
+            type: plainText
+            heading {
+                heading: Usuário
+                alignment: center
+            }
+            layout {
+                sequence: 22
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Usuário
+                endUserAlias: V
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column VALORTOTALFILIAL (
+            type: plainText
+            heading {
+                heading: Valortotalfilial
+                alignment: center
+            }
+            layout {
+                sequence: 18
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VALORTOTALFILIAL
+                endUserAlias: R
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column VOLUMES (
+            type: plainText
+            heading {
+                heading: Volume(s)
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AI
+            }
+        )
+
+        savedReport 50563554 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 1000
+            }
+
+            displayColumn ANO (
+                sequence: 4
+            )
+
+            displayColumn ANTECIPACAO (
+                sequence: 22
+            )
+
+            displayColumn CTE (
+                sequence: 14
+            )
+
+            displayColumn DATAINCLUSAO (
+                sequence: 21
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 2
+            )
+
+            displayColumn DTNF (
+                sequence: 9
+            )
+
+            displayColumn "Data Recebimento" (
+                sequence: 16
+            )
+
+            displayColumn EMITENTE (
+                sequence: 6
+            )
+
+            displayColumn "Filial Destino" (
+                sequence: 7
+            )
+
+            displayColumn IDNOTAFISCAL (
+                sequence: 1
+            )
+
+            displayColumn MES (
+                sequence: 20
+            )
+
+            displayColumn "Observação" (
+                sequence: 15
+            )
+
+            displayColumn "Possui divergência" (
+                sequence: 18
+            )
+
+            displayColumn "Qtd Anexos" (
+                sequence: 17
+            )
+
+            displayColumn SEMANA (
+                sequence: 3
+            )
+
+            displayColumn SITUACAO (
+                sequence: 10
+            )
+
+            displayColumn "Situação Recebimento" (
+                sequence: 11
+            )
+
+            displayColumn TOTALITENS (
+                sequence: 13
+            )
+
+            displayColumn TOTALVENCIMENTOS (
+                sequence: 12
+            )
+
+            displayColumn "Tipo NF" (
+                sequence: 5
+            )
+
+            displayColumn "Transportadora" (
+                sequence: 8
+            )
+
+            displayColumn VOLUMES (
+                sequence: 19
+            )
+
+            sort (
+                column: IDNOTAFISCAL
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: SEMANA
+                sort {
+                    direction: desc
+                    sequence: 2
+                }
+            )
+
+            sort (
+                column: DOCUMENTO
+                sort {
+                    sequence: 3
+                }
+            )
+
+            aggregate (
+                column: TOTALVENCIMENTOS
+            )
+
+            aggregate (
+                column: TOTALITENS
+            )
+
+            filter ir-condition (
+                column: SITUACAO
+                operator: !=
+                value: Cancelada
+            )
+
+            controlBreak (
+                column: SEMANA
+                layout {
+                    sequence: 1
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Aguardando Aprovação
+                condition {
+                    column: SITUACAO
+                    value: Aguardando Aprovação
+                }
+                colors {
+                    background: #B00606
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+        savedReport 50563566 (
+            visibility: alternativeDefault
+            name: Cargas Filiais
+            view {
+                rowsPerPage: 15
+            }
+
+            displayColumn ANO (
+                sequence: 3
+            )
+
+            displayColumn ANTECIPACAO (
+                sequence: 26
+            )
+
+            displayColumn CTE (
+                sequence: 15
+            )
+
+            displayColumn DATAINCLUSAO (
+                sequence: 25
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 13
+            )
+
+            displayColumn DTNF (
+                sequence: 9
+            )
+
+            displayColumn "Data Recebimento" (
+                sequence: 19
+            )
+
+            displayColumn EMITENTE (
+                sequence: 6
+            )
+
+            displayColumn "Filial Destino" (
+                sequence: 7
+            )
+
+            displayColumn IDNOTAFISCAL (
+                sequence: 1
+            )
+
+            displayColumn IDSEMANANOTA (
+                sequence: 20
+            )
+
+            displayColumn MES (
+                sequence: 24
+            )
+
+            displayColumn NRNF (
+                sequence: 4
+            )
+
+            displayColumn "Observação" (
+                sequence: 16
+            )
+
+            displayColumn "Possui divergência" (
+                sequence: 22
+            )
+
+            displayColumn "Qtd Anexos" (
+                sequence: 21
+            )
+
+            displayColumn SEMANA (
+                sequence: 2
+            )
+
+            displayColumn SITUACAO (
+                sequence: 11
+            )
+
+            displayColumn "Situação Recebimento" (
+                sequence: 12
+            )
+
+            displayColumn TOTALITENS (
+                sequence: 18
+            )
+
+            displayColumn TOTALVENCIMENTOS (
+                sequence: 17
+            )
+
+            displayColumn "Tipo NF" (
+                sequence: 5
+            )
+
+            displayColumn "Transportadora" (
+                sequence: 8
+            )
+
+            displayColumn "Usuário" (
+                sequence: 14
+            )
+
+            displayColumn VALORTOTALFILIAL (
+                sequence: 10
+            )
+
+            displayColumn VOLUMES (
+                sequence: 23
+            )
+
+            aggregate (
+                column: VALORTOTALFILIAL
+            )
+
+            aggregate (
+                column: VALORTOTAL
+            )
+
+            filter ir-condition (
+                column: ANO
+                value: 2012
+            )
+
+            filter ir-condition-2 (
+                column: SITUACAO
+                value: Ativa
+            )
+
+            controlBreak (
+                column: "Filial Destino"
+                layout {
+                    sequence: 6
+                }
+            )
+
+        )
+
+        savedReport 50563578 (
+            visibility: alternativeDefault
+            name: Totalizador Faturas Fábrica
+            view {
+                groupBy: true
+                default: groupBy
+                rowsPerPage: 1000
+            }
+
+            displayColumn ANO (
+                sequence: 3
+            )
+
+            displayColumn ANTECIPACAO (
+                sequence: 22
+            )
+
+            displayColumn CTE (
+                sequence: 13
+            )
+
+            displayColumn DATAINCLUSAO (
+                sequence: 21
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 1
+            )
+
+            displayColumn DTNF (
+                sequence: 8
+            )
+
+            displayColumn "Data Recebimento" (
+                sequence: 15
+            )
+
+            displayColumn EMITENTE (
+                sequence: 5
+            )
+
+            displayColumn "Filial Destino" (
+                sequence: 6
+            )
+
+            displayColumn IDSEMANANOTA (
+                sequence: 16
+            )
+
+            displayColumn MES (
+                sequence: 20
+            )
+
+            displayColumn "Observação" (
+                sequence: 14
+            )
+
+            displayColumn "Possui divergência" (
+                sequence: 18
+            )
+
+            displayColumn "Qtd Anexos" (
+                sequence: 17
+            )
+
+            displayColumn SEMANA (
+                sequence: 2
+            )
+
+            displayColumn SITUACAO (
+                sequence: 9
+            )
+
+            displayColumn "Situação Recebimento" (
+                sequence: 10
+            )
+
+            displayColumn TOTALITENS (
+                sequence: 12
+            )
+
+            displayColumn TOTALVENCIMENTOS (
+                sequence: 11
+            )
+
+            displayColumn "Tipo NF" (
+                sequence: 4
+            )
+
+            displayColumn "Transportadora" (
+                sequence: 7
+            )
+
+            displayColumn VOLUMES (
+                sequence: 19
+            )
+
+            sort (
+                column: DTNF
+                sort {
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: SEMANA
+                sort {
+                    direction: desc
+                    sequence: 2
+                }
+            )
+
+            sort (
+                column: DOCUMENTO
+                sort {
+                    sequence: 3
+                }
+            )
+
+            aggregate (
+                column: TOTALVENCIMENTOS
+            )
+
+            filter ir-condition (
+                column: ANO
+                operator: in
+                value: 2013,2014
+            )
+
+            filter ir-condition-2 (
+                column: DTNF
+                operator: <=
+                value: 20140731000000
+            )
+
+            filter ir-condition-3 (
+                column: EMITENTE
+                operator: in
+                value: Sim Ind. Adm,Sim Ind. Costura Taq ,Sim Ind. Igrejinha,Sim Ind. Sapucaia
+            )
+
+            filter ir-condition-4 (
+                column: SITUACAO
+                value: Ativa
+            )
+
+            controlBreak (
+                column: SEMANA
+                layout {
+                    sequence: 1
+                }
+                advanced {
+                    enabled: false
+                }
+            )
+
+            groupByColumn (
+                column: ANO
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByColumn (
+                column: EMITENTE
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByAggregate (
+                heading: Total
+                aggregate {
+                    column: TOTALVENCIMENTOS
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: FML999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupBySort (
+                column: ANO
+                sort {
+                    sequence: 1
+                }
+            )
+
+            groupBySort (
+                column: EMITENTE
+                sort {
+                    sequence: 2
+                }
+            )
+
+        )
+
+        savedReport 50563602 (
+            visibility: alternativeDefault
+            name: " Aguardando Aprovação"
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ANO (
+                sequence: 4
+            )
+
+            displayColumn ANTECIPACAO (
+                sequence: 23
+            )
+
+            displayColumn CTE (
+                sequence: 14
+            )
+
+            displayColumn DATAINCLUSAO (
+                sequence: 22
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 2
+            )
+
+            displayColumn DTNF (
+                sequence: 9
+            )
+
+            displayColumn "Data Recebimento" (
+                sequence: 16
+            )
+
+            displayColumn EMITENTE (
+                sequence: 6
+            )
+
+            displayColumn "Filial Destino" (
+                sequence: 7
+            )
+
+            displayColumn IDNOTAFISCAL (
+                sequence: 1
+            )
+
+            displayColumn IDSEMANANOTA (
+                sequence: 17
+            )
+
+            displayColumn MES (
+                sequence: 21
+            )
+
+            displayColumn "Observação" (
+                sequence: 15
+            )
+
+            displayColumn "Possui divergência" (
+                sequence: 19
+            )
+
+            displayColumn "Qtd Anexos" (
+                sequence: 18
+            )
+
+            displayColumn SEMANA (
+                sequence: 3
+            )
+
+            displayColumn SITUACAO (
+                sequence: 10
+            )
+
+            displayColumn "Situação Recebimento" (
+                sequence: 11
+            )
+
+            displayColumn TOTALITENS (
+                sequence: 13
+            )
+
+            displayColumn TOTALVENCIMENTOS (
+                sequence: 12
+            )
+
+            displayColumn "Tipo NF" (
+                sequence: 5
+            )
+
+            displayColumn "Transportadora" (
+                sequence: 8
+            )
+
+            displayColumn VOLUMES (
+                sequence: 20
+            )
+
+            sort (
+                column: IDNOTAFISCAL
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: SEMANA
+                sort {
+                    direction: desc
+                    sequence: 2
+                }
+            )
+
+            sort (
+                column: DOCUMENTO
+                sort {
+                    sequence: 3
+                }
+            )
+
+            filter ir-condition (
+                column: SITUACAO
+                operator: !=
+                value: Cancelada
+                advanced {
+                    enabled: false
+                }
+            )
+
+            filter ir-condition-2 (
+                column: SITUACAO
+                value: Aguardando Aprovação
+            )
+
+            filter ir-condition-3 (
+                type: rowExpression
+                rowExpression: K =to_char(sysdate,'RRRR')
+                identification {
+                    name: Ano
+                }
+            )
+
+            controlBreak (
+                column: SEMANA
+                layout {
+                    sequence: 1
+                }
+            )
+
+            highlight ir-condition-4 (
+                name: Aguardando Aprovação
+                condition {
+                    column: SITUACAO
+                    value: Aguardando Aprovação
+                }
+                colors {
+                    background: #B00606
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P395_ANO (
+        type: selectList
+        label {
+            label: Ano
+            alignment: left
+        }
+        settings {
+            pageActionOnSelection: redirectSetValue
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distinct to_char(dtvencimento, 'RRRR') display_value
+                     , to_char(f.dtvencimento, 'RRRR')  return_value
+                from pagamentosfornecedores f
+                --where  to_number(to_char(dtvencimento, 'RRRR')) >=2014
+                order by 1 desc
+                ```
+            nullDisplayValue: "- Todos - "
+            nullReturnValue: 0
+        }
+        layout {
+            sequence: 70
+            region: @filtro-2
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                begin
+                  return to_char(sysdate, 'RRRR');
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P395_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtro-2
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 12
+        }
+        default {
+            type: expression
+            plsqlExpression: trunc(sysdate)
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P395_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtro-2
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 12
+        }
+        default {
+            type: expression
+            plsqlExpression: trunc(sysdate)
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P395_DOCUMENTO (
+        type: textField
+        label {
+            label: Documento
+            alignment: left
+        }
+        settings {
+            submitWhenEnterPressed: true
+        }
+        layout {
+            sequence: 60
+            region: @filtro-2
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P395_FILTRAR_DATA (
+        type: radioGroup
+        label {
+            label: Filtrar Data
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Inclusão;I,Não Usar;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtro-2
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P395_IDFILIALEMITENTE (
+        type: selectList
+        label {
+            label: Filial Emitente
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nome display_value
+                     , idfilial return_value
+                from vw_filiais w 
+                where w.ativo = 'S'
+                order by nome
+                ```
+        }
+        layout {
+            sequence: 50
+            region: @filtro-2
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P395_IDFORNECEDOR (
+        type: popupLov
+        label {
+            label: Fornecedor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefornecedor(idfornecedor) display_value
+                     , fe.idfornecedor return_value
+                from fornecedores fe
+                where fe.ativo = 'S'
+                order by 1
+                ```
+            nullDisplayValue: " -"
+        }
+        layout {
+            sequence: 40
+            region: @filtro-2
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 50
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P395_SEMANA (
+        type: selectList
+        label {
+            label: Semana
+            alignment: left
+        }
+        settings {
+            pageActionOnSelection: redirectSetValue
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select to_char(semana,'00')||'/'||ano display_value
+                     , idsemana return_value
+                from semana_dias s
+                where s.dt_fim < trunc(sysdate)
+                  and ( :P395_ANO is null or ano = :P395_ANO)
+                order by idsemana desc
+                ```
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 80
+            region: @filtro-2
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P395_SITUACAORECEBIMENTO (
+        type: radioGroup
+        label {
+            label: Situação
+            alignment: left
+        }
+        settings {
+            noOfCols: 4
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Todas;T,Aguardando Recebimento;A,Parcialmente Recebida;P,Recebida;R
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P395_TIPOFILIALDESTINO (
+        type: radioGroup
+        label {
+            label: Tipo Empresa Destino
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+            pageActionOnSelection: redirectSetValue
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select descricao display_value
+                     , idtipofilial return_value
+                from tiposfiliais
+                order by descricao
+                
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todas -
+            nullReturnValue: X
+        }
+        layout {
+            sequence: 10
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: X
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P395_TIPOPRODUTO (
+        type: radioGroup
+        label {
+            label: Tipo de Produto
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+            pageActionOnSelection: redirectSetValue
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Todos;T,Venda Romance;V,Impostos e Afins;I
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        source {
+            type: staticValue
+            staticValue: T
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button apoio-custo-transferencia (
+        buttonName: APOIO_CUSTO_TRANSFERENCIA
+        label: Apoio Custo Transferência
+        layout {
+            sequence: 10
+            region: @transferências
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 468
+                items: {
+                    P468_IDNOTAFISCAL:
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button apoio-transferencia (
+        buttonName: APOIO_TRANSFERENCIA
+        label: Apoio Transferência
+        layout {
+            sequence: 20
+            region: @transferências
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 317
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button create (
+        buttonName: CREATE
+        label: Nova Transferencia
+        layout {
+            sequence: 30
+            region: @transferências
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 396
+                clearCache: 396
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction atualiza-rel-data-fim (
+        name: Atualiza Rel Data fim
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P395_DATAFIM
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @transferências
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction atualiza-rel-data-inicio (
+        name: Atualiza Rel Data Inicio
+        execution {
+            sequence: 40
+        }
+        when {
+            selectionType: items
+            items: P395_DATAINICIO
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @transferências
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction atualiza-rel-filtro-data (
+        name: Atualiza Rel Filtro Data
+        execution {
+            sequence: 50
+        }
+        when {
+            selectionType: items
+            items: P395_FILTRAR_DATA
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @transferências
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction atualiza-relatório (
+        name: atualiza relatório
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: [
+                P395_IDFORNECEDOR
+                P395_TIPOFILIALDESTINO
+                P395_TIPOPRODUTO
+                P395_DOCUMENTO
+                P395_ANO
+                P395_SEMANA
+                P395_IDFILIALEMITENTE
+                P395_SITUACAORECEBIMENTO
+            ]
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @transferências
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction mostra-datas (
+        name: Mostra Datas
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P395_FILTRAR_DATA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P395_FILTRAR_DATA
+            value: I
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P395_DATAINICIO
+                    P395_DATAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P395_DATAINICIO
+                    P395_DATAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    branch (
+        name: Go To Page 26
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 395
+                items: {
+                    P395_IDFORNECEDOR: &P395_IDFORNECEDOR.
+                    P395_TIPOFILIALDESTINO: &P395_TIPOFILIALDESTINO.
+                    P395_DOCUMENTO: &P395_DOCUMENTO.
+                    P395_ANO: &P395_ANO.
+                    P395_SEMANA: &P395_SEMANA.
+                    P395_SITUACAORECEBIMENTO: &P395_SITUACAORECEBIMENTO.
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

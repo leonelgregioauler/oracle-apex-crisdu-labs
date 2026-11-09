@@ -1,0 +1,769 @@
+page 511 (
+    name: Balancete Consolidado
+    alias: BALANCETE-CONSOLIDADO2
+    title: Balancete Consolidado
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    css {
+        inline:
+            ```css
+            /*cor de fundo cabeçalho da grid*/
+            #INTREP .a-IRR-table tr th {
+                background: #f2ea87 !important;
+            }
+            
+            ```
+    }
+
+    region balancete-consolidado (
+        name: Balancete Consolidado
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                     
+                 select pg.IDCLASSIFICACAO codigo
+                      , pg.nivel
+                      , sl.idplanocontasempresa
+                      , decode(pg.TIPOLANCAMENTO,'D','Débito','Crédito') "Tp.Lançamento"
+                      , pg.classificacao
+                      , decode(TIPOCONTA,'A','Analítica','Sintética') "Tipo Conta"
+                      , DESCRICAOCONTA "Descrição da Conta"
+                      , case when pg.nivel = 1 then 
+                                  sum(nvl(sl.saldoini,0)) over (partition by SUBSTR(pg.classificacao, 1, 1))  --inicial_n1
+                             when pg.nivel = 2 then
+                                  sum(nvl(sl.saldoini,0)) over (partition by SUBSTR(pg.classificacao, 1, 3))  --inicial_n2
+                             when pg.nivel = 3 then 
+                                  sum(nvl(sl.saldoini,0)) over (partition by SUBSTR(pg.classificacao, 1, 5))  --inicial_n3
+                             when pg.nivel = 4 then 
+                                  sum(nvl(sl.saldoini,0)) over (partition by SUBSTR(pg.classificacao, 1, 8))  --inicial_n4
+                             when pg.nivel = 5 then 
+                                  sum(nvl(sl.saldoini,0)) over (partition by SUBSTR(pg.classificacao, 1, 12))  --inicial_n5
+                         end "Saldo Anterior"
+                        --
+                      , case when pg.nivel = 1 then 
+                                  sum(nvl(sl.saldofim,0)) over (partition by SUBSTR(pg.classificacao, 1, 1))  --final_n1
+                             when pg.nivel = 2 then
+                                  sum(nvl(sl.saldofim,0)) over (partition by SUBSTR(pg.classificacao, 1, 3))  --final_n2
+                             when pg.nivel = 3 then 
+                                  sum(nvl(sl.saldofim,0)) over (partition by SUBSTR(pg.classificacao, 1, 5))  --final_n3
+                             when pg.nivel = 4 then 
+                                  sum(nvl(sl.saldofim,0)) over (partition by SUBSTR(pg.classificacao, 1, 8))  --final_n4
+                             when pg.nivel = 5 then 
+                                  sum(nvl(sl.saldofim,0)) over (partition by SUBSTR(pg.classificacao, 1, 12))  --final_n5
+                         end "Saldo Atual"
+                        --
+                      , case when pg.nivel = 1 then 
+                                  sum(nvl(sl.valordebito,0)) over (partition by SUBSTR(pg.classificacao, 1, 1))  --final_n1
+                             when pg.nivel = 2 then
+                                  sum(nvl(sl.valordebito,0)) over (partition by SUBSTR(pg.classificacao, 1, 3))  --final_n2
+                             when pg.nivel = 3 then 
+                                  sum(nvl(sl.valordebito,0)) over (partition by SUBSTR(pg.classificacao, 1, 5))  --final_n3
+                             when pg.nivel = 4 then 
+                                  sum(nvl(sl.valordebito,0)) over (partition by SUBSTR(pg.classificacao, 1, 8))  --final_n4
+                             when pg.nivel = 5 then 
+                                  sum(nvl(sl.valordebito,0)) over (partition by SUBSTR(pg.classificacao, 1, 12))  --final_n5
+                         end "Débito"
+                        --
+                      , case when pg.nivel = 1 then 
+                                  sum(nvl(sl.valorcredito,0)) over (partition by SUBSTR(pg.classificacao, 1, 1))  --final_n1
+                             when pg.nivel = 2 then
+                                  sum(nvl(sl.valorcredito,0)) over (partition by SUBSTR(pg.classificacao, 1, 3))  --final_n2
+                             when pg.nivel = 3 then 
+                                  sum(nvl(sl.valorcredito,0)) over (partition by SUBSTR(pg.classificacao, 1, 5))  --final_n3
+                             when pg.nivel = 4 then 
+                                  sum(nvl(sl.valorcredito,0)) over (partition by SUBSTR(pg.classificacao, 1, 8))  --final_n4
+                             when pg.nivel = 5 then 
+                                  sum(nvl(sl.valorcredito,0)) over (partition by SUBSTR(pg.classificacao, 1, 12))  --final_n5
+                         end "Crédito"
+                        --
+                      , case when pg.tipoconta = 'A' and ( 
+                                  sum(nvl(sl.saldoini,0)) over (partition by SUBSTR(pg.classificacao, 1, 12))  > 0 or 
+                                  sum(nvl(sl.saldofim,0)) over (partition by SUBSTR(pg.classificacao, 1, 12)) > 0 )
+                             then 'Ver'
+                             else null
+                        end saldos
+                      , case when pg.tipoconta = 'A' and ( 
+                                  sum(nvl(sl.valordebito,0)) over (partition by SUBSTR(pg.classificacao, 1, 12)) > 0 or 
+                                  sum(nvl(sl.valorcredito,0)) over (partition by SUBSTR(pg.classificacao, 1, 12)) > 0 )
+                             then 'Ver'
+                             else null
+                        end lanctos
+                        --
+                   from PLANOCONTASGERAL pg
+                      , (select pc.idclassificacao
+                              , pc.idplanocontasempresa
+                              , pg.classificacao
+                              , SUBSTR(pg.classificacao,  1, 1)  AS nivel_1
+                              , SUBSTR(pg.classificacao,  1, 3)  AS nivel_2
+                              , SUBSTR(pg.classificacao,  1, 5)  AS nivel_3
+                              , SUBSTR(pg.classificacao,  1, 8)  AS nivel_4
+                              , SUBSTR(pg.classificacao,  1, 12) AS nivel_5
+                              , nvl(sl.saldoini,0) saldoini
+                              , nvl(sl.saldofim,0) saldofim
+                              , nvl(ld.valor,0)   valordebito
+                              , nvl(lc.valor,0)   valorcredito
+                           from planocontasempresa pe
+                              , planocontasclassificacoes pc
+                              , planocontasgeral pg
+                              , (select idplanocontasempresa,
+                                        idclassificacao,
+                                        min(datasaldo) datasaldo,
+                                        max(saldoinicial) saldoini,
+                                        max(saldofinal)   saldofim
+                                   from saldoscontabeis --testesaldos 
+                                  where idplanocontasempresa = (select idplanocontasempresa  -- so pode haver 1 plano de contas por razao social filial
+                                                                    from planocontasempresa
+                                                                   where idrazaosocialfilial = :P511_IDRAZAOSOCIALFILIAL)
+                                    and datasaldo between :P511_DATAINICIAL and :P511_DATAFINAL
+                                    group by idplanocontasempresa, idclassificacao ) sl
+                                --
+                              , (select l.idplanocontasempresa
+                                      , s.idclassificacao
+                                      , sum(l.valorlancamento) valor
+                                   from lancamentoscontabeis    l
+                                      , subcontasclassificacoes s
+                                   where s.idsubcontaclassificacao = l.idsubcontaclassificacao
+                                     and l.idplanocontasempresa = (select idplanocontasempresa  -- so pode haver 1 plano de contas por razao social filial
+                                                                     from planocontasempresa
+                                                                    where idrazaosocialfilial = :P511_IDRAZAOSOCIALFILIAL)
+                                     and l.datalancamento between :P511_DATAINICIAL and :P511_DATAFINAL
+                                     --and s.tipolancamento = 'D' -- Debito
+                                   group by l.idplanocontasempresa
+                                          , s.idclassificacao) ld
+                                --
+                              , (select l.idplanocontasempresa
+                                      , s.idclassificacao
+                                      , sum(l.valorlancamento) valor
+                                   from lancamentoscontabeis    l
+                                      , subcontasclassificacoes s
+                                   where s.idsubcontaclassificacao = l.idsubcontaclassificacao
+                                     and l.idplanocontasempresa = (select idplanocontasempresa  -- so pode haver 1 plano de contas por razao social filial
+                                                                     from planocontasempresa
+                                                                    where idrazaosocialfilial = :P511_IDRAZAOSOCIALFILIAL)
+                                     and l.datalancamento between :P511_DATAINICIAL and :P511_DATAFINAL
+                                     --and s.tipolancamento = 'C' -- Debito
+                                   group by l.idplanocontasempresa
+                                          , s.idclassificacao) lc
+                                --
+                          where pc.idplanocontasempresa = pe.idplanocontasempresa
+                            and pc.idclassificacao = pg.idclassificacao
+                            and pe.idrazaosocialfilial = :P511_IDRAZAOSOCIALFILIAL
+                            and pc.idclassificacao = sl.idclassificacao
+                            and pc.idplanocontasempresa = sl.idplanocontasempresa 
+                            and pc.idplanocontasempresa = ld.idplanocontasempresa(+)
+                            and pc.idclassificacao      = ld.idclassificacao(+)  
+                            and pc.idplanocontasempresa = lc.idplanocontasempresa(+)
+                            and pc.idclassificacao      = lc.idclassificacao(+) ) sl
+                  --
+                  where pg.idclassificacao = sl.idclassificacao(+)
+                    and :P511_FILTRAR = 'S'
+                  order by pg.classificacao
+                ```
+            pageItemsToSubmit: [
+                P511_IDRAZAOSOCIALFILIAL
+                P511_DATAINICIAL
+                P511_DATAFINAL
+            ]
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            htmlDomId: INTREP
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        advanced {
+            savedReportMappingIdentifier: 419150612310700966
+        }
+
+        column CLASSIFICACAO (
+            type: plainText
+            heading {
+                heading: Classificacao
+            }
+            layout {
+                sequence: 5
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column CODIGO (
+            type: plainText
+            heading {
+                heading: Codigo
+                alignment: end
+            }
+            layout {
+                sequence: 18
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column Crédito (
+            type: plainText
+            heading {
+                heading: Crédito
+                alignment: end
+            }
+            layout {
+                sequence: 88
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column "Descrição da Conta" (
+            type: plainText
+            heading {
+                heading: Descrição Da Conta
+            }
+            layout {
+                sequence: 48
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column Débito (
+            type: plainText
+            heading {
+                heading: Débito
+                alignment: end
+            }
+            layout {
+                sequence: 78
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column IDPLANOCONTASEMPRESA (
+            type: plainText
+            heading {
+                heading: Idplanocontasempresa
+                alignment: end
+            }
+            layout {
+                sequence: 118
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column LANCTOS (
+            type: link
+            heading {
+                heading: Lanctos
+            }
+            layout {
+                sequence: 108
+            }
+            link {
+                target: {
+                    page: 512
+                    items: {
+                        P512_DATAINICIAL: &P487_DATAINICIAL.
+                        P512_DATAFINAL: &P487_DATAFINAL.
+                        P512_IDPLANOCONTASEMPRESA: #IDPLANOCONTASEMPRESA#
+                        P512_IDCLASSIFICACAO: #CODIGO#
+                    }
+                    clearCache: 512
+                }
+                linkText: #LANCTOS#
+                linkAttributes: #LANCTOS#
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column NIVEL (
+            type: plainText
+            heading {
+                heading: Nivel
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column SALDOS (
+            type: link
+            heading {
+                heading: Saldos
+            }
+            layout {
+                sequence: 98
+            }
+            link {
+                target: {
+                    page: 513
+                    items: {
+                        P513_DATAFINAL: &P487_DATAFINAL.
+                        P513_DATAINICIAL: &P487_DATAINICIAL.
+                        P513_IDCLASSIFICACAO: #CODIGO#
+                        P513_IDPLANOCONTASEMPRESA: #IDPLANOCONTASEMPRESA#
+                    }
+                    clearCache: 513
+                }
+                linkText: #SALDOS#
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column "Saldo Anterior" (
+            type: plainText
+            heading {
+                heading: Saldo Anterior
+                alignment: end
+            }
+            layout {
+                sequence: 58
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column "Saldo Atual" (
+            type: plainText
+            heading {
+                heading: Saldo Atual
+                alignment: end
+            }
+            layout {
+                sequence: 68
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column "Tipo Conta" (
+            type: plainText
+            heading {
+                heading: Tipo Conta
+            }
+            layout {
+                sequence: 38
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column Tp.Lançamento (
+            type: plainText
+            heading {
+                heading: Tp.lançamento
+            }
+            layout {
+                sequence: 28
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        pageHeader {
+            pageHeaderText: Balancete Consolidado
+        }
+
+        savedReport 477073 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn CLASSIFICACAO (
+                sequence: 6
+            )
+
+            displayColumn CODIGO (
+                sequence: 3
+            )
+
+            displayColumn "Crédito" (
+                sequence: 11
+            )
+
+            displayColumn "Descrição da Conta" (
+                sequence: 8
+            )
+
+            displayColumn "Débito" (
+                sequence: 10
+            )
+
+            displayColumn LANCTOS (
+                sequence: 1
+            )
+
+            displayColumn NIVEL (
+                sequence: 4
+            )
+
+            displayColumn SALDOS (
+                sequence: 2
+            )
+
+            displayColumn "Saldo Anterior" (
+                sequence: 9
+            )
+
+            displayColumn "Saldo Atual" (
+                sequence: 12
+            )
+
+            displayColumn "Tipo Conta" (
+                sequence: 7
+            )
+
+            displayColumn "Tp.Lançamento" (
+                sequence: 5
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent15
+                t-Region--scrollBody
+            ]
+        }
+        headerAndFooter {
+            headerText: *********** ESTE RELATÓRIO DEVE SER TESTADO NO FINAL (REVISAR DEBITOS E CREDITOS) ******
+        }
+    )
+
+    pageItem P511_DATAFINAL (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+        }
+    )
+
+    pageItem P511_DATAINICIAL (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+        }
+    )
+
+    pageItem P511_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+    )
+
+    pageItem P511_IDFILIAL (
+        type: selectList
+        label {
+            label: Filial
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefilial(f.idfilial) display_value 
+                     , f.idfilial return_value 
+                from filiais f
+                where f.ativo       = 'S'
+                ORDER BY 1
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+    )
+
+    pageItem P511_IDRAZAOSOCIALFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select cnpj||' - '||razaosocial display_value
+                     , idrazaosocialfilial return_value
+                from razoessociaisfiliais
+                where idfilial = :P511_IDFILIAL
+                  and ativo = 'S'
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P511_IDFILIAL
+            itemsToSubmit: P511_IDFILIAL
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+    )
+
+    pageItem P511_MESANO (
+        type: selectList
+        label {
+            label: Mes/Ano
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select to_char(add_months(trunc(sysdate, 'MM'), - (level - 1)), 'MM/YYYY') d
+                     , to_char(add_months(trunc(sysdate, 'MM'), - (level - 1)), 'MM/YYYY') r
+                  from dual
+                connect by level <= 6
+                order by 1 desc;
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            column: 2
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+                t-Button--hoverIconSpin
+            ]
+            icon: fa-ai-sparkle-generate-text
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction new (
+        name: New
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P511_MESANO
+        }
+
+        action setadatas (
+            name: SetaDatas
+            action: setValue
+            settings {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select to_char(to_date('01/'||:P511_MESANO),'dd/mm/rrrr') dtini
+                         , to_char((add_months(to_date('01/'||:P511_MESANO),1) -1),'dd/mm/rrrr') dtfim
+                      from dual
+                    ```
+                itemsToSubmit: P511_MESANO
+                escapeSpecialChars: false
+            }
+            affectedElements {
+                selectionType: items
+                items: [
+                    P511_DATAINICIAL
+                    P511_DATAFINAL
+                ]
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction new-2 (
+        name: New_1
+        execution {
+            sequence: 20
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @filtrar
+        }
+
+        action processa (
+            name: Processa
+            action: submitPage
+            settings {
+                requestButtonName: FILTRAR
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+        action setafiltrar (
+            name: SetaFiltrar
+            action: setValue
+            settings {
+                value: S
+            }
+            affectedElements {
+                selectionType: items
+                items: P511_FILTRAR
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+)
+

@@ -1,0 +1,2401 @@
+page 454 (
+    name: Extrato de Movimentações
+    title: Extrato de Movimentações
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region detalhado (
+        name: Detalhado
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select * from (
+                select t.tp_negociacao
+                     , t.data_negociacao
+                     , t.vl_negociado
+                     , t.vl_pago
+                     , t.vl_atrasado
+                     , t.vl_vencido
+                from(
+                select tn.descricao tp_negociacao
+                     , trunc(ne.data) data_negociacao
+                     , sum(ne.valor) vl_negociado
+                     , sum(nvl((select nvl(sum(nvl(pn.valorpago,0)),0)
+                          from pagamentosnegociacoes pn
+                         where pn.idnegociacao = ne.idnegociacao
+                           and pn.situacao = 'Q'),0)) vl_pago
+                     , sum(nvl((select nvl(sum(nvl(pn.valorpago,0)),0)
+                          from pagamentosnegociacoes pn
+                         where pn.idnegociacao = ne.idnegociacao
+                           and (trunc(sysdate) - trunc(pn.datapagamento)) <= 15
+                           and pn.situacao = 'A'),0)) vl_atrasado
+                     , sum(nvl((select nvl(sum(nvl(pn.valorpago,0)),0)
+                          from pagamentosnegociacoes pn
+                         where pn.idnegociacao = ne.idnegociacao
+                           --and (trunc(sysdate) - trunc(pn.datapagamento)) > 15
+                           and pn.situacao = 'V'),0)) vl_vencido
+                  from negociacoes ne
+                     , tiposnegociacoes tn
+                 where ne.idtiponegociacao = tn.idtiponegociacao
+                   and trunc(ne.data) between :P454_DATAINICIO and :P454_DATAFIM
+                   and (:P454_IDFILIAL = -1 /*todos*/
+                    or (:P454_IDFILIAL = -2 and ne.idfilial is null) /*Negociacoes sem filial, diretas*/
+                    or (:P454_IDFILIAL = 1 and exists(select 1 /*brasil*/
+                                                        from vw_filiais f
+                                                       where f.idfilial = ne.idfilial
+                                                         and f.idgrupo is not null
+                                                         and f.ididioma = 1
+                                                      union
+                                                      select 1 /*Para casos de negociação sem idfilial*/
+                                                        from catal.pessoas pe
+                                                           , catal.paises pa
+                                                       where pe.idpais = pa.idpais
+                                                         and pe.idpessoa = ne.idpessoa
+                                                         and pa.idpais   = 1))
+                    or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                        from vw_filiais f
+                                                       where f.idfilial = ne.idfilial
+                                                         and f.idgrupo is not null
+                                                         and f.ididioma not in (1,5,9,10,11)
+                                                      union
+                                                      select 1 /*Para casos de negociação sem idfilial*/
+                                                        from catal.pessoas pe
+                                                           , catal.paises pa
+                                                       where pe.idpais = pa.idpais
+                                                         and pe.idpessoa = ne.idpessoa
+                                                         and pa.idpais   not in (1,5,9,10,11)))
+                    or (:P454_IDFILIAL > 2 and ne.idfilial = :P454_IDFILIAL))
+                   and (:P454_IDDISTRIBUIDOR = -1 or ne.idrepresentante = :P454_IDDISTRIBUIDOR)
+                   and :P454_TIPO_RELATORIO = 'D'
+                 group by tn.descricao
+                        , trunc(ne.data)) 
+                t)
+                            PIVOT
+                            (
+                           sum(vl_negociado) as vl_negociado,
+                           sum(vl_pago) as vl_pago,
+                           sum(vl_atrasado) as vl_atrasado,
+                           sum(vl_vencido) as vl_vencido
+                          for tp_negociacao in ('Carro', 'Balanço', 'Empréstimo')
+                            )
+                order by data_negociacao
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            parentRegion: @negociações
+            slot: subRegions
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: item=value
+            item: P454_TIPO_RELATORIO
+            value: D
+        }
+        readOnly {
+            type: item=value
+            item: P454_TIPO_RELATORIO
+            value: D
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 3494655078818678502
+        }
+
+        column 'Balanço'_VL_ATRASADO (
+            type: plainText
+            heading {
+                heading: <font color="green"><b>Balanço Valor Vencido até 15d</b></font>
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column 'Balanço'_VL_NEGOCIADO (
+            type: plainText
+            heading {
+                heading: <font color="green"><b>Balanço Valor Negociado</b></font>
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column 'Balanço'_VL_PAGO (
+            type: plainText
+            heading {
+                heading: <font color="green"><b>Balanço Valor Pago</b></font>
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column 'Balanço'_VL_VENCIDO (
+            type: plainText
+            heading {
+                heading: <font color="green"><b>Balanço Valor Vencido após 15d</b></font>
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column 'Carro'_VL_ATRASADO (
+            type: plainText
+            heading {
+                heading: Carro Valor Vencido até 15d
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column 'Carro'_VL_NEGOCIADO (
+            type: plainText
+            heading {
+                heading: Carro Valor Negociado
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column 'Carro'_VL_PAGO (
+            type: plainText
+            heading {
+                heading: Carro Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column 'Carro'_VL_VENCIDO (
+            type: plainText
+            heading {
+                heading: Carro Valor Vencido após 15d
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column 'Empréstimo'_VL_ATRASADO (
+            type: plainText
+            heading {
+                heading: Empréstimo Valor Vencido até 15d
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column 'Empréstimo'_VL_NEGOCIADO (
+            type: plainText
+            heading {
+                heading: Empréstimo Valor Negociado
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column 'Empréstimo'_VL_PAGO (
+            type: plainText
+            heading {
+                heading: Empréstimo Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column 'Empréstimo'_VL_VENCIDO (
+            type: plainText
+            heading {
+                heading: Emprestimo Valor Vencido após 15d
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column DATA_NEGOCIACAO (
+            type: plainText
+            heading {
+                heading: <font color="black"><b>Data Negociação</b></font>
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 34946649 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "'Balanço'_VL_ATRASADO" (
+                sequence: 8
+            )
+
+            displayColumn "'Balanço'_VL_NEGOCIADO" (
+                sequence: 6
+            )
+
+            displayColumn "'Balanço'_VL_PAGO" (
+                sequence: 7
+            )
+
+            displayColumn "'Balanço'_VL_VENCIDO" (
+                sequence: 9
+            )
+
+            displayColumn "'Carro'_VL_ATRASADO" (
+                sequence: 4
+            )
+
+            displayColumn "'Carro'_VL_NEGOCIADO" (
+                sequence: 2
+            )
+
+            displayColumn "'Carro'_VL_PAGO" (
+                sequence: 3
+            )
+
+            displayColumn "'Carro'_VL_VENCIDO" (
+                sequence: 5
+            )
+
+            displayColumn "'Empréstimo'_VL_ATRASADO" (
+                sequence: 12
+            )
+
+            displayColumn "'Empréstimo'_VL_NEGOCIADO" (
+                sequence: 10
+            )
+
+            displayColumn "'Empréstimo'_VL_PAGO" (
+                sequence: 11
+            )
+
+            displayColumn "'Empréstimo'_VL_VENCIDO" (
+                sequence: 13
+            )
+
+            displayColumn DATA_NEGOCIACAO (
+                sequence: 1
+            )
+
+            aggregate (
+                column: "'Carro'_VL_NEGOCIADO"
+            )
+
+            aggregate (
+                column: "'Carro'_VL_PAGO"
+            )
+
+            aggregate (
+                column: "'Carro'_VL_ATRASADO"
+            )
+
+            aggregate (
+                column: "'Carro'_VL_VENCIDO"
+            )
+
+            aggregate (
+                column: "'Balanço'_VL_NEGOCIADO"
+            )
+
+            aggregate (
+                column: "'Balanço'_VL_PAGO"
+            )
+
+            aggregate (
+                column: "'Balanço'_VL_ATRASADO"
+            )
+
+            aggregate (
+                column: "'Balanço'_VL_VENCIDO"
+            )
+
+            aggregate (
+                column: "'Empréstimo'_VL_NEGOCIADO"
+            )
+
+            aggregate (
+                column: "'Empréstimo'_VL_PAGO"
+            )
+
+            aggregate (
+                column: "'Empréstimo'_VL_ATRASADO"
+            )
+
+            aggregate (
+                column: "'Empréstimo'_VL_VENCIDO"
+            )
+
+        )
+
+    )
+
+    region empréstimos-antigos (
+        name: Empréstimos (Antigos)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                -- Emprestimo(Antigo)
+                select --tp_negociacao
+                      data_negociacao
+                     , vl_negociado
+                     , vl_pago
+                     , greatest((vl_negociado - vl_pago),0)saldo
+                  from(
+                select 'Emprestimo' tp_negociacao
+                     , trunc(ne.data) data_negociacao
+                     , sum(ne.valor) vl_negociado
+                     , sum(nvl((select nvl(sum(nvl(pn.valorpago,0)),0)
+                          from pagamentosemprestimos pn
+                         where pn.idemprestimo = ne.idemprestimo),0)) vl_pago
+                  from emprestimos ne
+                 where trunc(ne.data) between :P454_DATAINICIO and :P454_DATAFIM
+                   and (:P454_IDFILIAL = -1 --/*todos*/
+                    or (:P454_IDFILIAL = -2 and ne.idfilial is null)
+                    or (:P454_IDFILIAL = 1 and exists(select 1 --/*brasil*/
+                                                        from vw_filiais f
+                                                       where f.idfilial = ne.idfilial
+                                                         and f.idgrupo is not null
+                                                         and f.ididioma = 1))
+                    or (:P454_IDFILIAL = 2 and exists(select 1 --/*america latina*/
+                                                        from vw_filiais f
+                                                       where f.idfilial = ne.idfilial
+                                                         and f.idgrupo is not null
+                                                         and f.ididioma not in (1,5,9,10,11)))
+                    or (:P454_IDFILIAL > 2 and ne.idfilial = :P454_IDFILIAL))
+                   and (:P454_IDDISTRIBUIDOR = -1 or ne.idrepresentante = :P454_IDDISTRIBUIDOR)
+                   and :P454_TIPO_RELATORIO = 'R'
+                 group by trunc(ne.data))
+                order by data_negociacao
+                ```
+        }
+        layout {
+            sequence: 50
+            parentRegion: @negociações
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P454_TIPO_RELATORIO
+            value: R
+        }
+        readOnly {
+            type: item=value
+            item: P454_TIPO_RELATORIO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 3494657378507678525
+        }
+
+        column DATA_NEGOCIACAO (
+            type: plainText
+            heading {
+                heading: Data Empréstimo
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Valor Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column VL_NEGOCIADO (
+            type: plainText
+            heading {
+                heading: Valor Empréstimo
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column VL_PAGO (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 34947118 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATA_NEGOCIACAO (
+                sequence: 1
+            )
+
+            displayColumn SALDO (
+                sequence: 4
+            )
+
+            displayColumn VL_NEGOCIADO (
+                sequence: 2
+            )
+
+            displayColumn VL_PAGO (
+                sequence: 3
+            )
+
+            aggregate (
+                column: VL_NEGOCIADO
+            )
+
+            aggregate (
+                column: VL_PAGO
+            )
+
+            aggregate (
+                column: SALDO
+            )
+
+        )
+
+    )
+
+    region extrato-detalhado-antigo (
+        name: Extrato Detalhado (Antigo)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select d.data
+                     , sum(nvl(veiculos.valor,0)) veiculos
+                     , sum(nvl(emprestimos.valor,0)) emprestimos
+                     , sum(nvl(balanco.valor,0)) balanco
+                     , sum(nvl(cheque.valor,0)) cheque
+                     , sum(nvl(emprestimos_saida.valor,0)) emprestimos_saida
+                     , sum(nvl(veiculos_saida.valor,0)) veiculos_saida
+                     , sum((nvl(veiculos.valor,0) + nvl(emprestimos.valor,0) + nvl(balanco.valor,0) + nvl(cheque.valor,0)) - (nvl(emprestimos_saida.valor,0) + nvl(veiculos_saida.valor,0))) saldo
+                  from datasperiodos d
+                   , (select pn.datapagamento data
+                           , pn.valorpago valor
+                           , pn.observacao
+                        from pagamentosnegociacoes pn
+                           , negociacoes ne
+                       where pn.idnegociacao = ne.idnegociacao
+                         and pn.valorpago > 0 
+                         and (:P454_IDFILIAL = -1 /*todos*/
+                         or (:P454_IDFILIAL = 1 and exists(select 1  /*brasil*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = ne.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma = 1 ))
+                         or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = ne.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma != 1 )))
+                         or (:P454_IDFILIAL > 2 and ne.idfilial = :P454_IDFILIAL)) veiculos
+                   , (select pe.data
+                           , pe.valorpago valor
+                           , pe.observacao
+                        from pagamentosemprestimos pe
+                           , emprestimos em
+                       where pe.idemprestimo = em.idemprestimo
+                         and pe.valorpago > 0 
+                         and (:P454_IDFILIAL = -1 /*todos*/
+                         or (:P454_IDFILIAL = 1 and exists(select 1  /*brasil*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = em.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma = 1 ))
+                         or (:P454_FILIAL = 2 and exists(select 1 /*america latina*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = em.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma != 1 )))
+                         or (:P454_IDFILIAL > 2 and em.idfilial = :P454_IDFILIAL)) emprestimos
+                   , (select pb.data
+                           , pb.valorpago valor
+                           , pb.observacao
+                        from pagamentosnegociacoesbalanco pb
+                           , negociacoesbalanco nb
+                       where pb.idnegociacaobalanco = nb.idnegociacaobalanco
+                         and pb.valorpago > 0 
+                         and (:P454_IDFILIAL = -1 /*todos*/
+                         or (:P454_IDFILIAL = 1 and exists(select 1  /*brasil*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = nb.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma = 1 ))
+                         or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = nb.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma != 1 )))
+                         or (:P454_IDFILIAL > 2 and nb.idfilial = :P454_IDFILIAL)) balanco
+                   , (select chp.datapagamento data
+                           , chp.valor valor
+                           , chp.observacao
+                        from cheques2 ch
+                           , cheques2pgto chp
+                       where ch.idcheque = chp.idcheque
+                         and ch.semfundo = 'S'
+                         and chp.valor > 0 
+                         and (:P454_IDFILIAL = -1 /*todos*/
+                         or (:P454_IDFILIAL = 1 and exists(select 1  /*brasil*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = ch.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma = 1 ))
+                         or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = ch.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma != 1 )))
+                         or (:P454_IDFILIAL > 2 and ch.idfilial = :P454_IDFILIAL))cheque
+                   , (select em.data
+                           , em.valor
+                           , em.observacao
+                        from emprestimos em
+                       where em.valor > 0
+                         and not exists (select 1
+                                           from pagamentosemprestimos pe
+                                          where pe.idemprestimo = em.idemprestimo)
+                         and (:P454_IDFILIAL = -1 /*todos*/
+                         or (:P454_IDFILIAL = 1 and exists(select 1  /*brasil*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = em.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma = 1 ))
+                         or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = em.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma != 1 )))
+                         or (:P454_IDFILIAL > 2 and em.idfilial = :P454_IDFILIAL)) emprestimos_saida
+                   , (select ne.data
+                           , ne.valorpago valor
+                           , ne.observacao
+                        from negociacoes ne
+                       where ne.valorpago > 0
+                         and not exists ( select 1
+                                            from pagamentosnegociacoes pn
+                                           where pn.idnegociacao = ne.idnegociacao)
+                         and (:P454_IDFILIAL = -1 /*todos*/
+                         or (:P454_IDFILIAL = 1 and exists(select 1  /*brasil*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = ne.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma = 1 ))
+                         or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = ne.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma != 1 )))
+                         or (:P454_IDFILIAL > 2 and ne.idfilial = :P454_IDFILIAL)) veiculos_saida
+                  where d.data = veiculos.data(+)
+                    and d.data = emprestimos.data(+)
+                    and d.data = balanco.data(+)
+                    and d.data = cheque.data(+)
+                    and d.data = emprestimos_saida.data(+)
+                    and d.data = veiculos_saida.data(+)
+                    and (veiculos.valor > 0 or emprestimos.valor > 0 or balanco.valor > 0 or cheque.valor > 0 or emprestimos_saida.valor > 0 or veiculos_saida.valor > 0 )
+                    and d.data between :P454_DATAINICIO and :P454_DATAFIM
+                    and :P454_TIPO_RELATORIO = 'D'
+                group by d.data
+                order by d.data asc
+                /*select data
+                     , veiculos
+                     , emprestimos
+                     , balanco
+                     , cheque
+                     , emprestimos_saida
+                     , veiculos_saida
+                     , saldo
+                  from vw_extrato_movimentacoes_credrmc t
+                 where t.data between :P454_DATAINICIO and :P454_DATAFIM
+                   and :P454_TIPO_RELATORIO = 'D'
+                order by data asc*/
+                   
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            parentRegion: @negociações
+            slot: subRegions
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: never
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1506032236462891115
+        }
+
+        column BALANCO (
+            type: plainText
+            heading {
+                heading: <font color="green"><b>Balanços</b></font>
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column CHEQUE (
+            type: plainText
+            heading {
+                heading: <font color="green"><b>Cheques</b></font>
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column DATA (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/yyyy
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column EMPRESTIMOS (
+            type: plainText
+            heading {
+                heading: <font color="green"><b>Empréstimos</b></font>
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column EMPRESTIMOS_SAIDA (
+            type: plainText
+            heading {
+                heading: <font color="red"><b>Empréstimos</b></font>
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column VEICULOS (
+            type: plainText
+            heading {
+                heading: <font color="green"><b>Veículos</b></font>
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column VEICULOS_SAIDA (
+            type: plainText
+            heading {
+                heading: <font color="red"><b>Veículos</b></font>
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15061872 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn BALANCO (
+                sequence: 4
+            )
+
+            displayColumn CHEQUE (
+                sequence: 5
+            )
+
+            displayColumn DATA (
+                sequence: 1
+            )
+
+            displayColumn EMPRESTIMOS (
+                sequence: 3
+            )
+
+            displayColumn EMPRESTIMOS_SAIDA (
+                sequence: 6
+            )
+
+            displayColumn SALDO (
+                sequence: 8
+            )
+
+            displayColumn VEICULOS (
+                sequence: 2
+            )
+
+            displayColumn VEICULOS_SAIDA (
+                sequence: 7
+            )
+
+            highlight ir-condition (
+                name: Negativo
+                condition {
+                    column: SALDO
+                    operator: <
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #FF7755
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Positivo
+                condition {
+                    column: SALDO
+                    operator: >=
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #0B700B
+                }
+                execution {
+                    sequence: 11
+                }
+            )
+
+        )
+
+    )
+
+    region extrato-resumido-antigo (
+        name: Extrato Resumido (Antigo)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select data
+                     , (veiculos + emprestimos + balanco + cheque) entrada
+                     , (emprestimos_saida + veiculos_saida) saida
+                     , saldo
+                  from (
+                select d.data
+                     , sum(nvl(veiculos.valor,0)) veiculos
+                     , sum(nvl(emprestimos.valor,0)) emprestimos
+                     , sum(nvl(balanco.valor,0)) balanco
+                     , sum(nvl(cheque.valor,0)) cheque
+                     , sum(nvl(emprestimos_saida.valor,0)) emprestimos_saida
+                     , sum(nvl(veiculos_saida.valor,0)) veiculos_saida
+                     , sum((nvl(veiculos.valor,0) + nvl(emprestimos.valor,0) + nvl(balanco.valor,0) + nvl(cheque.valor,0)) - (nvl(emprestimos_saida.valor,0) + nvl(veiculos_saida.valor,0))) saldo
+                  from datasperiodos d
+                   , (select pn.datapagamento data
+                           , pn.valorpago valor
+                           , pn.observacao
+                        from pagamentosnegociacoes pn
+                           , negociacoes ne
+                       where pn.idnegociacao = ne.idnegociacao
+                         and pn.valorpago > 0 
+                         and (:P454_IDFILIAL = -1 /*todos*/
+                          or (:P454_IDFILIAL = 1 and exists(select 1  /*brasil*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = ne.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma = 1 ))
+                          or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = ne.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma != 1 )))
+                          or (:P454_IDFILIAL > 2 and ne.idfilial = :P454_IDFILIAL)) veiculos
+                   , (select pe.data
+                           , pe.valorpago valor
+                           , pe.observacao
+                        from pagamentosemprestimos pe
+                           , emprestimos em
+                       where pe.idemprestimo = em.idemprestimo
+                         and pe.valorpago > 0 
+                         and (:P454_IDFILIAL = -1 /*todos*/
+                         or (:P454_IDFILIAL = 1 and exists(select 1  /*brasil*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = em.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma = 1 ))
+                         or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = em.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma != 1 )))
+                         or (:P454_IDFILIAL > 2 and em.idfilial = :P454_IDFILIAL)) emprestimos
+                   , (select pb.data
+                           , pb.valorpago valor
+                           , pb.observacao
+                        from pagamentosnegociacoesbalanco pb
+                           , negociacoesbalanco nb
+                       where pb.idnegociacaobalanco = nb.idnegociacaobalanco
+                         and pb.valorpago > 0 
+                         and (:P454_IDFILIAL = -1 /*todos*/
+                         or (:P454_IDFILIAL = 1 and exists(select 1  /*brasil*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = nb.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma = 1 ))
+                         or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = nb.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma != 1 )))
+                        or (:P454_IDFILIAL > 2 and nb.idfilial = :P454_IDFILIAL)) balanco
+                   , (select chp.datapagamento data
+                           , chp.valor valor
+                           , chp.observacao
+                        from cheques2 ch
+                           , cheques2pgto chp
+                       where ch.idcheque = chp.idcheque
+                         and ch.semfundo = 'S'
+                         and chp.valor > 0 
+                         and (:P454_IDFILIAL = -1 /*todos*/
+                         or (:P454_IDFILIAL = 1 and exists(select 1  /*brasil*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = ch.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma = 1 ))
+                         or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = ch.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma != 1 )))
+                        or (:P454_IDFILIAL > 2 and ch.idfilial = :P454_IDFILIAL)) cheque
+                   , (select em.data
+                           , em.valor
+                           , em.observacao
+                        from emprestimos em
+                       where em.valor > 0
+                         and not exists (select 1
+                                           from pagamentosemprestimos pe
+                                          where pe.idemprestimo = em.idemprestimo)
+                         and (:P454_IDFILIAL = -1 /*todos*/
+                         or (:P454_IDFILIAL = 1 and exists(select 1  /*brasil*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = em.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma = 1 ))
+                         or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = em.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma != 1 )))
+                         or (:P454_IDFILIAL > 2 and em.idfilial = :P454_IDFILIAL)) emprestimos_saida
+                   , (select ne.data
+                           , ne.valorpago valor
+                           , ne.observacao
+                        from negociacoes ne
+                       where ne.valorpago > 0
+                         and not exists ( select 1
+                                            from pagamentosnegociacoes pn
+                                           where pn.idnegociacao = ne.idnegociacao)
+                         and (:P454_IDFILIAL = -1 /*todos*/
+                         or (:P454_IDFILIAL = 1 and exists(select 1  /*brasil*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = ne.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma = 1 ))
+                         or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                               from vw_filiais f
+                                                              where f.idfilial = ne.idfilial
+                                                                and f.idgrupo is not null
+                                                                and f.ididioma != 1 )))
+                         or (:P454_IDFILIAL > 2 and ne.idfilial = :P454_IDFILIAL)) veiculos_saida
+                  where d.data = veiculos.data(+)
+                    and d.data = emprestimos.data(+)
+                    and d.data = balanco.data(+)
+                    and d.data = cheque.data(+)
+                    and d.data = emprestimos_saida.data(+)
+                    and d.data = veiculos_saida.data(+)
+                    and (veiculos.valor > 0 or emprestimos.valor > 0 or balanco.valor > 0 or cheque.valor > 0 or emprestimos_saida.valor > 0 or veiculos_saida.valor > 0 )
+                    and d.data between :P454_DATAINICIO and :P454_DATAFIM
+                    and :P454_TIPO_RELATORIO = 'R'
+                group by d.data
+                order by d.data asc)
+                
+                /*select data
+                     , (veiculos + emprestimos + balanco + cheque) entrada
+                     , (emprestimos_saida + veiculos_saida) saida
+                     , saldo
+                  from vw_extrato_movimentacoes_credrmc t
+                 where t.data between :P454_DATAINICIO and :P454_DATAFIM
+                   and :P454_TIPO_RELATORIO = 'R'
+                order by data asc*/
+                   
+                ```
+        }
+        layout {
+            sequence: 10
+            parentRegion: @negociações
+            slot: subRegions
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: never
+        }
+        readOnly {
+            type: item=value
+            item: P454_TIPO_RELATORIO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1506031041163891103
+        }
+
+        column DATA (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/yyyy
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column ENTRADA (
+            type: plainText
+            heading {
+                heading: <font color="green"><b>Entrada</b></font>
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column SAIDA (
+            type: plainText
+            heading {
+                heading: <b><font color="red">Saída</font></b>
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15060996 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATA (
+                sequence: 1
+            )
+
+            displayColumn ENTRADA (
+                sequence: 2
+            )
+
+            displayColumn SAIDA (
+                sequence: 3
+            )
+
+            displayColumn SALDO (
+                sequence: 4
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region lançamentos-futuros (
+        name: Lançamentos Futuros
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select lan_fut.data
+                     , sum(lan_fut.valor) valor
+                  from( select pnb.data_vencimento data
+                             , pnb.valor
+                          from parcelanegociacaobalanco pnb
+                         where pnb.data_vencimento between trunc(sysdate) and trunc(sysdate)+30
+                           and pnb.situacao        = 'ABE'
+                        union
+                        select trunc(pe.datavencimento) data
+                             , pe.valorapagar valor 
+                          from parcelamentosemprestimos pe
+                         where pe.situacao = 'A'
+                           and trunc(pe.datavencimento) between trunc(sysdate) and trunc(sysdate)+30) lan_fut
+                group by lan_fut.data
+                order by lan_fut.data
+                ```
+        }
+        layout {
+            sequence: 10
+            parentRegion: @lançamentos-futuros-2
+            slot: subRegions
+            columnSpan: 3
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1506031604715891109
+        }
+
+        column DATA (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/yyyy
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column VALOR (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15061679 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATA (
+                sequence: 1
+            )
+
+            displayColumn VALOR (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    region lançamentos-futuros-2 (
+        name: Lançamentos Futuros
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region negociações (
+        name: Negociações
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region negociações-balanço-antigo (
+        name: Negociações Balanço (Antigo)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                -- Balanço
+                select data_negociacao
+                     , vl_negociado
+                     , vl_pago
+                     , greatest((vl_negociado - nvl(vl_pago,0)),0) vl_saldo
+                  from(
+                select trunc(ne.data) data_negociacao
+                     , sum(ne.valor) vl_negociado
+                     , sum(nvl((select nvl(sum(nvl(pn.valorpago,0)),0)
+                          from pagamentosnegociacoesbalanco pn
+                         where pn.idnegociacaobalanco = ne.idnegociacaobalanco),0)) vl_pago
+                  from negociacoesbalanco ne
+                 where nvl(ne.cancelado,'N') = 'N'
+                   and trunc(ne.data) between :P454_DATAINICIO and :P454_DATAFIM
+                   and (:P454_IDFILIAL = -1 --/*todos*/
+                    or (:P454_IDFILIAL = -2 and ne.idfilial is null)
+                    or (:P454_IDFILIAL = 1 and exists(select 1 --/*brasil*/
+                                                        from vw_filiais f
+                                                       where f.idfilial = ne.idfilial
+                                                         and f.idgrupo is not null
+                                                         and f.ididioma = 1))
+                    or (:P454_IDFILIAL = 2 and exists(select 1 --/*america latina*/
+                                                        from vw_filiais f
+                                                       where f.idfilial = ne.idfilial
+                                                         and f.idgrupo is not null
+                                                         and f.ididioma not in (1,5,9,10,11)))
+                    or (:P454_IDFILIAL > 2 and ne.idfilial = :P454_IDFILIAL))
+                   and (:P454_IDDISTRIBUIDOR = -1 or ne.idrepresentante = :P454_IDDISTRIBUIDOR)
+                   and :P454_TIPO_RELATORIO = 'R'
+                 group by trunc(ne.data))
+                order by data_negociacao
+                ```
+        }
+        layout {
+            sequence: 60
+            parentRegion: @negociações
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P454_TIPO_RELATORIO
+            value: R
+        }
+        readOnly {
+            type: item=value
+            item: P454_TIPO_RELATORIO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 3494658053391678532
+        }
+
+        column DATA_NEGOCIACAO (
+            type: plainText
+            heading {
+                heading: Data Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column VL_NEGOCIADO (
+            type: plainText
+            heading {
+                heading: Valor Negociado
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column VL_PAGO (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column VL_SALDO (
+            type: plainText
+            heading {
+                heading: Valor Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 34947197 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATA_NEGOCIACAO (
+                sequence: 1
+            )
+
+            displayColumn VL_NEGOCIADO (
+                sequence: 2
+            )
+
+            displayColumn VL_PAGO (
+                sequence: 3
+            )
+
+            displayColumn VL_SALDO (
+                sequence: 4
+            )
+
+            aggregate (
+                column: VL_NEGOCIADO
+            )
+
+            aggregate (
+                column: VL_PAGO
+            )
+
+            aggregate (
+                column: VL_SALDO
+            )
+
+        )
+
+    )
+
+    region resumido (
+        name: Resumido
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select * from (
+                select t.tp_negociacao
+                     , t.data_negociacao
+                     , t.vl_negociado
+                     , t.vl_pago
+                     , greatest((t.vl_negociado - t.vl_pago),0) vl_saldo
+                     , t.vl_atrasado
+                     , t.vl_vencido
+                from(
+                select 'Negociacoes' tp_negociacao
+                     , trunc(ne.data) data_negociacao
+                     , round((sum(ne.valor+nvl(ne.valorjuros,0)-nvl(ne.valordescontonegociacao,0))*ne.fatorconversao),2) vl_negociado
+                     , round(sum(nvl((select nvl(sum(nvl(pn.valorpago,0)),0)
+                                      from pagamentosnegociacoes pn
+                                     where pn.idnegociacao = ne.idnegociacao
+                                       and pn.situacao = 'Q'),0))*ne.fatorconversao,2) vl_pago
+                     , round(sum(nvl((select nvl(sum(nvl(pn.valorpago,0)),0)
+                                      from pagamentosnegociacoes pn
+                                     where pn.idnegociacao = ne.idnegociacao
+                                       and (trunc(sysdate) - trunc(pn.datapagamento)) <= 15
+                                       and pn.situacao = 'A'),0))*ne.fatorconversao,2) vl_atrasado
+                     , round(sum(nvl((select nvl(sum(nvl(pn.valorpago,0)),0)
+                                      from pagamentosnegociacoes pn
+                                     where pn.idnegociacao = ne.idnegociacao
+                                       --and (trunc(sysdate) - trunc(pn.datapagamento)) > 15
+                                       and pn.situacao = 'V'),0))*ne.fatorconversao,2) vl_vencido
+                  from negociacoes ne
+                     , tiposnegociacoes tn
+                 where ne.idtiponegociacao = tn.idtiponegociacao
+                   and trunc(ne.data) between :P454_DATAINICIO and :P454_DATAFIM
+                  and (:P454_IDFILIAL = -1 /*todos*/
+                    or (:P454_IDFILIAL = -2 and ne.idfilial is null) /*Negociacoes sem filial, diretas*/
+                    or (:P454_IDFILIAL = 1 and exists(select 1 /*brasil*/
+                                                        from vw_filiais f
+                                                       where f.idfilial = ne.idfilial
+                                                         and f.idgrupo is not null
+                                                         and f.ididioma = 1
+                                                      union
+                                                      select 1 /*Para casos de negociação sem idfilial*/
+                                                        from catal.pessoas pe
+                                                           , catal.paises pa
+                                                       where pe.idpais = pa.idpais
+                                                         and pe.idpessoa = ne.idpessoa
+                                                         and pa.idpais   = 1))
+                    or (:P454_IDFILIAL = 2 and exists(select 1 /*america latina*/
+                                                        from vw_filiais f
+                                                       where f.idfilial = ne.idfilial
+                                                         and f.idgrupo is not null
+                                                         and f.ididioma not in (1,5,9,10,11)
+                                                      union
+                                                      select 1 /*Para casos de negociação sem idfilial*/
+                                                        from catal.pessoas pe
+                                                           , catal.paises pa
+                                                       where pe.idpais = pa.idpais
+                                                         and pe.idpessoa = ne.idpessoa
+                                                         and pa.idpais   not in (1,5,9,10,11)))
+                    or (:P454_IDFILIAL > 2 and ne.idfilial = :P454_IDFILIAL))
+                   and (:P454_IDDISTRIBUIDOR = -1 or ne.idrepresentante = :P454_IDDISTRIBUIDOR)
+                   and :P454_TIPO_RELATORIO = 'R'
+                 group by 'Negociacoes'
+                        , trunc(ne.data)
+                        , ne.fatorconversao) 
+                t)
+                            PIVOT
+                            (
+                           sum(vl_negociado) as vl_negociado,
+                           sum(vl_pago) as vl_pago,
+                           sum(vl_saldo) as vl_saldo,
+                           sum(vl_atrasado) as vl_atrasado,
+                           sum(vl_vencido) as vl_vencido
+                          for tp_negociacao in ('Negociacoes')
+                            )
+                order by data_negociacao
+                
+                ```
+        }
+        layout {
+            sequence: 40
+            parentRegion: @negociações
+            slot: subRegions
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: item=value
+            item: P454_TIPO_RELATORIO
+            value: R
+        }
+        readOnly {
+            type: item=value
+            item: P454_TIPO_RELATORIO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 3494656569134678517
+        }
+
+        column 'Negociacoes'_VL_ATRASADO (
+            type: plainText
+            heading {
+                heading: Valor Vencido até 15d
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column 'Negociacoes'_VL_NEGOCIADO (
+            type: plainText
+            heading {
+                heading: Valor Negociado
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column 'Negociacoes'_VL_PAGO (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column 'Negociacoes'_VL_SALDO (
+            type: plainText
+            heading {
+                heading: Valor Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column 'Negociacoes'_VL_VENCIDO (
+            type: plainText
+            heading {
+                heading: Valor Vencido após 15d
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column DATA_NEGOCIACAO (
+            type: plainText
+            heading {
+                heading: Data Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 34946813 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "'Negociacoes'_VL_ATRASADO" (
+                sequence: 5
+            )
+
+            displayColumn "'Negociacoes'_VL_NEGOCIADO" (
+                sequence: 2
+            )
+
+            displayColumn "'Negociacoes'_VL_PAGO" (
+                sequence: 3
+            )
+
+            displayColumn "'Negociacoes'_VL_SALDO" (
+                sequence: 4
+            )
+
+            displayColumn "'Negociacoes'_VL_VENCIDO" (
+                sequence: 6
+            )
+
+            displayColumn DATA_NEGOCIACAO (
+                sequence: 1
+            )
+
+        )
+
+    )
+
+    pageItem P454_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Data Final Negociação
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/YYYY
+            width: 30
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P454_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: Data Inicial Negociação
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/YYYY
+            width: 30
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P454_IDDISTRIBUIDOR (
+        type: selectOne
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ' Todos' d, -1 r
+                from dual
+                union
+                select pck_romance.fnc_nomerepresentante(r.idrepresentante) d
+                     , r.idrepresentante r
+                from representantes r
+                where r.idgerente in ( select idgerente 
+                                      from gerentes g
+                                         , filiais fil
+                                      where g.idfilial = fil.idfilial
+                                        and ( :P454_IDFILIAL = -1  -- Todos
+                                          or ( :P454_IDFILIAL = 1 and fil.idgrupo != 5  ) -- Brasil
+                                          or ( :P454_IDFILIAL = 2 and fil.idgrupo  = 5  ) -- America Latina
+                                          or ( :P454_IDFILIAL > 2 and g.idfilial = :P454_IDFILIAL )))
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P454_IDFILIAL
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: static
+            staticValue: -1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P454_IDFILIAL (
+        type: selectOne
+        label {
+            label: Empresa
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select '   Todos', -1
+                from dual
+                union
+                select '  Sem Filial', -2
+                from dual
+                union
+                select ' Brasil', 1
+                from dual
+                union
+                select ' America Latina', 2
+                from dual
+                union
+                select nome
+                     , idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: static
+            staticValue: -1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P454_TIPO_RELATORIO (
+        type: radioGroup
+        label {
+            label: Tipo Relatorio
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Detalhado;D,Resumido;R
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: R
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button pesquisar (
+        buttonName: PESQUISAR
+        label: Pesquisar
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+)
+

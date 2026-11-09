@@ -1,0 +1,782 @@
+page 563 (
+    name: Analítico de Vencimentos e Pagamentos
+    alias: ANALITICO-VENCIMENTOS-PAGAMENTOS
+    title: Analítico de Vencimentos e Pagamentos
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+
+    region vencimentos-e-pagamentos-das-notas-filtros-da-lista-de-notas-fiscais (
+        name: Vencimentos e Pagamentos das Notas (filtros da Lista de Notas Fiscais)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select x.*
+                     , to_char(x.datapagamento,'MM/RRRR') mesanopagamento
+                from (
+                select nf.idnotafiscal
+                     , nf.documento
+                     , decode( nf.tiponota, 'T', 'Transferência'
+                                          , 'C', 'Compra'
+                                          , 'A', 'Abastecimento'
+                                          , 'R', 'Requisição Pgto'
+                                          , 'D', 'Despesa') tiponf
+                     , decode( nf.tiponota, 'T', pck_romance.fnc_nomefilial(pidfilial => nf.idfilialemitente )
+                                               , nvl( pck_romance.fnc_nomefornecedor(pidforn => nf.idfornemitente ) , pck_romance.fnc_nomefilial(pidfilial => nf.idfilialemitente ) ) ) emitente
+                     , ( select r.cnpj
+                         from roman.razoessociaisfornec r
+                         where r.idrazaosocialforn = nf.idrazaosocialfornemit ) cnpjemitente
+                     , pck_romance.fnc_nomefilial(pidfilial => nf.idfilialdestino ) filialdestino
+                     , ( select rf.razaosocial
+                         from roman.razoessociaisfiliais rf
+                         where rf.idrazaosocialfilial = nf.idrazaosocialfildestino ) razaosocialdestino
+                     , ( select rf.cnpj
+                         from roman.razoessociaisfiliais rf
+                         where rf.idrazaosocialfilial = nf.idrazaosocialfildestino ) cnpjrazaodestino
+                     , nf.dtnf
+                     , nf.datainclusao
+                     , decode(nf.situacao,'A','Ativa/Aprovado'
+                                         ,'C','Cancelada'
+                                         ,'P','Aguardando Aprovação'
+                                         ,'E','Aguardando Envio para Aprovação'
+                                         ,'U','Ajuste'
+                                         ,'Ativa') situacaonota
+                     , case when ex.idextratocontabancaria is not null then 'V2' else 'V1' end origem
+                     , v.idvencimento
+                     , v.datavencimento
+                     , v.valor                                              valororiginal
+                     , v.desconto
+                     , v.acrescimo
+                     , v.valor - nvl(v.desconto,0) + nvl(v.acrescimo,0)     valorvencimento
+                     , case
+                         when ex.idextratocontabancaria is not null then
+                           case when ex.datamovimento < trunc(sysdate) + 1 then 'Pago' else 'Em aberto' end
+                         when pg.databaixa is not null then 'Pago'
+                         else 'Em aberto'
+                       end situacaopagamento
+                     , case
+                         when ex.idextratocontabancaria is not null then
+                           case when ex.datamovimento < trunc(sysdate) + 1 then ex.datamovimento end
+                         else pg.databaixa
+                       end datapagamento
+                     , case
+                         when ex.idextratocontabancaria is not null then
+                           case when ex.datamovimento < trunc(sysdate) + 1 then v.valor - nvl(v.desconto,0) + nvl(v.acrescimo,0) end
+                         when pg.databaixa is not null then pg.valorpago
+                       end valorpago
+                     , ( select c.nomeconta
+                         from roman.contasfinanceiras c
+                         where c.idcontafinan = v.idcontafinanceira ) conta
+                     , ( select s.nomeconta
+                         from roman.subcontasfinanceiras s
+                         where s.idsubcontafinan = v.idsubcontafinanceira
+                           and s.idcontafinan    = v.idcontafinanceira ) subconta
+                     , decode(v.identificado,'S','Sim','N','Não') identificado
+                from roman.notasfiscais nf
+                join roman.vencimentos v                 on v.idnotafiscal  = nf.idnotafiscal
+                left join roman.pagamentosfornecedores pg on pg.idvencimento = v.idvencimento
+                -- V2: uma unica linha do extrato por vencimento (a primeira)
+                left join roman.extratoscontasbancarias ex on ex.idvencimento = v.idvencimento
+                                                         and not exists ( select 1
+                                                                          from roman.extratoscontasbancarias e2
+                                                                          where e2.idvencimento           = ex.idvencimento
+                                                                            and e2.idextratocontabancaria < ex.idextratocontabancaria )
+                -- Mesmos filtros da pagina 26 (Lista de Notas Fiscais)
+                where nf.tiponota in ( 'C', 'R', 'D', 'A')
+                  and nf.situacao != 'E'
+                  and (:P26_IDFORNECEDOR      is null or nf.idfornemitente = :P26_IDFORNECEDOR )
+                  and (:P26_TIPOFORNECEDOR is null
+                        or exists ( select 1
+                                      from fornecedores f
+                                     where f.idfornecedor = nf.idfornemitente
+                                       and f.tipo_fornecedor in ( select regexp_substr(:P26_TIPOFORNECEDOR, '[^/]+', 1, level)
+                                                                    from dual
+                                                                 connect by level <= regexp_count(:P26_TIPOFORNECEDOR, '/') + 1 ) ) )
+                  and (:P26_IDFILIALEMITENTE  is null or nf.idfilialemitente = :P26_IDFILIALEMITENTE   )
+                  and (:P26_DOCUMENTO         is null or trim(nf.documento) = trim(:P26_DOCUMENTO) )
+                  and (:P26_SEMANA            is null or nf.idsemananota  = :P26_SEMANA)
+                  and (:P26_ANO               = 0 or extract(year from nf.dtnf) = :P26_ANO )
+                  and (:P26_ORIGEM_VENCIMENTO = 9
+                    or (:P26_ORIGEM_VENCIMENTO = 1 and exists ( select 1
+                                                                from vencimentos v1
+                                                                where v1.idnotafiscal = nf.idnotafiscal )
+                                                   and not exists ( select 1
+                                                                    from extratoscontasbancarias ex1
+                                                                    where ex1.idnotafiscal = nf.idnotafiscal ) )
+                    or (:P26_ORIGEM_VENCIMENTO = 2 and exists ( select 1
+                                                                from extratoscontasbancarias ex2
+                                                                where ex2.idnotafiscal = nf.idnotafiscal ) ) )
+                  and (:P26_FILTRAR_DATA      = 'N' or trunc(nf.DATAINCLUSAO) between to_date(:P26_DATAINICIO) and to_date(:P26_DATAFIM) )
+                  and (:P26_TIPOFILIALDESTINO = 'X' or pck_romance.fnc_tipofilial(nf.idfilialdestino) = :P26_TIPOFILIALDESTINO )
+                  and (:P26_SITUACAORECEBIMENTO = 'T'
+                       or nf.situacaofilial = :P26_SITUACAORECEBIMENTO )
+                  and (:P26_TIPOPRODUTO       = 'T' 
+                       or ( :P26_TIPOPRODUTO       = 'V' and exists ( select 1
+                                                                      from itemnf it
+                                                                         , produtos p
+                                                                      where it.idnotafiscal = nf.idnotafiscal
+                                                                        and it.idproduto    = p.idproduto
+                                                                        and p.venda         = 'S' ) )
+                       or ( :P26_TIPOPRODUTO       = 'I' and exists ( select 1
+                                                                      from itemnf it
+                                                                         , produtos p
+                                                                      where it.idnotafiscal = nf.idnotafiscal
+                                                                        and it.idproduto    = p.idproduto
+                                                                        and p.venda         = 'N' ) ) )
+                ) x
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/blank-with-attributes
+            templateOptions: #DEFAULT#
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum vencimento encontrado para os filtros da Lista de Notas Fiscais.
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 2650563000000002
+        }
+
+        column ACRESCIMO (
+            type: plainText
+            heading {
+                heading: Acréscimo
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column CNPJEMITENTE (
+            type: plainText
+            heading {
+                heading: CNPJ Emitente
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column CNPJRAZAODESTINO (
+            type: plainText
+            heading {
+                heading: CNPJ Razao destino
+            }
+            layout {
+                sequence: 250
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column CONTA (
+            type: plainText
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 220
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column DATAINCLUSAO (
+            type: plainText
+            heading {
+                heading: Data Inclusão
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column DATAPAGAMENTO (
+            type: plainText
+            heading {
+                heading: Data Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column DATAVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Data Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column DESCONTO (
+            type: plainText
+            heading {
+                heading: Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column DOCUMENTO (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column DTNF (
+            type: plainText
+            heading {
+                heading: Data NF
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column EMITENTE (
+            type: plainText
+            heading {
+                heading: Emitente
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column FILIALDESTINO (
+            type: plainText
+            heading {
+                heading: Filial Destino
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column IDENTIFICADO (
+            type: plainText
+            heading {
+                heading: Identificado
+                alignment: center
+            }
+            layout {
+                sequence: 240
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column IDNOTAFISCAL (
+            type: link
+            heading {
+                heading: Nota
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 27
+                    items: {
+                        P27_IDNOTAFISCAL: #IDNOTAFISCAL#
+                    }
+                }
+                linkText: #IDNOTAFISCAL#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column IDVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Id Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column MESANOPAGAMENTO (
+            type: plainText
+            heading {
+                heading: Mês/Ano Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column ORIGEM (
+            type: plainText
+            heading {
+                heading: Origem
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column RAZAOSOCIALDESTINO (
+            type: plainText
+            heading {
+                heading: Razão Social Destino
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column SITUACAONOTA (
+            type: plainText
+            heading {
+                heading: Situação Nota
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column SITUACAOPAGAMENTO (
+            type: plainText
+            heading {
+                heading: Situação Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column SUBCONTA (
+            type: plainText
+            heading {
+                heading: Sub Conta
+                alignment: center
+            }
+            layout {
+                sequence: 230
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column TIPONF (
+            type: plainText
+            heading {
+                heading: Tipo NF
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column VALORORIGINAL (
+            type: plainText
+            heading {
+                heading: Valor Original
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column VALORPAGO (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column VALORVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Valor Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 2650563 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CNPJRAZAODESTINO (
+                sequence: 7
+            )
+
+            displayColumn CONTA (
+                sequence: 18
+            )
+
+            displayColumn DATAPAGAMENTO (
+                sequence: 15
+            )
+
+            displayColumn DATAVENCIMENTO (
+                sequence: 12
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 2
+            )
+
+            displayColumn DTNF (
+                sequence: 8
+            )
+
+            displayColumn EMITENTE (
+                sequence: 4
+            )
+
+            displayColumn FILIALDESTINO (
+                sequence: 5
+            )
+
+            displayColumn IDNOTAFISCAL (
+                sequence: 1
+            )
+
+            displayColumn IDVENCIMENTO (
+                sequence: 11
+            )
+
+            displayColumn MESANOPAGAMENTO (
+                sequence: 17
+            )
+
+            displayColumn ORIGEM (
+                sequence: 10
+            )
+
+            displayColumn RAZAOSOCIALDESTINO (
+                sequence: 6
+            )
+
+            displayColumn SITUACAONOTA (
+                sequence: 9
+            )
+
+            displayColumn SITUACAOPAGAMENTO (
+                sequence: 14
+            )
+
+            displayColumn SUBCONTA (
+                sequence: 19
+            )
+
+            displayColumn TIPONF (
+                sequence: 3
+            )
+
+            displayColumn VALORPAGO (
+                sequence: 16
+            )
+
+            displayColumn VALORVENCIMENTO (
+                sequence: 13
+            )
+
+            sort (
+                column: IDNOTAFISCAL
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: DATAVENCIMENTO
+                sort {
+                    sequence: 2
+                }
+            )
+
+            aggregate (
+                column: VALORVENCIMENTO
+            )
+
+            aggregate (
+                column: VALORPAGO
+            )
+
+            filter ir-condition (
+                column: SITUACAONOTA
+                operator: !=
+                value: Cancelada
+            )
+
+        )
+
+    )
+
+    button voltar (
+        buttonName: VOLTAR
+        label: Voltar para Lista de Notas Fiscais
+        layout {
+            sequence: 10
+            region: @vencimentos-e-pagamentos-das-notas-filtros-da-lista-de-notas-fiscais
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+            icon: fa-arrow-left
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 26
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+)
+

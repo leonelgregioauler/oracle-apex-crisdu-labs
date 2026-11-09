@@ -1,0 +1,680 @@
+page 485 (
+    name: Comparativo Compra x Faturamento
+    title: Comparativo Compra x Faturamento
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region comparativo (
+        name: Comparativo
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select t.empresa
+                     , t.idrazao
+                     , t.cnpj
+                     , t.idfilial
+                     , t.franquia
+                     , t.mes_ano
+                     , t.compra
+                     , t.venda
+                     , t.devolucao
+                     , t.venda - t.devolucao as faturamento_liquido
+                     , t.despesas
+                from ( 
+                select rf.razaosocial empresa
+                     , rf.idrazaosocialfilial idrazao
+                     , rf.cnpj
+                     , f.idfilial 
+                     , f.nome franquia
+                     , to_char(dt.data,'MM/RRRR') mes_ano
+                     , pck_financeiro_rmc.fnc_retornavaloresrazoesfiliais(pidrazaosocialfilial => rf.idrazaosocialfilial,
+                                                                          pidfilial            => f.idfilial,
+                                                                          pperiodo             => to_char(dt.data,'MM/RRRR'),
+                                                                          ptipo                => 'C')  compra
+                     /*, pck_financeiro_rmc.fnc_retornavaloresrazoesfiliais(pidrazaosocialfilial => rf.idrazaosocialfilial,
+                                                                          pidfilial            => f.idfilial,
+                                                                          pperiodo             => to_char(dt.data,'MM/RRRR'),
+                                                                          ptipo                => 'V')  venda*/
+                     , (select sum(i.valortotalbruto-(nvl(i.valordesconto,0)+nvl(i.valordespesasacessorias,0)))
+                        from crisdu.notasfiscais n
+                           , crisdu.itensnotasfiscais i
+                        where i.idnotafiscal = n.idnotafiscal
+                          and i.cfop in (5101,5102,5122, 5124,5405,6101,6102,6107,6108,6109,6110, 6122, 6124,7101,7102,7127)
+                          and to_char(n.dataemissao,'MM/RRRR') = to_char(dt.data,'MM/RRRR')
+                          and n.idpedidofavorita is null
+                          and n.idsituacao != -1 --CANCELADA
+                          and exists ( select 1
+                                       from crisdu.razoessociais r
+                                          , roman.razoessociaisfiliais z
+                                       where regexp_replace(r.cnpj, '[^0-9]', '') = regexp_replace(z.cnpj, '[^0-9]', '')
+                                         and z.idrazaosocialfilial = rf.idrazaosocialfilial 
+                                         and z.idfilial = f.idfilial
+                                         and r.idrazaosocial = n.idrazaosocialemitente )) Venda    
+                     , pck_financeiro_rmc.fnc_retornavaloresrazoesfiliais(pidrazaosocialfilial => rf.idrazaosocialfilial,
+                                                                          pidfilial            => f.idfilial,
+                                                                          pperiodo             => to_char(dt.data,'MM/RRRR'),
+                                                                          ptipo                => 'D')  devolucao
+                     , pck_financeiro_rmc.fnc_retornavaloresrazoesfiliais(pidrazaosocialfilial => rf.idrazaosocialfilial,
+                                                                          pidfilial            => f.idfilial,
+                                                                          pperiodo             => to_char(dt.data,'MM/RRRR'),
+                                                                          ptipo                => 'DP')  despesas
+                from vw_filiais f
+                   , razoessociaisfiliais rf
+                   , datasperiodos dt
+                where rf.idfilial = f.idfilial
+                  and f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and ( :P485_IDFILIAL = -1 or f.idfilial = :P485_IDFILIAL )
+                  and rf.ativo = 'S'
+                  and rf.principal = 'S'
+                  and dt.ano >= 2023
+                  and rf.cnpj is not null
+                  and rf.razaosocial is not null
+                  and dt.ano <= extract(year from sysdate)
+                  and dt.data between to_date(:P485_DATAINICIO,'DD/MM/RRRR') and to_date(:P485_DATAFIM,'DD/MM/RRRR')
+                  and :P485_FILTRAR = 'S'
+                  and (:P485_IDFILIAL != -1 and exists (select 1
+                                                        from roman.usuariosfiliais u
+                                                        where u.idfilial = f.idfilial
+                                                          and u.usuario = v('APP_USER')) --v('APP_USER'))
+                   or (:P485_IDFILIAL = -1 and exists (select 1
+                                                       from usuariosgruposatendimento ug
+                                                       where ug.idgrupoatendimento in (0,69)
+                                                         and ug.usuario = v('APP_USER')))
+                   or v('APP_USER') = 'CESARH'      )
+                group by rf.razaosocial
+                       , rf.idrazaosocialfilial
+                       , f.idfilial
+                       , f.nome
+                       , to_char(dt.data,'MM/RRRR')
+                       , rf.cnpj ) t
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado, verifique os filtros e tente novamente!
+        }
+        advanced {
+            savedReportMappingIdentifier: 2944295071707690415
+        }
+
+        column CNPJ (
+            type: plainText
+            heading {
+                heading: Cnpj
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column COMPRA (
+            type: link
+            heading {
+                heading: Compra
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            link {
+                target: {
+                    page: 490
+                    items: {
+                        P490_IDRAZAOSOCIAL: #IDRAZAO#
+                        P490_MESANO: #MES_ANO#
+                        P490_TIPO: C
+                    }
+                }
+                linkText: #COMPRA#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column DESPESAS (
+            type: link
+            heading {
+                heading: Despesas
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            link {
+                target: {
+                    page: 490
+                    items: {
+                        P490_IDRAZAOSOCIAL: #IDRAZAO#
+                        P490_TIPO: DP
+                        P490_MESANO: #MES_ANO#
+                    }
+                }
+                linkText: #DESPESAS#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression: pck_util.fnc_verificaacesso(3251,v('APP_USER')) = 'S'
+            }
+        )
+
+        column DEVOLUCAO (
+            type: link
+            heading {
+                heading: Devolução
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            link {
+                target: {
+                    page: 490
+                    items: {
+                        P490_IDRAZAOSOCIAL: #IDRAZAO#
+                        P490_MESANO: #MES_ANO#
+                        P490_TIPO: D
+                    }
+                }
+                linkText: #DEVOLUCAO#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression: pck_util.fnc_verificaacesso(3251,v('APP_USER')) = 'S'
+            }
+        )
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column FATURAMENTO_LIQUIDO (
+            type: plainText
+            heading {
+                heading: Faturamento Liquido
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression: pck_util.fnc_verificaacesso(3251,v('APP_USER')) = 'S'
+            }
+        )
+
+        column FRANQUIA (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column IDFILIAL (
+            type: plainText
+            heading {
+                heading: Idfilial
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column IDRAZAO (
+            type: plainText
+            heading {
+                heading: Idrazao
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column MES_ANO (
+            type: plainText
+            heading {
+                heading: Mes Ano
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column VENDA (
+            type: link
+            heading {
+                heading: Venda
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            link {
+                target: {
+                    page: 490
+                    items: {
+                        P490_IDRAZAOSOCIAL: #IDRAZAO#
+                        P490_MESANO: #MES_ANO#
+                        P490_TIPO: V
+                    }
+                }
+                linkText: #VENDA#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression: pck_util.fnc_verificaacesso(3251,v('APP_USER')) = 'S'
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 34271313 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CNPJ (
+                sequence: 3
+            )
+
+            displayColumn COMPRA (
+                sequence: 5
+            )
+
+            displayColumn DESPESAS (
+                sequence: 8
+            )
+
+            displayColumn DEVOLUCAO (
+                sequence: 7
+            )
+
+            displayColumn EMPRESA (
+                sequence: 2
+            )
+
+            displayColumn FATURAMENTO_LIQUIDO (
+                sequence: 9
+            )
+
+            displayColumn FRANQUIA (
+                sequence: 1
+            )
+
+            displayColumn MES_ANO (
+                sequence: 4
+            )
+
+            displayColumn VENDA (
+                sequence: 6
+            )
+
+            sort (
+                column: MES_ANO
+                sort {
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: EMPRESA
+                sort {
+                    sequence: 2
+                }
+            )
+
+            aggregate (
+                column: COMPRA
+            )
+
+            aggregate (
+                column: VENDA
+            )
+
+            aggregate (
+                column: DEVOLUCAO
+            )
+
+            aggregate (
+                column: APXWS_CC_001
+            )
+
+            aggregate (
+                column: FATURAMENTO_LIQUIDO
+            )
+
+            aggregate (
+                column: DESPESAS
+            )
+
+            controlBreak (
+                column: FRANQUIA
+                layout {
+                    sequence: 1
+                }
+            )
+
+            controlBreak (
+                column: EMPRESA
+                layout {
+                    sequence: 2
+                }
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P485_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P485_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P485_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P485_IDFILIAL (
+        type: selectList
+        label {
+            label: Franquia
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from roman.vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and f.idgrupo is not null
+                  and (/*:P485_IDFILIAL != -1 and */exists (select 1
+                                                        from roman.usuariosfiliais u
+                                                        where u.idfilial = f.idfilial
+                                                          and u.usuario = v('APP_USER')) --v('APP_USER'))
+                   or (/*:P485_IDFILIAL = -1 and */exists (select 1
+                                                       from usuariosgruposatendimento ug
+                                                       where ug.idgrupoatendimento in (0,69)
+                                                         and ug.usuario = v('APP_USER'))))
+                ```
+            nullDisplayValue: -Todas as Filiais-
+            nullReturnValue: -1
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 485
+                items: {
+                    P485_DATAINICIO: &P485_DATAINICIO.
+                    P485_DATAFIM: &P485_DATAFIM.
+                    P485_IDFILIAL: &P485_IDFILIAL.
+                    P485_FILTRAR: S
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

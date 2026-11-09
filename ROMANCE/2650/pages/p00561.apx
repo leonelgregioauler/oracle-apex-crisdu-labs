@@ -1,0 +1,929 @@
+page 561 (
+    name: Envio de Saldo por Fornecedor
+    title: Envio de Saldo por Fornecedor
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+    help {
+        helpText: Selecione os fornecedores cujo saldo deseja enviar por e-mail. Marque os desejados e clique em "Agendar Envio".
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region fornecedores-saldo-do-mês (
+        name: Fornecedores — Saldo do Mês
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select
+                    apex_item.checkbox2(1, p.idpessoa,
+                        'class="sel-fornecedor"' ||
+                        case when fila.status = 'PENDENTE' then ' disabled' end
+                    ) as selecionar,
+                    initcap(p.nomepessoa)  as nome,
+                    p.email                as email,
+                    tf.descricao           as tipo_fornecedor,
+                    ( select sum(sf2.considerar)
+                      from vw_saldo_fornecedores sf2
+                      inner join contasbancarias cb2 on cb2.idcontabanc = sf2.idcontabancaria
+                                                    and cb2.idpessoa    = p.idpessoa
+                      where to_char(sf2.datamovimento,'MM/RRRR') = to_char(sysdate,'MM/RRRR')
+                        and sf2.datamovimento <= trunc(sysdate)
+                    ) as saldo_mes_atual,
+                    ( select sum(sf3.considerar)
+                      from vw_saldo_fornecedores sf3
+                      inner join contasbancarias cb3 on cb3.idcontabanc = sf3.idcontabancaria
+                                                    and cb3.idpessoa    = p.idpessoa
+                      where to_char(sf3.datamovimento,'MM/RRRR') <= to_char(sysdate,'MM/RRRR')
+                        and sf3.datamovimento <= trunc(sysdate)
+                        and extract(year from sf3.datamovimento) = extract(year from sysdate)
+                    ) as saldo_acumulado_ano,
+                    case fila.status
+                        when 'PENDENTE'    then '<span class="t-Badge t-Badge--warning">Aguardando Envio</span>'
+                        when 'PROCESSANDO' then '<span class="t-Badge t-Badge--info">Processando</span>'
+                        when 'ENVIADO'     then '<span class="t-Badge t-Badge--success">Enviado</span>'
+                        when 'ERRO'        then '<span class="t-Badge t-Badge--danger">Erro no Envio</span>'
+                        else null
+                    end as situacao_fila,
+                    (
+                      select max(v.datavencimento)
+                      from notasfiscais nf
+                         , vencimentos   v
+                         , extratoscontasbancarias ex
+                      where nf.idnotafiscal   = v.idnotafiscal
+                        and nf.idfornemitente = f.idfornecedor
+                        and ex.idvencimento   = v.idvencimento
+                        and v.datavencimento >= trunc(add_months(sysdate,-1),'MM')   -- 1º dia do mês anterior
+                        and v.datavencimento <  add_months(trunc(sysdate,'MM'),1)    -- 1º dia do mês seguinte
+                    ) data_ultima_fatura,
+                    ( select max(fe.dt_processado)
+                      from fila_envio_saldo fe
+                      where fe.idpessoa = p.idpessoa
+                        and fe.status   = 'ENVIADO'
+                    ) dt_ultimo_envio
+                from pessoas p
+                inner join fornecedores f on f.idpessoa = p.idpessoa
+                inner join valorsiglasistema tf on tf.sigla = f.tipo_fornecedor
+                inner join siglasistema      ss on ss.idsiglasistema = tf.idsiglasistema
+                                                     and ss.nomesigla = 'TIPO_FORNECEDOR'
+                left join (
+                    select idpessoa, status
+                    from fila_envio_saldo
+                    where status in ('PENDENTE','PROCESSANDO')
+                    and rowid in (
+                        select min(rowid)
+                        from fila_envio_saldo
+                        where status in ('PENDENTE','PROCESSANDO')
+                        group by idpessoa
+                    )
+                ) fila on fila.idpessoa = p.idpessoa
+                where exists (
+                    select 1 from contasbancarias cb where cb.idpessoa = p.idpessoa
+                )
+                  and ( f.tipo_fornecedor = :P561_TIPO_FORNECEDOR )
+                  and f.ativo = 'S'
+                  and :P561_TIPO_FORNECEDOR is not null
+                order by tipo_fornecedor, nome
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <div style="margin-bottom:10px;display:flex;align-items:center;gap:16px;">
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;">
+                    <input type="checkbox" id="toggle-all-forn"> Selecionar todos
+                  </label>
+                  <span style="font-size:12px;color:#555;">
+                    Fornecedores com badge <strong>Aguardando Envio</strong> j&aacute; est&atilde;o na fila.
+                  </span>
+                </div>
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        download {
+            formats: [
+                csv
+                excel
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 5610000000000000031
+        }
+
+        column DATA_ULTIMA_FATURA (
+            type: plainText
+            heading {
+                heading: Data Ultima Fatura
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column DT_ULTIMO_ENVIO (
+            type: plainText
+            heading {
+                heading: Último Envio
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column EMAIL (
+            type: plainText
+            heading {
+                heading: E-mail
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column NOME (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column SALDO_ACUMULADO_ANO (
+            type: plainText
+            heading {
+                heading: Saldo Acumulado Ano
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column SALDO_MES_ATUAL (
+            type: plainText
+            heading {
+                heading: Saldo do Mês
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column SELECIONAR (
+            type: plainText
+            heading {
+                heading: Sel.
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+            enableUsersTo {
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SITUACAO_FILA (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+            enableUsersTo {
+                sort: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TIPO_FORNECEDOR (
+            type: plainText
+            heading {
+                heading: Tipo
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 56100000 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 500
+            }
+
+            displayColumn DATA_ULTIMA_FATURA (
+                sequence: 5
+            )
+
+            displayColumn DT_ULTIMO_ENVIO (
+                sequence: 9
+            )
+
+            displayColumn EMAIL (
+                sequence: 3
+            )
+
+            displayColumn NOME (
+                sequence: 2
+            )
+
+            displayColumn SALDO_ACUMULADO_ANO (
+                sequence: 7
+            )
+
+            displayColumn SALDO_MES_ATUAL (
+                sequence: 6
+            )
+
+            displayColumn SELECIONAR (
+                sequence: 1
+            )
+
+            displayColumn SITUACAO_FILA (
+                sequence: 8
+            )
+
+            displayColumn TIPO_FORNECEDOR (
+                sequence: 4
+            )
+
+        )
+
+    )
+
+    region histórico-de-envios (
+        name: Histórico de Envios
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select
+                    id,
+                    nome_fornecedor,
+                    email,
+                    status,
+                    tentativas,
+                    to_char(dt_solicitacao,'DD/MM/RRRR HH24:MI') as dt_solicitacao,
+                    to_char(dt_processado, 'DD/MM/RRRR HH24:MI') as dt_processado,
+                    usuario_apex,
+                    obs
+                from fila_envio_saldo
+                order by dt_solicitacao desc
+                fetch first 50 rows only
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        advanced {
+            savedReportMappingIdentifier: 5610000000000000081
+        }
+
+        column DT_PROCESSADO (
+            type: plainText
+            heading {
+                heading: Processado em
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column DT_SOLICITACAO (
+            type: plainText
+            heading {
+                heading: Solicitado em
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column EMAIL (
+            type: plainText
+            heading {
+                heading: E-mail
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column ID (
+            type: plainText
+            heading {
+                heading: ID
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column NOME_FORNECEDOR (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column OBS (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column STATUS (
+            type: plainText
+            heading {
+                heading: Status
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column TENTATIVAS (
+            type: plainText
+            heading {
+                heading: Tentativas
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column USUARIO_APEX (
+            type: plainText
+            heading {
+                heading: Usuário
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        savedReport 56100001 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DT_PROCESSADO (
+                sequence: 7
+            )
+
+            displayColumn DT_SOLICITACAO (
+                sequence: 6
+            )
+
+            displayColumn EMAIL (
+                sequence: 3
+            )
+
+            displayColumn ID (
+                sequence: 1
+            )
+
+            displayColumn NOME_FORNECEDOR (
+                sequence: 2
+            )
+
+            displayColumn OBS (
+                sequence: 9
+            )
+
+            displayColumn STATUS (
+                sequence: 4
+            )
+
+            displayColumn TENTATIVAS (
+                sequence: 5
+            )
+
+            displayColumn USUARIO_APEX (
+                sequence: 8
+            )
+
+        )
+
+    )
+
+    pageItem P561_TIPO_FORNECEDOR (
+        type: selectList
+        label {
+            label: Tipo de Fornecedor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select v.descricao display_value
+                     , v.sigla     return_value
+                from siglasistema s
+                   , valorsiglasistema v
+                where s.idsiglasistema = v.idsiglasistema
+                  and s.nomesigla      = 'TIPO_FORNECEDOR'
+                order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button agendar-envio (
+        buttonName: AGENDAR_ENVIO
+        label: Agendar Envio
+        layout {
+            sequence: 10
+            region: @fornecedores-saldo-do-mês
+            slot: belowBox
+            horizontalAlignment: left
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+            icon: fa-paper-plane
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Buscar
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction colorir-saldo (
+        name: Colorir Saldo
+        execution {
+            sequence: 20
+        }
+        when {
+            event: apexafterrefresh
+            selectionType: region
+            region: @fornecedores-saldo-do-mês
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    // Injeta CSS uma unica vez
+                    if (!document.getElementById('p561-css')) {
+                        var s = document.createElement('style');
+                        s.id = 'p561-css';
+                        s.textContent = '.saldo-negativo{color:#c53030!important;font-weight:700}'
+                            + '.saldo-positivo{color:#276749!important;font-weight:700}'
+                            + '.t-Badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}'
+                            + '.t-Badge--warning{background:#ffc107;color:#333}'
+                            + '.t-Badge--info{background:#17a2b8;color:#fff}'
+                            + '.t-Badge--success{background:#28a745;color:#fff}'
+                            + '.t-Badge--danger{background:#dc3545;color:#fff}';
+                        document.head.appendChild(s);
+                    }
+                    // Colorir celulas de saldo
+                    $('.a-IRR-table td[headers*="SALDO_MES_ATUAL"]').each(function(){
+                        var txt = $(this).text().replace(/\./g,'').replace(',','.').trim();
+                        var val = parseFloat(txt);
+                        if (!isNaN(val)) {
+                            $(this).toggleClass('saldo-negativo', val < 0);
+                            $(this).toggleClass('saldo-positivo', val >= 0);
+                        }
+                    });
+                    ```
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction toggle-selecionar-todos (
+        name: Toggle Selecionar Todos
+        execution {
+            sequence: 10
+            eventScope: dynamic
+        }
+        when {
+            selectionType: jQuerySelector
+            jquerySelector: #toggle-all-forn
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    var chk = $(this.triggeringElement).prop('checked');
+                    $('.sel-fornecedor:not([disabled])').prop('checked', chk);
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process inserir-na-fila-de-envio (
+        name: Inserir na Fila de Envio
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                DECLARE
+                    l_ids   apex_application_global.vc_arr2;
+                    l_cnt   NUMBER := 0;
+                BEGIN
+                    l_ids := apex_application.g_f01;
+                
+                    IF l_ids.COUNT = 0 THEN
+                        apex_error.add_error(
+                            p_message          => 'Nenhum fornecedor selecionado.',
+                            p_display_location => apex_error.c_on_error_page
+                        );
+                        RETURN;
+                    END IF;
+                
+                    FOR i IN 1..l_ids.COUNT LOOP
+                        MERGE INTO fila_envio_saldo tgt
+                        USING (
+                            SELECT TO_NUMBER(l_ids(i))  AS idpessoa,
+                                   initcap(p.nomepessoa) AS nome,
+                                   p.email               AS email
+                            FROM   pessoas p
+                            WHERE  p.idpessoa = TO_NUMBER(l_ids(i))
+                        ) src
+                        ON ( tgt.idpessoa = src.idpessoa
+                             AND tgt.status IN ('PENDENTE','PROCESSANDO') )
+                        WHEN NOT MATCHED THEN
+                            INSERT (idpessoa, nome_fornecedor, email, status, usuario_apex)
+                            VALUES (src.idpessoa, src.nome, src.email, 'PENDENTE', :APP_USER);
+                
+                        l_cnt := l_cnt + SQL%ROWCOUNT;
+                    END LOOP;
+                
+                    COMMIT;
+                
+                    IF l_cnt > 0 THEN
+                        DECLARE
+                            l_resp CLOB;
+                        BEGIN
+                            l_resp := apex_web_service.make_rest_request(
+                                p_url         => 'https://n8n.romancemoda.com.br/webhook/relatorio-saldo-bancario',
+                                p_http_method => 'POST'
+                            );
+                        EXCEPTION
+                            WHEN OTHERS THEN NULL;
+                        END;
+                    END IF;
+                
+                    apex_application.g_print_success_message :=
+                        l_cnt || CASE l_cnt WHEN 1 THEN ' fornecedor adicionado'
+                                            ELSE ' fornecedores adicionados' END ||
+                        ' à fila de envio.' ||
+                        CASE WHEN l_cnt < l_ids.COUNT
+                             THEN ' ' || (l_ids.COUNT - l_cnt) || ' já estavam na fila e foram ignorados.'
+                             ELSE '' END;
+                
+                EXCEPTION
+                    WHEN OTHERS THEN
+                        ROLLBACK;
+                        apex_error.add_error(
+                            p_message          => 'Erro ao agendar envio: ' || SQLERRM,
+                            p_display_location => apex_error.c_on_error_page
+                        );
+                END;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 5610000000000000070
+        }
+        serverSideCondition {
+            whenButtonPressed: @agendar-envio
+        }
+    )
+
+    branch (
+        name: Recarregar Filtro
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 561
+                items: {
+                    P561_TIPO_FORNECEDOR: &P561_TIPO_FORNECEDOR.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @buscar
+        }
+    )
+
+    branch (
+        name: Recarregar Apos Agendar
+        execution {
+            sequence: 20
+        }
+        behavior {
+            target: {
+                page: 561
+                items: {
+                    P561_TIPO_FORNECEDOR: &P561_TIPO_FORNECEDOR.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @agendar-envio
+        }
+    )
+
+)
+

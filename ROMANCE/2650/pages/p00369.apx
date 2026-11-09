@@ -1,0 +1,338 @@
+page 369 (
+    name: Liberar Sync sem Revisão de Depósitos
+    title: Liberar Sync sem Revisão de Depósitos
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region liberação-de-todas-filiais (
+        name: Liberação de Todas Filiais
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region sync-com-revisão (
+        name: Sync Com Revisão?
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText: <font color="blue"><b>Caso esteja "SIM" , significa que não será necessário a revisão das fotos para realizar o SYNC. Caso esteja "NÃO", será necessário a revisão das fotos!</b></font>
+        }
+    )
+
+    pageItem P369_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nome
+                     , idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and f.idgrupo != 5
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @sync-com-revisão
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P369_PARAMETRO (
+        type: selectList
+        label {
+            label: Sync Liberado ?
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select decode(p.valor,'N','Não','S','Sim') d
+                     , p.valor r
+                from parametros p
+                where p.idfilial = :P369_IDFILIAL
+                  and p.nome = 'LIBERASYNCSEMREVISAO'
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        cascadingLov {
+            parentItems: P369_IDFILIAL
+        }
+        layout {
+            sequence: 20
+            region: @sync-com-revisão
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button bloquear-sync (
+        buttonName: BLOQUEAR_SYNC
+        label: Bloquear Sync
+        layout {
+            sequence: 10
+            region: @sync-com-revisão
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button bloquear-sync-todos (
+        buttonName: BLOQUEAR_SYNC_TODOS
+        label: Bloquear Sync Todos
+        layout {
+            sequence: 10
+            region: @liberação-de-todas-filiais
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button liberar-sync (
+        buttonName: LIBERAR_SYNC
+        label: Liberar Sync
+        layout {
+            sequence: 30
+            region: @sync-com-revisão
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button liberar-sync-todos (
+        buttonName: LIBERAR_SYNC_TODOS
+        label: Liberar Sync Todos
+        layout {
+            sequence: 20
+            region: @liberação-de-todas-filiais
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction refresh-item (
+        name: Refresh item
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P369_IDFILIAL
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: items
+                items: P369_PARAMETRO
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process atualiza-parametros (
+        name: Atualiza Parametros
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vvalor varchar2(1);
+                begin
+                  --
+                  if v('REQUEST') = 'BLOQUEAR_SYNC' then
+                    --
+                    vvalor := 'N';
+                    --
+                  elsif v('REQUEST') = 'LIBERAR_SYNC' then
+                    --
+                    vvalor := 'S';
+                    --
+                  end if;
+                  --
+                  update parametros p
+                  set p.valor = vvalor
+                  where p.nome = 'LIBERASYNCSEMREVISAO'
+                    and p.idfilial = :P369_IDFILIAL;
+                  --
+                  commit;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Processo atualizado com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 4413696487913095344
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: v('REQUEST') = 'BLOQUEAR_SYNC' or v('REQUEST') = 'LIBERAR_SYNC'
+        }
+    )
+
+    process atualiza-parametros-todos (
+        name: Atualiza Parametros Todos
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vvalor varchar2(1);
+                begin
+                  --
+                  if v('REQUEST') = 'BLOQUEAR_SYNC_TODOS' then
+                    --
+                    update parametros p
+                    set p.valor = 'N'
+                    where p.nome = 'LIBERASYNCSEMREVISAO'
+                      and exists ( select 1
+                                   from vw_filiais f
+                                   where f.idfilial = p.idfilial
+                                     and f.idgrupo != 5 );
+                    --
+                  elsif v('REQUEST') = 'LIBERAR_SYNC_TODOS' then
+                    --
+                    update parametros p
+                    set p.valor = 'S'
+                    where p.nome = 'LIBERASYNCSEMREVISAO'
+                      and exists ( select 1
+                                   from vw_filiais f
+                                   where f.idfilial = p.idfilial
+                                     and f.idgrupo != 5 );
+                    --
+                  end if;
+                  --
+                  commit;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: Processo atualizado com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 6138018337418544008
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: v('REQUEST') = 'BLOQUEAR_SYNC_TODOS' or v('REQUEST') = 'LIBERAR_SYNC_TODOS'
+        }
+    )
+
+)
+

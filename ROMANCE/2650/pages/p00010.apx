@@ -1,0 +1,1932 @@
+page 10 (
+    name: Lista de Produtos
+    title: Lista de Produtos
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    css {
+        inline:
+            ```css
+            .img_produto {
+                position: relative;
+                max-width: 210px;
+                width: 70%;
+            }
+            
+            .img_produto_2 {
+                position: relative;
+                max-width: 152px;
+                width: 60%;
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            parentRegion: @geral
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+    )
+
+    region geral (
+        name: Geral
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression:
+                ```sql
+                exists ( select 1
+                         from usuariosgruposatendimento ug
+                         where ug.usuario = v('APP_USER') )
+                ```
+        }
+    )
+
+    region lista-de-produtos-com-ou-sem-preço (
+        name: Lista de Produtos ( com ou sem preço )
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select /*+FIRST_ROWS(30)*/( select initcap(cc.nome) 
+                                            from categorias cc
+                                            where cc.idcategoria = p.idcategoria) Categoria
+                     , p.idproduto
+                     , ( select listagg(pck_romance.fnc_nomefornecedor(ff.idfornecedor)||' ('||trim(to_char(ff.precocusto,'999G999G999G990D00'))||')') within group (order by 1)
+                         from fornecedoresprodutos ff
+                         where ff.idproduto = p.idproduto 
+                           and rownum < 10 ) "Fornecedor"
+                     , initcap(p.nomeproduto) nomeproduto
+                     , initcap(p.descrproduto) descrproduto
+                     , p.codigosisdist "Referência"
+                     , decode(p.ativo,'S','Sim','Não') "Ativo"
+                     , decode(p.venda,'S','Sim','Não') "Venda"
+                     , decode(p.comissao,'S','Sim','Não') "Comissão"
+                     , decode(p.idprodutovarejo, null,'Não','Sim') "Produto do Varejo"
+                     , ( select count(1)
+                         from estoquefilial e
+                         where e.idproduto = p.idproduto 
+                           and ativo = 'S') utilizado
+                     , ( select listagg(pck_romance.fnc_nomefilial(idfilial)||' ('||trim(to_char(e.vlrvenda,'999G990D00'))||') ') within group (order by 1)
+                         from estoquefilial e
+                         where e.idproduto = p.idproduto 
+                           --and rownum <= 20
+                           and ativo = 'S' ) empresas 
+                     , initcap(usuariocadastrou) as "Usuário Cadastrou"
+                     , p.dtinclusao datacadastro
+                     , ( select listagg('<a href="'||urlreduzida||'" target="_blank"> <img src="'||urlreduzida||'" class="img_produto"><a><br>') within group (order by url, urlreduzida)
+                         from fotosprodutos  f
+                         where f.idproduto = p.idproduto ) fotos
+                     , ( select listagg(trim(to_char(fp.precocusto,'999G990D00'))) within group (order by fp.precocusto)
+                         from fornecedoresprodutos fp
+                         where fp.idproduto = p.idproduto
+                           and fp.precocusto is not null
+                           and rownum <= 3 ) precocusto
+                     , p.idproduto vernotas
+                     , PRECOVENDA
+                     , ( select c.nome
+                         from caracteristicascategorias c
+                         where c.idcaracteristicacateg = p.IDCARACTERISTICADETALHE ) sub_categoria
+                     , ( select ct.nome
+                         from caracteristicascategorias ct
+                         where ct.idcaracteristicacateg = p.IDCARACTERISTICACATEG ) caracteristica
+                from produtos p
+                where ( :P10_IDFORNECEDOR is null 
+                   or exists ( select 1 from fornecedoresprodutos f where f.idproduto = p.idproduto and f.idfornecedor = :P10_IDFORNECEDOR) )
+                  and ( :P10_TIPO_PESQUISA is null
+                     or ( :P10_TIPO_PESQUISA = 'S' and exists ( select 1
+                                                                from estoquefilial e
+                                                                where e.idproduto = p.idproduto
+                                                                  and nvl(e.vlrvenda,0) > 0 ) )
+                     or ( :P10_TIPO_PESQUISA = 'N' and p.precovenda is null
+                                                   or  exists ( select 1
+                                                                from notasfiscais nf
+                                                                   , itemnf it
+                                                                where it.idnotafiscal = nf.idnotafiscal
+                                                                  and it.idproduto    = p.idproduto
+                                                                  and nf.situacaofilial = 'A'
+                                                                  and extract ( year from dtnf ) >= 2021
+                                                                  and exists ( select 1
+                                                                               from vw_filiais f
+                                                                               where f.idfilial = nf.idfilialdestino
+                                                                                 and f.ativo    = 'S'
+                                                                                 and f.tipofilial = 'D' )
+                                                                  and not exists ( select 1
+                                                                                   from estoquefilial ep
+                                                                                   where ep.idfilial = nf.idfilialdestino
+                                                                                     and ep.idproduto = it.idproduto ) ) ) )
+                order by 1,4
+                ```
+            pageItemsToSubmit: [
+                P10_IDFORNECEDOR
+                P10_TIPO_PESQUISA
+            ]
+        }
+        layout {
+            sequence: 30
+            parentRegion: @geral
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P10_TIPO_PESQUISA in ('S','N')
+        }
+        link {
+            linkColumn: customTarget
+            target: {
+                page: 11
+                items: {
+                    P11_IDPRODUTO: #IDPRODUTO#
+                }
+            }
+            linkIcon: <img src="#IMAGE_PREFIX#menu/pencil16x16.gif"  border="0">
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: This query returns more than 10,000 rows, please filter your data to ensure complete results.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            rowsPerPage: false
+            pivot: false
+            savePublicReport: true
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 5394532076190030034
+        }
+
+        column Ativo (
+            type: plainText
+            heading {
+                heading: Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Ativo
+                endUserAlias: J
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column CARACTERISTICA (
+            type: plainText
+            heading {
+                heading: Caracteristica
+                alignment: center
+            }
+            layout {
+                sequence: 200
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column CATEGORIA (
+            type: plainText
+            heading {
+                heading: Categoria
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: CATEGORIA
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Comissão (
+            type: plainText
+            heading {
+                heading: Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Comissão
+                endUserAlias: L
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DATACADASTRO (
+            type: plainText
+            heading {
+                heading: Data de Cadastro
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column DESCRPRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: DESCRPRODUTO
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column EMPRESAS (
+            type: plainText
+            heading {
+                heading: Empresas
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column FOTOS (
+            type: plainText
+            heading {
+                heading: Fotos
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Fornecedor (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Fornecedor
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDPRODUTO (
+            type: plainText
+            heading {
+                heading: ID
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDPRODUTO
+                endUserAlias: A
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NOMEPRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: NOMEPRODUTO
+                endUserAlias: F
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column PRECOCUSTO (
+            type: plainText
+            heading {
+                heading: Preço Custo
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column PRECOVENDA (
+            type: plainText
+            heading {
+                heading: Preço Base de Venda
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "Produto do Varejo" (
+            type: plainText
+            heading {
+                heading: Produto Do Varejo
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Produto_do_Varejo
+                endUserAlias: N
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Referência (
+            type: plainText
+            heading {
+                heading: Referência
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Referência
+                endUserAlias: I
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SUB_CATEGORIA (
+            type: plainText
+            heading {
+                heading: Sub Categoria
+                alignment: center
+            }
+            layout {
+                sequence: 190
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column UTILIZADO (
+            type: plainText
+            heading {
+                heading: Utilizado
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: UTILIZADO
+                endUserAlias: O
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Usuário Cadastrou" (
+            type: plainText
+            heading {
+                heading: Usuário Cadastrou
+                alignment: center
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Usuario_Cadastrou
+                endUserAlias: P
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column VERNOTAS (
+            type: link
+            heading {
+                heading: Ver Notas
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 408
+                    items: {
+                        P408_IDPRODUTO: #VERNOTAS#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil.png" class="apex-edit-pencil" alt="">
+                linkAttributes: target="_blank"
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column Venda (
+            type: plainText
+            heading {
+                heading: Venda
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Venda
+                endUserAlias: K
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        savedReport 54226785 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Ativo" (
+                sequence: 10
+            )
+
+            displayColumn CARACTERISTICA (
+                sequence: 20
+            )
+
+            displayColumn CATEGORIA (
+                sequence: 8
+            )
+
+            displayColumn "Comissão" (
+                sequence: 12
+            )
+
+            displayColumn DATACADASTRO (
+                sequence: 2
+            )
+
+            displayColumn DESCRPRODUTO (
+                sequence: 7
+            )
+
+            displayColumn EMPRESAS (
+                sequence: 5
+            )
+
+            displayColumn FOTOS (
+                sequence: 3
+            )
+
+            displayColumn "Fornecedor" (
+                sequence: 13
+            )
+
+            displayColumn IDPRODUTO (
+                sequence: 1
+            )
+
+            displayColumn NOMEPRODUTO (
+                sequence: 6
+            )
+
+            displayColumn PRECOCUSTO (
+                sequence: 4
+            )
+
+            displayColumn PRECOVENDA (
+                sequence: 18
+            )
+
+            displayColumn "Produto do Varejo" (
+                sequence: 14
+            )
+
+            displayColumn "Referência" (
+                sequence: 9
+            )
+
+            displayColumn SUB_CATEGORIA (
+                sequence: 19
+            )
+
+            displayColumn UTILIZADO (
+                sequence: 15
+            )
+
+            displayColumn "Usuário Cadastrou" (
+                sequence: 16
+            )
+
+            displayColumn VERNOTAS (
+                sequence: 17
+            )
+
+            displayColumn "Venda" (
+                sequence: 11
+            )
+
+        )
+
+    )
+
+    region lista-de-produtos-geral (
+        name: Lista de Produtos ( geral )
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ( select initcap(cc.nome) 
+                         from categorias cc
+                         where cc.idcategoria = p.idcategoria) Categoria
+                     , p.idproduto
+                     , initcap(p.nomeproduto) nomeproduto
+                     , initcap(p.descrproduto) descrproduto
+                     , p.codigosisdist "Referência"
+                     , decode(p.ativo,'S','Sim','Não') "Ativo"
+                     , decode(p.venda,'S','Sim','Não') "Venda"
+                     , decode(p.comissao,'S','Sim','Não') "Comissão"
+                     , nvl(( select listagg('<a href="'||ft.urlreduzida||'" target="_blank"> <img src="'||ft.urlreduzida||'" class="img_produto_2"><a>',' ') within group ( order by 1 )
+                             from fotosprodutos ft 
+                             where ft.idproduto = p.idproduto ),'<a href="http://fotosprodutos.romancemoda.com.br/acessar?INDISPONIVEL.JPG" target="_blank"> <img src="http://fotosprodutos.romancemoda.com.br/acessar?INDISPONIVEL.JPG/true" class="img_produto"><a>') fotosprodutos 
+                     , initcap(usuariocadastrou) as "Usuário Cadastrou"
+                     , p.dtinclusao datacadastro
+                from produtos p
+                where p.idcategoria != 141
+                  --and exists ( select 1
+                  --             from notasfiscais nf
+                  --                , itemnf i
+                  --             where nf.idnotafiscal = i.idnotafiscal
+                  --               and i.idproduto     = p.idproduto
+                  --               and nf.idfilialdestino = pck_romance.fnc_filialusuario(v('APP_USER')) )
+                order by 1,3
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression:
+                ```sql
+                not exists ( select 1
+                             from usuariosgruposatendimento ug
+                             where ug.usuario = v('APP_USER') )
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: "Nenhum produto localizado! "
+        }
+        advanced {
+            savedReportMappingIdentifier: 6138022149329544046
+        }
+
+        column Ativo (
+            type: plainText
+            heading {
+                heading: Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column CATEGORIA (
+            type: plainText
+            heading {
+                heading: Categoria
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column Comissão (
+            type: plainText
+            heading {
+                heading: Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column DATACADASTRO (
+            type: hidden
+            heading {
+                heading: Datacadastro
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: K
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DESCRPRODUTO (
+            type: plainText
+            heading {
+                heading: Descrição
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column FOTOSPRODUTOS (
+            type: plainText
+            heading {
+                heading: Fotos
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDPRODUTO (
+            type: hidden
+            heading {
+                heading: Idproduto
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NOMEPRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column Referência (
+            type: plainText
+            heading {
+                heading: Referência
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "Usuário Cadastrou" (
+            type: hidden
+            heading {
+                heading: Usuário Cadastrou
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Venda (
+            type: plainText
+            heading {
+                heading: Venda
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 1002445 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Ativo" (
+                sequence: 4
+            )
+
+            displayColumn CATEGORIA (
+                sequence: 1
+            )
+
+            displayColumn "Comissão" (
+                sequence: 6
+            )
+
+            displayColumn DESCRPRODUTO (
+                sequence: 8
+            )
+
+            displayColumn FOTOSPRODUTOS (
+                sequence: 7
+            )
+
+            displayColumn NOMEPRODUTO (
+                sequence: 2
+            )
+
+            displayColumn "Referência" (
+                sequence: 3
+            )
+
+            displayColumn "Venda" (
+                sequence: 5
+            )
+
+        )
+
+    )
+
+    region lista-de-produtos-todos (
+        name: Lista de Produtos (Todos)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select /*+FIRST_ROWS(30)*/( select initcap(cc.nome) 
+                                            from categorias cc
+                                            where cc.idcategoria = p.idcategoria) Categoria
+                     , p.idproduto
+                     , ( select listagg(pck_romance.fnc_nomefornecedor(ff.idfornecedor)||' ('||trim(to_char(ff.precocusto,'999G999G999G990D00'))||')') within group (order by 1)
+                         from fornecedoresprodutos ff
+                         where ff.idproduto = p.idproduto 
+                           and rownum <= 20) "Fornecedor"
+                     , initcap(p.nomeproduto) nomeproduto
+                     , initcap(p.descrproduto) descrproduto
+                     , p.codigosisdist "Referência"
+                     , decode(p.ativo,'S','Sim','Não') "Ativo"
+                     , decode(p.venda,'S','Sim','Não') "Venda"
+                     , decode(p.comissao,'S','Sim','Não') "Comissão"
+                     , decode(p.idprodutovarejo, null,'Não','Sim') "Produto do Varejo"
+                     , ( select count(1)
+                         from estoquefilial e
+                         where e.idproduto = p.idproduto 
+                           and ativo = 'S') utilizado
+                     , ( select listagg(pck_romance.fnc_nomefilial(idfilial)||' ('||trim(to_char(e.vlrvenda,'999G990D00'))||') ') within group (order by 1)
+                         from estoquefilial e
+                         where e.idproduto = p.idproduto 
+                           --and rownum <= 20
+                           and ativo = 'S' ) empresas 
+                     , initcap(usuariocadastrou) as "Usuário Cadastrou"
+                     , p.dtinclusao datacadastro
+                     , ( select listagg('<a href="'||urlreduzida||'" target="_blank"> <img src="'||urlreduzida||'" class="img_produto"><a><br>') within group (order by url, urlreduzida)
+                         from fotosprodutos  f
+                         where f.idproduto = p.idproduto ) fotos
+                     , ( select listagg(trim(to_char(fp.precocusto,'999G990D00'))) within group (order by fp.precocusto)
+                         from fornecedoresprodutos fp
+                         where fp.idproduto = p.idproduto
+                           and fp.precocusto is not null
+                           and rownum <= 3 ) precocusto
+                     , PRECOVENDA 
+                     , ( select c.nome
+                         from caracteristicascategorias c
+                         where c.idcaracteristicacateg = p.IDCARACTERISTICADETALHE ) sub_categoria
+                     , ( select ct.nome
+                         from caracteristicascategorias ct
+                         where ct.idcaracteristicacateg = p.IDCARACTERISTICACATEG ) caracteristica
+                     , ( select LISTAGG(cp.descricao, ', ') 
+                                  WITHIN GROUP (ORDER BY cp.descricao)
+                         from classificacoesprodutos c
+                            , caracteristicasprodutos cp
+                         where c.idproduto = p.idproduto
+                           and c.idcaracteristicaproduto = cp.idcaracteristicaproduto ) classificacao
+                from produtos p
+                where ( :P10_IDFORNECEDOR is null 
+                   or exists ( select 1 from fornecedoresprodutos f where f.idproduto = p.idproduto and f.idfornecedor = :P10_IDFORNECEDOR) )
+                  and :P10_TIPO_PESQUISA = 'T'
+                ```
+            pageItemsToSubmit: [
+                P10_IDFORNECEDOR
+                P10_TIPO_PESQUISA
+            ]
+        }
+        layout {
+            sequence: 20
+            parentRegion: @geral
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P10_TIPO_PESQUISA
+            value: T
+        }
+        link {
+            linkColumn: customTarget
+            target: {
+                page: 11
+                items: {
+                    P11_IDPRODUTO: #IDPRODUTO#
+                }
+            }
+            linkIcon: <img src="#IMAGE_PREFIX#menu/pencil16x16.gif"  border="0">
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: This query returns more than 10,000 rows, please filter your data to ensure complete results.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            rowsPerPage: false
+            pivot: false
+            savePublicReport: true
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 1
+        }
+
+        column Ativo (
+            type: plainText
+            heading {
+                heading: Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 16
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Ativo
+                endUserAlias: P
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column CARACTERISTICA (
+            type: plainText
+            heading {
+                heading: Caracteristica
+                alignment: center
+            }
+            layout {
+                sequence: 106
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AI
+            }
+        )
+
+        column CATEGORIA (
+            type: plainText
+            heading {
+                heading: Categoria
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: CATEGORIA
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column CLASSIFICACAO (
+            type: plainText
+            heading {
+                heading: Classificação
+                alignment: center
+            }
+            layout {
+                sequence: 116
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AJ
+            }
+        )
+
+        column Comissão (
+            type: plainText
+            heading {
+                heading: Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 18
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Comissão
+                endUserAlias: R
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DATACADASTRO (
+            type: plainText
+            heading {
+                heading: Data de Cadastro
+                alignment: center
+            }
+            layout {
+                sequence: 36
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column DESCRPRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: DESCRPRODUTO
+                endUserAlias: D
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column EMPRESAS (
+            type: plainText
+            heading {
+                heading: Empresas
+                alignment: center
+            }
+            layout {
+                sequence: 76
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column FOTOS (
+            type: plainText
+            heading {
+                heading: Fotos
+                alignment: center
+            }
+            layout {
+                sequence: 56
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AC
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Fornecedor (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 19
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Fornecedor
+                endUserAlias: S
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDPRODUTO (
+            type: plainText
+            heading {
+                heading: ID
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDPRODUTO
+                endUserAlias: A
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NOMEPRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: NOMEPRODUTO
+                endUserAlias: C
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column PRECOCUSTO (
+            type: plainText
+            heading {
+                heading: Preço Custo
+                alignment: center
+            }
+            layout {
+                sequence: 66
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AE
+            }
+        )
+
+        column PRECOVENDA (
+            type: plainText
+            heading {
+                heading: Preço Base de Venda
+                alignment: center
+            }
+            layout {
+                sequence: 86
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column "Produto do Varejo" (
+            type: plainText
+            heading {
+                heading: Produto Do Varejo
+                alignment: center
+            }
+            layout {
+                sequence: 21
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Produto_do_Varejo
+                endUserAlias: U
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Referência (
+            type: plainText
+            heading {
+                heading: Referência
+                alignment: center
+            }
+            layout {
+                sequence: 15
+                columnAlignment: end
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Referência
+                endUserAlias: O
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SUB_CATEGORIA (
+            type: plainText
+            heading {
+                heading: Sub Categoria
+                alignment: center
+            }
+            layout {
+                sequence: 96
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        column UTILIZADO (
+            type: plainText
+            heading {
+                heading: Utilizado
+                alignment: center
+            }
+            layout {
+                sequence: 23
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: UTILIZADO
+                endUserAlias: W
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Usuário Cadastrou" (
+            type: plainText
+            heading {
+                heading: Usuário Cadastrou
+                alignment: center
+            }
+            layout {
+                sequence: 26
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Usuario_Cadastrou
+                endUserAlias: Z
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Venda (
+            type: plainText
+            heading {
+                heading: Venda
+                alignment: center
+            }
+            layout {
+                sequence: 17
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Venda
+                endUserAlias: Q
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        savedReport 14063 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 30
+            }
+
+            displayColumn CARACTERISTICA (
+                sequence: 3
+            )
+
+            displayColumn CATEGORIA (
+                sequence: 1
+            )
+
+            displayColumn DATACADASTRO (
+                sequence: 13
+            )
+
+            displayColumn EMPRESAS (
+                sequence: 9
+            )
+
+            displayColumn FOTOS (
+                sequence: 6
+            )
+
+            displayColumn "Fornecedor" (
+                sequence: 8
+            )
+
+            displayColumn IDPRODUTO (
+                sequence: 11
+            )
+
+            displayColumn NOMEPRODUTO (
+                sequence: 5
+            )
+
+            displayColumn PRECOVENDA (
+                sequence: 14
+            )
+
+            displayColumn "Referência" (
+                sequence: 4
+            )
+
+            displayColumn SUB_CATEGORIA (
+                sequence: 2
+            )
+
+            displayColumn UTILIZADO (
+                sequence: 10
+            )
+
+            displayColumn "Usuário Cadastrou" (
+                sequence: 12
+            )
+
+            displayColumn "Venda" (
+                sequence: 7
+            )
+
+        )
+
+    )
+
+    pageItem P10_IDFORNECEDOR (
+        type: popupLov
+        label {
+            label: Fornecedor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nomefornecedor display_value
+                     , idfornecedor   return_value
+                from vw_fornecedores_rmc
+                order by 1
+                ```
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 70
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P10_TIPO_PESQUISA (
+        type: radioGroup
+        label {
+            label: Com preço?
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+            pageActionOnSelection: submitPage
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Com Preço;S,Sem Preço;N,Todos;T
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button create (
+        buttonName: CREATE
+        label: Novo Produto
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 11
+                clearCache: 11
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where pck_util.fnc_verificaacesso(2678,v('APP_USER') ) = 'S'
+                ```
+        }
+    )
+
+    dynamicAction filtra (
+        name: Filtra
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P10_IDFORNECEDOR
+        }
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process css-responsivo-mobile (
+        name: CSS Responsivo Mobile
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                apex_css.add(p_css => '
+                @media (max-width: 640px) {
+                  /* Mais respiro dentro do bloco de filtros, que usa padding reduzido por padrao */
+                  .t-Form--slimPadding {
+                    padding: 18px !important;
+                    margin-bottom: 16px !important;
+                  }
+                  /* Espaco entre os rotulos e os campos, e entre os campos entre si */
+                  label[for="P10_IDFORNECEDOR"],
+                  label[for="P10_TIPO_PESQUISA"] {
+                    display: block !important;
+                    margin: 0 0 8px 0 !important;
+                  }
+                  /* O container que agrupa campo + botao de lista vira uma linha flexivel, */
+                  /* alinhada verticalmente, em vez de deixar o botao esticar sozinho */
+                  *:has(> #P10_IDFORNECEDOR) {
+                    display: flex !important;
+                    align-items: center !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    gap: 8px !important;
+                    margin-bottom: 18px !important;
+                  }
+                  /* Campo Fornecedor cresce para ocupar o espaco disponivel, botao mantem o tamanho natural */
+                  #P10_IDFORNECEDOR {
+                    flex: 1 1 auto !important;
+                    min-width: 0 !important;
+                    width: auto !important;
+                    margin-bottom: 0 !important;
+                  }
+                  /* Botao Novo Produto ocupa a largura toda no celular */
+                  .t-Button--warning {
+                    display: flex !important;
+                    width: 100% !important;
+                    justify-content: center !important;
+                    margin-top: 14px !important;
+                  }
+                  /* Empilha as opcoes do "Com preco?" (Com Preco / Sem Preco / Todos) */
+                  /* verticalmente, com espaco entre elas, evitando a quebra feia de texto em 3 colunas */
+                  #P10_TIPO_PESQUISA td,
+                  #P10_TIPO_PESQUISA .apex-item-grid-cell,
+                  #P10_TIPO_PESQUISA .apex-item-option {
+                    display: block !important;
+                    width: 100% !important;
+                    padding: 6px 0 !important;
+                  }
+                  /* Barra de busca/acoes do Interactive Report (nomes de classe confirmados via inspecao): */
+                  /* deixa os grupos (busca / views / opcoes) quebrarem linha em vez de espremer/cortar */
+                  .a-IRR-toolbar {
+                    flex-wrap: wrap !important;
+                  }
+                  .a-IRR-controls {
+                    flex-wrap: wrap !important;
+                    width: 100% !important;
+                  }
+                  /* O grupo de busca ocupa a linha toda, e a caixa de texto cresce dentro dele */
+                  .a-IRR-controlGroup--search {
+                    flex: 1 1 100% !important;
+                    width: 100% !important;
+                  }
+                  .a-IRR-search,
+                  .a-IRR-searchField {
+                    width: 100% !important;
+                    flex: 1 1 auto !important;
+                  }
+                  .a-IRR-search-field {
+                    width: 100% !important;
+                    flex: 1 1 auto !important;
+                  }
+                  /* "Linhas" e "Acoes" ganham espaco pra nao cortar o texto */
+                  .a-IRR-controlGroup--views {
+                    flex: 1 1 auto !important;
+                    white-space: normal !important;
+                    overflow: visible !important;
+                  }
+                  /* Linhas fica a esquerda, Acoes encostado na borda direita */
+                  .a-IRR-controlGroup--options {
+                    display: flex !important;
+                    flex: 1 1 100% !important;
+                    width: 100% !important;
+                    justify-content: space-between !important;
+                    align-items: center !important;
+                    white-space: normal !important;
+                    overflow: visible !important;
+                  }
+                  /* O rotulo "Linhas" nao pode encolher dentro do flex, senao o texto corta */
+                  .a-IRR-rowSelector {
+                    flex: 0 0 auto !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 6px !important;
+                  }
+                  .a-IRR-rowSelector label {
+                    flex-shrink: 0 !important;
+                    white-space: nowrap !important;
+                    width: auto !important;
+                  }
+                  .a-IRR-actions {
+                    flex: 0 0 auto !important;
+                    white-space: nowrap !important;
+                  }
+                }
+                ');
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+        advanced {
+            executionMappingIdentifier: 9010023004050060070
+        }
+    )
+
+    branch (
+        name: Go To Page 10
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 10
+                items: {
+                    P10_IDFORNECEDOR: &P10_IDFORNECEDOR.
+                    P10_TIPO_PESQUISA: &P10_TIPO_PESQUISA.
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

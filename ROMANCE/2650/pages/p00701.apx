@@ -1,0 +1,803 @@
+page 701 (
+    name: Pix Santander - Autorização
+    title: Pix Santander - Autorizacao
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            // Soma os pagamentos marcados e confirma exibindo o total antes de autorizar.
+            function fnc_autorizar() {
+              var total = 0, qtd = 0;
+            
+              $("input[name='f01']:checked").each(function () {
+                qtd++;
+                // valor exibido na coluna VALOR (ex.: "R$ 1.296,00"); a linha de
+                // total geral nao tem checkbox e fica de fora
+                var txt = $(this).closest("tr").find("td[headers='VALOR']").text().trim();
+                txt = txt.replace(/[^0-9.,-]/g, "").replace(/\./g, "").replace(",", ".");
+                var v = parseFloat(txt);
+                if (!isNaN(v)) { total += v; }
+              });
+            
+              if (qtd === 0) {
+                apex.message.alert("Selecione ao menos um pagamento para autorizar.");
+                return;
+              }
+            
+              var fmt = total.toLocaleString("pt-BR", { minimumFractionDigits: 2,
+                                                        maximumFractionDigits: 2 });
+            
+              var msg = "Voc\u00EA est\u00E1 autorizando " + qtd + (qtd === 1 ? " pagamento" : " pagamentos") +
+                        " no total de R$ " + fmt + ".\n\n" +
+                        "O dinheiro sai da conta imediatamente. Pix n\u00E3o tem estorno.\n\n" +
+                        "Confirma?";
+            
+              apex.message.confirm(msg, function (ok) {
+                if (ok) { apex.submit("AUTORIZAR"); }
+              });
+            }
+            
+            // Marca todos os pagamentos listados; se todos ja estiverem marcados, limpa.
+            function fnc_selecionar_todos() {
+              var cb = $("input[name='f01']");
+              if (cb.length === 0) { return; }
+              var marcar = cb.filter(":checked").length < cb.length;
+              cb.prop("checked", marcar);
+              tot701();
+              $("#BTN_SEL_TODOS .t-Button-label").text(marcar ? "Limpar sele\u00E7\u00E3o" : "Selecionar todos");
+            }
+            
+            // Contador do topo: quantos aguardam autorizacao e quantos estao marcados.
+            function tot701() {
+              var brl = function (v) { return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); };
+              var valor = function (cb) {
+                var t = $(cb).closest("tr").find("td[headers=VALOR]").text().trim();
+                t = t.replace(/[^0-9.,-]/g, "").replace(/\./g, "").replace(",", ".");
+                var v = parseFloat(t); return isNaN(v) ? 0 : v;
+              };
+              var cbs = $("input[name=f01]");
+              var tq = cbs.length ? (+cbs.first().data("tqtd") || cbs.length) : 0;
+              var tv = 0, sq = 0, sv = 0;
+              cbs.each(function () { tv += valor(this); });
+              cbs.filter(":checked").each(function () { sq++; sv += valor(this); });
+              var html = "<b>" + tq + "</b> pagamento(s) aguardando autoriza\u00E7\u00E3o - <b>" + brl(tv) + "</b>" +
+                         " \u00a0 | \u00a0 Selecionados: <b>" + sq + "</b> - <b>" + brl(sv) + "</b>";
+              if (tq > cbs.length) {
+                html += " \u00a0 <span class=\"u-danger-text\">(a lista mostra s\u00F3 " + cbs.length +
+                        " - use os filtros para ver os demais)</span>";
+              }
+              $("#tot701").html(html);
+            }
+            $(function () {
+              tot701();
+              $(document).on("change", "input[name=f01]", tot701);
+              $(document).on("apexafterrefresh", tot701);
+            });
+            ```
+    }
+    security {
+        authorizationScheme: @autoriza-pix-santander
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 5
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+            renderComponents: belowContent
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            outputAs: text
+        }
+    )
+
+    region pagamentos-aguardando-autorização (
+        name: Pagamentos aguardando autorização
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefornecedor(pf.idfornecedor) fornecedor
+                       -- total da lista para o contador do topo (vale mesmo se passar de 1000)
+                     , apex_item.checkbox2( p_idx        => 1
+                                          , p_value      => px.idpix
+                                          , p_attributes => 'data-tqtd="' || count(*) over () || '"' ) sel
+                     , px.idpix
+                     , px.idpgtoforn
+                     , (select nf.documento from notasfiscais nf
+                         where nf.idnotafiscal = pf.idnotafiscal) nrnf
+                     , pf.dtvencimento
+                       -- Tipo oficial do ERP (formaspagamentos), origem no vencimento. Subconsulta
+                       -- no select (e nao left join): left join com subconsulta no ON junto do
+                       -- outer apply da "Conta do grupo" da ORA-01799.
+                     , nvl( ( select fp.descricao from formaspagamentos fp
+                               where fp.idformapagamento = nvl( pf.tipopagamento
+                                                              , (select v.tipopagamento from vencimentos v
+                                                                  where v.idvencimento = pf.idvencimento) ) )
+                          , '(' || px.forma || ')') tipo
+                     , px.valor
+                     , case px.forma
+                         when 'DICT'   then 'Pix - Chave ' || px.dict_code_type || ': ' || px.dict_code
+                         when 'BOLETO' then 'Boleto: ' || px.benef_nome || ' (' || substr(px.dict_code,1,20) || '...)'
+                         when 'GUIA'   then 'Guia: ' || px.benef_nome || ' (' || substr(px.dict_code,1,20) || '...)'
+                         else 'Pix - ' || px.benef_nome || ' - ' || px.benef_agencia || '/' || px.benef_conta
+                       end destino
+                     , nvl(px.benef_documento, px.dict_code) documento
+                     , to_char(px.dt_post,'DD/MM/RRRR HH24:MI') enviado_em
+                     , px.usuario_post enviado_por
+                     , (select substr(cbp.beneficiario,1,30) from contasbancarias cbp
+                         where cbp.idcontabanc = px.idcontapagamento) conta_pagadora
+                       -- Conferencia do favorecido (fase 1: so informa). O banco devolve o
+                       -- titular da chave no envio; compara com o cadastro da conta bancaria.
+                     , case when px.forma = 'DICT' then
+                         json_value(px.json_post_resp, '$.beneficiary.name') || ' - ' ||
+                         json_value(px.json_post_resp, '$.beneficiary.documentNumber') end favorecido_banco
+                     , case when px.forma not in ('BOLETO','GUIA') then
+                         cbf.beneficiario || ' - ' || nvl(cbf.documento, 'sem CPF/CNPJ') end cadastro_conta
+                     , case roman.pck_santander_pix.fnc_confere_favorecido(px.idpix)
+                         when 'OK'            then '<span class="fa fa-check-circle u-success-text"></span> Confere'
+                         when 'NOME'          then '<span class="fa fa-exclamation-triangle u-warning-text"></span> CPF/CNPJ confere, nome diferente'
+                         when 'DOC_DIFERENTE' then '<span class="fa fa-times-circle u-danger-text"></span> <b>CPF/CNPJ diferente do cadastro</b>'
+                           -- detalhe: mesmo nome? chave de CPF x cadastro de CNPJ (ou o contrario)?
+                           || '<br><span style="font-size:11px">'
+                           -- nome sem acento e so letras; mesmo comeco (12 letras) = mesmo nome
+                           || case when length(regexp_replace(translate(upper(json_value(px.json_post_resp, '$.beneficiary.name')), unistr('\00C1\00C0\00C2\00C3\00C9\00CA\00CD\00D3\00D4\00D5\00DA\00DC\00C7'), 'AAAAEEIOOOUUC'), '[^A-Z]')) >= 6
+                                    and substr(regexp_replace(translate(upper(json_value(px.json_post_resp, '$.beneficiary.name')), unistr('\00C1\00C0\00C2\00C3\00C9\00CA\00CD\00D3\00D4\00D5\00DA\00DC\00C7'), 'AAAAEEIOOOUUC'), '[^A-Z]'), 1, 12)
+                                      = substr(regexp_replace(translate(upper(cbf.beneficiario), unistr('\00C1\00C0\00C2\00C3\00C9\00CA\00CD\00D3\00D4\00D5\00DA\00DC\00C7'), 'AAAAEEIOOOUUC'), '[^A-Z]'), 1, 12)
+                                   then 'Mesmo nome, mas a' else 'A' end
+                           || case when length(regexp_replace(json_value(px.json_post_resp, '$.beneficiary.documentNumber'), '[^0-9*]')) = 11
+                                    and length(regexp_replace(cbf.documento, '[^0-9]')) = 14
+                                   then ' chave é de CPF (conta pessoal) e o cadastro tem CNPJ (empresa)'
+                                   when length(regexp_replace(json_value(px.json_post_resp, '$.beneficiary.documentNumber'), '[^0-9*]')) = 14
+                                    and length(regexp_replace(cbf.documento, '[^0-9]')) = 11
+                                   then ' chave é de CNPJ (empresa) e o cadastro tem CPF (pessoa)'
+                                   else ' chave é de outro CPF/CNPJ, não o do cadastro'
+                              end || '</span>'
+                         when 'SEM_DOC'       then '<span class="fa fa-times-circle u-danger-text"></span> <b>Conta sem CPF/CNPJ no cadastro</b>'
+                         when 'SEM_RETORNO'   then '<span class="fa fa-question-circle u-warning-text"></span> Banco não informou o favorecido'
+                         else case when px.forma = 'BENEFICIARIO' then
+                                -- ag/conta: o banco so repete os nossos dados; o que da para
+                                -- conferir e se o destino e uma conta do proprio grupo
+                                case when grp.nome is not null
+                                     then '<span class="fa fa-check-circle u-success-text"></span> Conta do grupo - ' || apex_escape.html(grp.nome)
+                                     else '<span class="fa fa-info-circle"></span> Ag/conta - titular não confirmado pelo banco' end
+                              end
+                       end conferencia
+                  from pix_pagamentos px
+                       join pagamentosfornecedores pf on pf.idpgtoforn = px.idpgtoforn
+                       left join contasbancarias cbf on cbf.idcontabanc = px.idcontabanc
+                       -- conta de destino e uma das contas do grupo integradas ao hub?
+                       outer apply ( select max(sc.beneficiario) nome
+                                       from santander_contas sc
+                                       join contasbancarias cbg on cbg.idcontabanc = sc.idcontabanc
+                                      where px.forma = 'BENEFICIARIO'
+                                        and case when length(regexp_replace(cbg.agencia,'[^0-9]')) > 4
+                                                 then substr(regexp_replace(cbg.agencia,'[^0-9]'),1,4)
+                                                 else lpad(regexp_replace(cbg.agencia,'[^0-9]'),4,'0') end
+                                            = lpad(regexp_replace(px.benef_agencia,'[^0-9]'),4,'0')
+                                        and regexp_replace(cbg.conta,'[^0-9]') = regexp_replace(px.benef_conta,'[^0-9]') ) grp
+                 where px.status = 'READY_TO_PAY'
+                       -- o periodo se aplica ao vencimento (V) ou a data de envio (E)
+                   and ( :P701_DATA_DE is null
+                         or trunc( case when :P701_TIPO_DATA = 'E' then px.dt_post
+                                        else pf.dtvencimento end )
+                            >= to_date(:P701_DATA_DE,'DD/MM/RRRR') )
+                   and ( :P701_DATA_ATE is null
+                         or trunc( case when :P701_TIPO_DATA = 'E' then px.dt_post
+                                        else pf.dtvencimento end )
+                            <= to_date(:P701_DATA_ATE,'DD/MM/RRRR') )
+                   and ( :P701_CONTA is null or px.idcontapagamento = :P701_CONTA )
+                   and ( :P701_TIPO is null or :P701_TIPO = 'TODOS'
+                         or nvl( pf.tipopagamento
+                               , (select v.tipopagamento from vencimentos v
+                                   where v.idvencimento = pf.idvencimento) ) = :P701_TIPO )
+                 order by case when :P701_TIPO_DATA = 'E' then px.dt_post
+                               else pf.dtvencimento end
+                        , fornecedor, px.idpix
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 1000
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+
+        column CADASTRO_CONTA (
+            reportColumnQueryId: 15
+            derivedColumn: N
+            heading {
+                heading: Cadastro da conta
+                alignment: center
+            }
+            layout {
+                sequence: 12
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CONFERENCIA (
+            reportColumnQueryId: 16
+            derivedColumn: N
+            heading {
+                heading: Conferência
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column CONTA_PAGADORA (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            heading {
+                heading: Conta pagadora
+                alignment: center
+            }
+            layout {
+                sequence: 16
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DESTINO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Destino
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DOCUMENTO (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: CPF/CNPJ ou Chave
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DTVENCIMENTO (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column ENVIADO_EM (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Enviado em
+                alignment: center
+            }
+            layout {
+                sequence: 14
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column ENVIADO_POR (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Enviado por
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FAVORECIDO_BANCO (
+            reportColumnQueryId: 14
+            derivedColumn: N
+            heading {
+                heading: Favorecido (banco)
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FORNECEDOR (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPGTOFORN (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Fatura
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPIX (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Id Pix
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column NRNF (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Nota Fiscal
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SEL (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Autorizar
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TIPO (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Tipo
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+    )
+
+    region totais (
+        name: Totais
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  -- preenchido pelo JS da pagina (tot701)
+                  htp.p('<div id="tot701" style="padding:8px 12px;font-size:1.1em"></div>');
+                end;
+                ```
+        }
+        layout {
+            sequence: 8
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P701_CONTA (
+        type: selectList
+        label {
+            label: Conta pagadora
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select substr(sc.beneficiario,1,40) d, sc.idcontabanc r
+                  from santander_contas sc
+                 where sc.ativo = 'S'
+                 order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Todas -"
+        }
+        layout {
+            sequence: 8
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P701_DATA_ATE (
+        type: datePicker
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 6
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+    )
+
+    pageItem P701_DATA_DE (
+        type: datePicker
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 4
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+    )
+
+    pageItem P701_TIPO (
+        type: selectList
+        label {
+            label: Tipo de movimentação
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distinct nvl(fp.descricao, '(' || px.forma || ')') d
+                     , nvl( pf.tipopagamento
+                          , (select v.tipopagamento from vencimentos v
+                              where v.idvencimento = pf.idvencimento) ) r
+                  from pix_pagamentos px
+                       join pagamentosfornecedores pf on pf.idpgtoforn = px.idpgtoforn
+                       left join formaspagamentos fp
+                              on fp.idformapagamento = nvl( pf.tipopagamento
+                                                          , (select v.tipopagamento from vencimentos v
+                                                              where v.idvencimento = pf.idvencimento) )
+                 where px.status = 'READY_TO_PAY'
+                 order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: Todos
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P701_TIPO_DATA (
+        type: selectList
+        label {
+            label: Filtrar por
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Vencimento;V,Envio;E
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 2
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: V
+        }
+    )
+
+    button autorizar (
+        buttonName: AUTORIZAR
+        label: Autorizar Pagamento
+        layout {
+            sequence: 10
+            region: @pagamentos-aguardando-autorização
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--danger
+            ]
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:fnc_autorizar();
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Filtrar
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button sel-todos (
+        buttonName: SEL_TODOS
+        label: Selecionar todos
+        layout {
+            sequence: 5
+            region: @pagamentos-aguardando-autorização
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:fnc_selecionar_todos();
+            warnOnUnsavedChanges: doNotCheck
+        }
+        advanced {
+            htmlDomId: BTN_SEL_TODOS
+        }
+    )
+
+    process autoriza-pagamentos-pix (
+        name: Autoriza Pagamentos Pix
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  if apex_application.g_f01.count = 0 then
+                    apex_error.add_error(
+                      p_message          => 'Selecione ao menos um pagamento.',
+                      p_display_location => apex_error.c_inline_in_notification);
+                    return;
+                  end if;
+                
+                  -- Em segundo plano: a resposta do banco pode levar minutos (retentativas
+                  -- em instabilidade) e o proxy web corta a requisicao em 60 s (504).
+                  roman.pck_santander_pix.prc_autorizar_lote_async(
+                    pids     => apex_util.table_to_string(apex_application.g_f01, ':'),
+                    pusuario => :APP_USER );
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Autorização enviada em segundo plano. Os pagamentos aparecem na página 702 como Autorizando e mudam para Pago/Pendente/Rejeitado conforme o banco responde (1 a 5 minutos).
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000701060
+        }
+        serverSideCondition {
+            whenButtonPressed: @autorizar
+        }
+    )
+
+    branch (
+        name: Go To Page 701
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 701
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

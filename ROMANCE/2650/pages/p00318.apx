@@ -1,0 +1,1172 @@
+page 318 (
+    name: Contas A Pagar/Receber Crisdu
+    title: Contas A Pagar/Receber Crisdu
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region contas-a-pagar (
+        name: Contas A Pagar
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select rownum registro
+                     , ex.idcontabancaria
+                     , ex.datamovimento
+                     , ex.fatura
+                     , ex.origem
+                     , ex.destino
+                     , ex.identificacao
+                     , ex.valorapagar
+                     , ex.valorpago
+                     , round(ex.considerar,2) considerar
+                from (
+                        select ex.idcontabancaria
+                             , trunc(ex.datamovimento) datamovimento
+                             , 'Fatura '|| documento fatura
+                             , pck_romance.fnc_nomefornecedor(nf.idfornemitente) origem
+                             , pck_romance.fnc_nomefilial(nf.idfilialdestino) destino
+                             , null identificacao
+                             , ex.valormovimento valorapagar
+                             , null valorpago
+                             , ex.valormovimento considerar
+                             , ex.idextratocontabancaria id
+                        from extratoscontasbancarias ex
+                           , notasfiscais nf
+                           , razoessociaisfiliais r
+                        where ex.idvencimento is not null
+                          and ex.idnotafiscal = nf.idnotafiscal
+                          and ex.contabilizar = 'S'
+                          and r.grupocrisdu = 'S'
+                          and ex.identificado = 'S'
+                          and r.idrazaosocialfilial = nf.idrazaosocialfildestino
+                          and ( :P318_FILTRAR_POR = 'X' 
+                              or ( :P318_FILTRAR_POR = 'P' and ex.datamovimento between to_date(:P318_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P318_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') )
+                              or ( :P318_FILTRAR_POR = 'A' and extract(year from ex.datamovimento) = :P318_ANO )
+                              or ( :P318_FILTRAR_POR = 'M' and extract(year from ex.datamovimento) = :P318_ANO
+                                                           and extract(month from ex.datamovimento) = :P318_MES ) )
+                          and not exists ( select 1
+                                           from fornecedores f
+                                              , filiais ff
+                                           where f.idfornecedor = nf.idfornemitente
+                                             and ff.idpessoa = f.idpessoa )
+                        union
+                        select ex.idcontabancaria
+                             , trunc(ex.datamovimento) datamovimento
+                             , null fatura
+                             , null origem
+                             , null destino
+                             , case
+                                 when nvl(dr.transferencia,'N') = 'S' then
+                                   'Transferencia '||dr.nroidentificacao_digitado
+                                 when nvl(dr.pix,'N') = 'S' then
+                                   'PIX '||dr.nroidentificacao_digitado
+                                 else
+                                   'Comprovante '||dr.nroidentificacao_digitado
+                               end identificacao
+                             , null valorapagar
+                             , dr.valor_digitado valorpago
+                             , dr.valor_digitado considerar
+                             , dr.idleituraocr_deposito
+                        from extratoscontasbancarias ex
+                           , depositosdiarios_leituraocr dr
+                        where dr.iddepositodiario = ex.iddepositodiario_orig
+                          and ex.contabilizar = 'S'
+                          and ex.idvencimento is null
+                          and ex.identificado = 'S'
+                          and ( :P318_FILTRAR_POR = 'X' 
+                              or ( :P318_FILTRAR_POR = 'P' and ex.datamovimento between to_date(:P318_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P318_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') )
+                              or ( :P318_FILTRAR_POR = 'A' and extract(year from ex.datamovimento) = :P318_ANO )
+                              or ( :P318_FILTRAR_POR = 'M' and extract(year from ex.datamovimento) = :P318_ANO
+                                                           and extract(month from ex.datamovimento) = :P318_MES ) )
+                          and exists ( select 1
+                                       from vencimentos v
+                                          , notasfiscais nf
+                                          , razoessociaisfiliais r
+                                       where v.idcontabanc = ex.idcontabancaria
+                                         and v.idnotafiscal = nf.idnotafiscal
+                                         and r.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                         and not exists ( select 1
+                                                          from fornecedores f
+                                                             , filiais ff
+                                                          where f.idfornecedor = nf.idfornemitente
+                                                            and ff.idpessoa = f.idpessoa ) )
+                        order by datamovimento ) ex;
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 314941669613486620
+        }
+
+        column CONSIDERAR (
+            type: plainText
+            heading {
+                heading: A Considerar
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column DATAMOVIMENTO (
+            type: plainText
+            heading {
+                heading: "Data "
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DESTINO (
+            type: plainText
+            heading {
+                heading: Destino
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column FATURA (
+            type: plainText
+            heading {
+                heading: Fatura
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column IDCONTABANCARIA (
+            type: hidden
+            heading {
+                heading: Idcontabancaria
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDENTIFICACAO (
+            type: plainText
+            heading {
+                heading: Identificação
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column ORIGEM (
+            type: plainText
+            heading {
+                heading: Origem
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column REGISTRO (
+            type: plainText
+            heading {
+                heading: Registro
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column VALORPAGO (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 3509712 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn CONSIDERAR (
+                sequence: 10
+            )
+
+            displayColumn DATAMOVIMENTO (
+                sequence: 3
+            )
+
+            displayColumn DESTINO (
+                sequence: 6
+            )
+
+            displayColumn FATURA (
+                sequence: 4
+            )
+
+            displayColumn IDCONTABANCARIA (
+                sequence: 2
+            )
+
+            displayColumn IDENTIFICACAO (
+                sequence: 7
+            )
+
+            displayColumn ORIGEM (
+                sequence: 5
+            )
+
+            displayColumn REGISTRO (
+                sequence: 1
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 8
+            )
+
+            displayColumn VALORPAGO (
+                sequence: 9
+            )
+
+            aggregate (
+                column: CONSIDERAR
+            )
+
+        )
+
+    )
+
+    region contas-a-receber (
+        name: Contas A Receber
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Abatimento' tipo
+                     , vr.datavencimento
+                     , nv.dtnf  emissao
+                     , ( select pck_romance.fnc_nomefornecedor(nc.idfornemitente)
+                         from notasfiscais nc
+                         where nc.idnotafiscal = nv.idnotafiscalcompra ) "Fornecedor"
+                     , pck_romance.fnc_nomefornecedor(nv.idfornecedordestino) "Cliente"
+                     --, nv.idfornecedordestino idfornecedorcliente
+                     , nv.documento documento
+                     , vr.valor
+                     , pck_cadastros_rmc.fnc_retornacontabancaria(dd.idcontabanc) contabancaria
+                     , pck_romance.fnc_nomefornecedor(nv.idfornemitente) "Depositar para"
+                     --, nv.idnotafiscal
+                     --, to_char(dd.data,'IW/RRRR') semana
+                     , dd.data
+                     , decode(vr.abatimentoconfirmado,'S','Sim','Não') abatimentoconfirmado
+                     --, vr.idvencimento
+                     --, nv.idfornecedordestino cliente
+                     , to_char(dd.data, 'Month') "Mês Pgto"
+                     , to_char(vr.datavencimento, 'Month') "Mês Vcto"
+                     , to_char(vr.datavencimento, 'RRRR') "Ano Vcto"
+                     , nv.observacao
+                from notasfiscais nv 
+                   , vencimentosreceber vr
+                   , depositosdiarios_orig dd
+                where nv.tiponota = 'V'
+                  and nv.idnotafiscal     = vr.idnotafiscal
+                  --and extract(year from dd.data) = 2022
+                  and vr.idvencimento     = dd.idvencimentoabatimento(+)    
+                  and nv.transferenciaentrefiliaisrom = 'N'
+                  and nv.idcompratransferencia is null
+                  and ( :P318_FILTRAR_POR = 'X' 
+                      or ( :P318_FILTRAR_POR = 'P' and dd.data between to_date(:P318_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P318_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') )
+                      or ( :P318_FILTRAR_POR = 'A' and extract(year from dd.data) = :P318_ANO )
+                      or ( :P318_FILTRAR_POR = 'M' and extract(year from dd.data) = :P318_ANO
+                                                   and extract(month from dd.data) = :P318_MES ) )
+                  and not exists ( select 1
+                                   from depositosdiarios d
+                                   where d.idvencimentoabatimento = vr.idvencimento )
+                  and exists ( select 1
+                               from notasfiscais nf
+                                  , razoessociaisfiliais r
+                               where nf.idnotafiscal = nv.idnotafiscalcompra
+                                 and r.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                 and r.grupocrisdu = 'S' )
+                order by 2
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 867986696872934541
+        }
+
+        column ABATIMENTOCONFIRMADO (
+            type: hidden
+            heading {
+                heading: Abatimentoconfirmado
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Ano Vcto" (
+            type: plainText
+            heading {
+                heading: Ano Vcto
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column CONTABANCARIA (
+            type: plainText
+            heading {
+                heading: Conta Banc.
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column Cliente (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column DATA (
+            type: plainText
+            heading {
+                heading: Data Abat.
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column DATAVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Data Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column DOCUMENTO (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column "Depositar para" (
+            type: plainText
+            heading {
+                heading: Depositar Para
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column EMISSAO (
+            type: plainText
+            heading {
+                heading: Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column Fornecedor (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "Mês Pgto" (
+            type: plainText
+            heading {
+                heading: Mês Pgto
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column "Mês Vcto" (
+            type: plainText
+            heading {
+                heading: Mês Vcto
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column TIPO (
+            type: plainText
+            heading {
+                heading: Tipo Movimento
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column VALOR (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 3509718 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn ABATIMENTOCONFIRMADO (
+                sequence: 11
+            )
+
+            displayColumn "Ano Vcto" (
+                sequence: 14
+            )
+
+            displayColumn CONTABANCARIA (
+                sequence: 8
+            )
+
+            displayColumn "Cliente" (
+                sequence: 5
+            )
+
+            displayColumn DATA (
+                sequence: 10
+            )
+
+            displayColumn DATAVENCIMENTO (
+                sequence: 2
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 6
+            )
+
+            displayColumn "Depositar para" (
+                sequence: 9
+            )
+
+            displayColumn EMISSAO (
+                sequence: 3
+            )
+
+            displayColumn "Fornecedor" (
+                sequence: 4
+            )
+
+            displayColumn "Mês Pgto" (
+                sequence: 12
+            )
+
+            displayColumn "Mês Vcto" (
+                sequence: 13
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 15
+            )
+
+            displayColumn TIPO (
+                sequence: 1
+            )
+
+            displayColumn VALOR (
+                sequence: 7
+            )
+
+            aggregate (
+                column: VALOR
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P318_ANO (
+        type: textField
+        label {
+            label: Ano
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P318_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        default {
+            type: expression
+            plsqlExpression: trunc(sysdate)
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P318_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        default {
+            type: expression
+            plsqlExpression: trunc(sysdate)
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P318_FILTRAR_POR (
+        type: radioGroup
+        label {
+            label: Filtrar Por
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Período;P,Mês;M,Ano;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: P
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P318_MES (
+        type: selectList
+        label {
+            label: Mês
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select m.mes  
+                     , m.numero 
+                from meses m
+                order by 2
+                
+                ```
+            nullDisplayValue: - Escolha o Mês -
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction ano (
+        name: Ano
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P318_FILTRAR_POR
+        }
+        clientSideCondition {
+            type: item=value
+            item: P318_FILTRAR_POR
+            value: A
+        }
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P318_ANO
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction mes (
+        name: Mes
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P318_FILTRAR_POR
+        }
+        clientSideCondition {
+            type: item=value
+            item: P318_FILTRAR_POR
+            value: M
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P318_MES
+                    P318_ANO
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P318_MES
+                    P318_ANO
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction periodo (
+        name: Periodo
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P318_FILTRAR_POR
+        }
+        clientSideCondition {
+            type: item=value
+            item: P318_FILTRAR_POR
+            value: P
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P318_DATAINICIO
+                    P318_DATAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P318_DATAINICIO
+                    P318_DATAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    branch (
+        name: Go To Page 318
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 318
+                items: {
+                    P318_FILTRAR_POR: &P318_FILTRAR_POR.
+                    P318_MES: &P318_MES.
+                    P318_ANO: &P318_ANO.
+                    P318_DATAINICIO: &P318_DATAINICIO.
+                    P318_DATAFIM: &P318_DATAFIM.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

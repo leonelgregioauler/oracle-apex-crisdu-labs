@@ -1,0 +1,252 @@
+page 478 (
+    name: "Plano Contas Detalhado "
+    title: Plano Contas Empresa
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        width: 60%
+        height: 60%
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region detalhamento (
+        name: Detalhamento
+        type: tree
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select idclassificacao, classificacaopai, classificacao, descricaoconta
+                  from planocontasgeral
+                 where idclassificacao in ( select regexp_substr(pg.path, '[^:]+', 1, level) ID
+                                              from ( SELECT LTRIM(SYS_CONNECT_BY_PATH(g.idclassificacao, ':'), ':') AS path
+                                                       FROM planocontasgeral g
+                                                      where g.idclassificacao in (select idclassificacao
+                                                                                    from planocontasclassificacoes c
+                                                                                       , planocontasempresa        e
+                                                                                   where c.idplanocontasempresa = e.idplanocontasempresa
+                                                                                     and e.idrazaosocialfilial = :P478_IDRAZAOSOCIALFILIAL )
+                                                                                  
+                                                      START WITH g.classificacaopai IS NULL
+                                                      CONNECT BY g.classificacaopai = PRIOR g.idclassificacao
+                                                      ORDER SIBLINGS BY g.idclassificacao ) pg
+                
+                                            connect by level <= regexp_count(pg.path, ':') + 1 ) 
+                                            
+                 order by idclassificacao
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: contentBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            htmlDomId: empTree_tree
+            regionDisplaySelector: true
+        }
+        settings {
+            nodeLabelColumn: DESCRICAOCONTA
+            nodeIdColumn: IDCLASSIFICACAO
+            parentKeyColumn: CLASSIFICACAOPAI
+            orderSiblingsBy: CLASSIFICACAO
+            defaultIconCssClass: icon-tree-folder
+            iconTypeCssClass: a-Icon
+        }
+    )
+
+    region new (
+        name: New
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select classificacao, descricaoconta
+                  from planocontasgeral
+                 where idclassificacao in ( select regexp_substr(pg.path, '[^:]+', 1, level) ID
+                                              from ( SELECT LTRIM(SYS_CONNECT_BY_PATH(g.idclassificacao, ':'), ':') AS path
+                                                       FROM planocontasgeral g
+                                                      where g.idclassificacao in (select idclassificacao
+                                                                                    from planocontasclassificacoes c
+                                                                                       , planocontasempresa        e
+                                                                                   where c.idplanocontasempresa = e.idplanocontasempresa
+                                                                                     and e.idrazaosocialfilial = :P478_IDRAZAOSOCIALFILIAL )
+                                                                                  
+                                                      START WITH g.classificacaopai IS NULL
+                                                      CONNECT BY g.classificacaopai = PRIOR g.idclassificacao
+                                                      ORDER SIBLINGS BY g.idclassificacao ) pg
+                
+                                            connect by level <= regexp_count(pg.path, ':') + 1 ) 
+                                            
+                 order by idclassificacao
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+            renderComponents: belowContent
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        download {
+            csvExportEnabled: true
+        }
+
+        column CLASSIFICACAO (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Classificação
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DESCRICAOCONTA (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Descrição Conta
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    pageItem P478_IDRAZAOSOCIALFILIAL (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @new
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    dynamicAction expandir-arvore (
+        name: Expandir Arvore
+        execution {
+            sequence: 10
+        }
+        when {
+            event: pagehide
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    var exp$ = $("#empTree_tree").treeView("getExpandedNodeIds");
+                    // Create a cookie and store the nodes that are expanded
+                    // The toString will change the array into a comma separated string.
+                    apex.storage.setCookie('myTreeState', exp$.toString());
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction restaura-arvore (
+        name: Restaura Arvore
+        execution {
+            sequence: 20
+        }
+        when {
+            event: ready
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    // Get a handle on the tree using regionStaticID_tree
+                    var tree$ = $("#empTree_tree");
+                    // Get the value of the cookie named myTreeState
+                    var myTreeState = apex.storage.getCookie("myTreeState");
+                    // If the Cookie is not null then loop through and expand the tree
+                    if (myTreeState) 
+                    {
+                        // Split the value of the cookie and make an array
+                        var $expNodes = myTreeState.split(",");
+                        // Loop Through the array and for each entry
+                        $expNodes.forEach(function (id) {
+                            // Identify the Tree Nodes that relate to the saved values
+                            var node$ = tree$.treeView("find",{ 
+                                depth : -1, 
+                                findAll: false, 
+                                match: function(node){ 
+                                    return node.id == id
+                                }
+                        }) 
+                        // Expand those nodes.
+                        tree$.treeView("expand", node$)
+                        }) 
+                    }
+                    
+                    ```
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+)
+

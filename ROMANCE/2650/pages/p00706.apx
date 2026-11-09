@@ -1,0 +1,1556 @@
+page 706 (
+    name: Central de Comprovantes
+    title: Central de Comprovantes
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            // Selecao da lista de comprovantes: quantidade e valor marcados.
+            function c706brl(v) {
+              return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+            }
+            function c706tot() {
+              var q = 0, t = 0;
+              $("input[name=f01]:checked").each(function () {
+                q++;
+                t += parseFloat($(this).attr("data-v")) || 0;
+              });
+              t = Math.round(t * 100) / 100;
+              $("#sel706").html(q ? "<b>" + q + "</b> comprovante(s) marcado(s) - <b>" + c706brl(t) + "</b>"
+                                  : "Nenhum comprovante marcado. Marque na lista ou escolha enviar todo o filtro.");
+            }
+            function c706Todos(chk) {
+              $("input[name=f01]").prop("checked", chk.checked);
+              c706tot();
+            }
+            function c706Filtra(sit) {
+              apex.page.submit({ request: "BUSCAR", set: { "P706_SITUACAO": sit }, showWait: true });
+            }
+            function c706Vincular(id) {
+              apex.item("P706_COMPROV").setValue(id);
+              apex.region("cand706").refresh();
+              apex.theme.openRegion("cand706");
+            }
+            function c706Escolher(idpgtoforn) {
+              apex.message.confirm("Ligar o comprovante a esta fatura e anexar o PDF?", function (ok) {
+                if (ok) {
+                  apex.page.submit({ request: "VINCULAR",
+                                     set: { "P706_COMPROV": $v("P706_COMPROV"), "P706_FATURA": idpgtoforn },
+                                     showWait: true });
+                }
+              });
+            }
+            function c706Desvincular(id) {
+              apex.message.confirm("Desvincular este comprovante? O anexo sai da fatura e o comprovante volta para pagos fora da API.", function (ok) {
+                if (ok) {
+                  apex.page.submit({ request: "DESVINCULAR", set: { "P706_COMPROV": id }, showWait: true });
+                }
+              });
+            }
+            function c706Reenviar(lote) {
+              apex.message.confirm("Reenviar o lote " + lote + "?", function (ok) {
+                if (ok) {
+                  apex.page.submit({ request: "REENVIAR", set: { "P706_LOTE": lote }, showWait: true });
+                }
+              });
+            }
+            $(function () {
+              c706tot();
+              $(document).on("change", "input[name=f01]", c706tot);
+              $(document).on("apexafterrefresh", c706tot);
+            });
+            ```
+    }
+    css {
+        inline:
+            ```css
+            .c706-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;padding:12px}
+            .c706-card{background:#f7f7f7;border-radius:8px;padding:14px 16px;border-left:4px solid #c8c8c8}
+            .c706-card .t{font-size:13px;color:#707070}
+            .c706-card .v{font-size:24px;font-weight:500;margin-top:2px}
+            .c706-card .s{font-size:11px;color:#909090;margin-top:2px}
+            .c706-bar{height:6px;background:#e6e6e6;border-radius:3px;margin-top:6px}
+            .c706-bar div{height:6px;border-radius:3px;background:#2e7d32}
+            .c706-pend{display:flex;flex-wrap:wrap;gap:24px;padding:0 12px 12px;font-size:13px}
+            .c706-b{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}
+            .c706-ok{background:#e3f4e6;color:#2e7d32}
+            .c706-pe{background:#fff1dc;color:#b26a00}
+            .c706-er{background:#fde7e7;color:#c62828}
+            .c706-sf{background:#ececec;color:#606060}
+            .c706-en{background:#e3eefb;color:#1565c0}
+            #sel706{font-size:14px;padding:6px 0}
+            ```
+    }
+    security {
+        authorizationScheme: @autoriza-pix-operador
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region comprovantes (
+        name: Comprovantes
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select case when v.situacao = 'ANEXADO' then
+                         apex_item.checkbox2( p_idx        => 1
+                                            , p_value      => v.idcomprovante
+                                            , p_attributes => 'data-v="' || to_char(v.valor, 'FM999999999990D00', 'NLS_NUMERIC_CHARACTERS=''.,''') || '"' )
+                       end sel
+                     , v.dt_pagamento pago
+                     , v.dt_vencimento vencimento
+                     , apex_escape.html(v.fornecedor)
+                       || case when v.vinculo in ('AUTO_IB', 'MANUAL', 'DESFEITO') or v.situacao = 'SEM_FATURA' then
+                            '<br><span style="font-size:11px;color:#707070">No banco: ' || apex_escape.html(v.favorecido_banco) || '</span>'
+                          end fornecedor
+                     , nvl2(v.documento, 'NF ' || v.documento, null) documento
+                     , decode(v.forma, 'BOLETO', 'Boleto', 'DICT', 'Pix chave', 'BENEFICIARIO', 'Pix ag/conta'
+                             , 'GUIA', 'Guia', 'PIX', 'Pix', initcap(v.forma)) forma
+                     , ( select substr(sc.beneficiario, 1, 25) from santander_contas sc
+                          where sc.idcontabanc = v.idcontabanc ) conta
+                     , v.valor
+                     , case v.situacao
+                         when 'ANEXADO'    then '<span class="c706-b c706-ok">Anexado</span>'
+                         when 'ERRO'       then '<span class="c706-b c706-er" title="' || apex_escape.html_attribute(v.erro) || '">Erro</span>'
+                         when 'SEM_FATURA' then '<span class="c706-b c706-sf">Fora da API</span>'
+                         else                   '<span class="c706-b c706-pe">Pendente</span>'
+                       end situacao
+                     , case when v.url_pdf is not null then
+                         '<a href="' || apex_escape.html_attribute(v.url_pdf) || '" target="_blank" title="Abrir comprovante">'
+                         || '<span class="fa fa-file-pdf-o" aria-hidden="true"></span></a>'
+                       end pdf
+                     , case when v.dt_ultimo_envio is not null then
+                         '<span class="c706-b c706-en">' || to_char(v.dt_ultimo_envio, 'DD/MM HH24:MI') || '</span>'
+                       end enviado
+                     , case
+                         when v.situacao = 'SEM_FATURA' then
+                           '<a href="javascript:c706Vincular(' || v.idcomprovante || ')">Vincular</a>'
+                         when v.vinculo = 'AUTO_IB' then
+                           '<span class="c706-b c706-sf" title="Pago no Internet Banking; ligado pela conta, valor e data">Auto IB</span> '
+                           || '<a href="javascript:c706Desvincular(' || v.idcomprovante || ')">Desvincular</a>'
+                         when v.vinculo = 'MANUAL' then
+                           '<span class="c706-b c706-sf">Manual</span> '
+                           || '<a href="javascript:c706Desvincular(' || v.idcomprovante || ')">Desvincular</a>'
+                         else '<span class="c706-b c706-en">API</span>'
+                       end vinculo
+                  from vw_santander_comprovantes v
+                
+                   where trunc(case :P706_TIPO_DATA when 'V' then v.dt_vencimento
+                                                    when 'E' then v.dt_emissao
+                                                    else v.dt_pagamento end)
+                         between nvl(to_date(:P706_DE, 'DD/MM/RRRR'), trunc(sysdate) - 7)
+                             and nvl(to_date(:P706_ATE, 'DD/MM/RRRR'), trunc(sysdate))
+                     and ( :P706_CONTA is null or v.idcontabanc = :P706_CONTA )
+                     and ( :P706_FORMA is null or v.forma = :P706_FORMA )
+                     and ( :P706_FORNECEDOR is null
+                           or upper(v.fornecedor || ' ' || v.documento) like '%' || upper(:P706_FORNECEDOR) || '%' )
+                   and ( :P706_SITUACAO is null or v.situacao = :P706_SITUACAO )
+                 order by v.dt_pagamento desc, v.valor desc
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 500
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: " "
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        messages {
+            whenNoDataFound: Nenhum pagamento com esses filtros.
+        }
+        download {
+            csvExportEnabled: true
+        }
+
+        column CONTA (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DOCUMENTO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column ENVIADO (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Último envio
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column FORMA (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Forma
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FORNECEDOR (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column PAGO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Pago em
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            appearance {
+                formatMask: DD/MM/YYYY HH24:MI
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column PDF (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: PDF
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SEL (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: <input type="checkbox" title="Marcar todos" onclick="c706Todos(this)">
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SITUACAO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: end
+            }
+            layout {
+                sequence: 8
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VENCIMENTO (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VINCULO (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Vínculo
+                alignment: center
+            }
+            layout {
+                sequence: 12
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+    )
+
+    region enviar-lote-de-comprovantes (
+        name: Enviar lote de comprovantes
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  -- preenchido pelo JS da pagina (c706tot)
+                  htp.p('<div id="sel706"></div>');
+                end;
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+            renderComponents: belowContent
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+            renderComponents: belowContent
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            outputAs: text
+        }
+    )
+
+    region histórico-de-lotes (
+        name: Histórico de lotes
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select l.lote
+                     , l.dt_solicitacao solicitado
+                     , l.usuario_apex usuario
+                     , l.emails destino
+                     , l.qtd
+                     , l.valor
+                     , case l.status
+                         when 'ENVIADO'     then '<span class="c706-b c706-ok">Enviado</span>'
+                         when 'ERRO'        then '<span class="c706-b c706-er" title="' || apex_escape.html_attribute(l.obs) || '">Erro</span>'
+                         when 'PROCESSANDO' then '<span class="c706-b c706-en">Processando</span>'
+                         else                    '<span class="c706-b c706-pe">Na fila</span>'
+                       end status
+                     , l.dt_processado processado
+                     , case when l.status = 'ERRO' then
+                         '<a href="javascript:c706Reenviar(' || l.lote || ')">Reenviar</a>'
+                       end acao
+                  from fila_envio_comprovantes_lote l
+                 order by l.lote desc
+                 fetch first 30 rows only
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 30
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: " "
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        messages {
+            whenNoDataFound: Nenhum lote enviado ainda.
+        }
+        download {
+            csvExportEnabled: true
+        }
+
+        column ACAO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DESTINO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Destino
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column LOTE (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Lote
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column PROCESSADO (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Processado
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            appearance {
+                formatMask: DD/MM/YYYY HH24:MI
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column QTD (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Qtd
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SOLICITADO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Solicitado
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            appearance {
+                formatMask: DD/MM/YYYY HH24:MI
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column STATUS (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Status
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column USUARIO (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Usuário
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: end
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region painel (
+        name: Painel
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vde    date := nvl(to_date(:P706_DE,  'DD/MM/RRRR'), trunc(sysdate) - 7);
+                  vate   date := nvl(to_date(:P706_ATE, 'DD/MM/RRRR'), trunc(sysdate));
+                  vqt    number; vvt number;      -- todos os pagamentos do filtro
+                  vqapi  number;                  -- pagos pela API
+                  vqa    number; vva number;      -- anexados
+                  vqp    number; vvp number;      -- pendentes (inclui erro)
+                  vqe    number;                  -- erro
+                  vqs    number; vvs number;      -- pagos fora da API
+                  vlotes number; vqenv number;    -- lotes enviados no periodo
+                  vpct   number;
+                
+                  function brl ( p in number ) return varchar2 is
+                  begin
+                    return 'R$ ' || to_char(nvl(p, 0), 'FM999G999G999G990D00');
+                  end brl;
+                
+                  procedure cartao ( ptit in varchar2, pval in varchar2, psub in varchar2, pcor in varchar2 ) is
+                  begin
+                    htp.p('<div class="c706-card" style="border-left-color:' || pcor || '">'
+                       || '<div class="t">' || ptit || '</div><div class="v">' || pval || '</div>'
+                       || '<div class="s">' || psub || '</div></div>');
+                  end cartao;
+                begin
+                  select count(*), sum(v.valor)
+                       , count(case when v.situacao <> 'SEM_FATURA' then 1 end)
+                       , count(case when v.situacao = 'ANEXADO' then 1 end)
+                       , sum(case when v.situacao = 'ANEXADO' then v.valor end)
+                       , count(case when v.situacao in ('PENDENTE', 'ERRO') then 1 end)
+                       , sum(case when v.situacao in ('PENDENTE', 'ERRO') then v.valor end)
+                       , count(case when v.situacao = 'ERRO' then 1 end)
+                       , count(case when v.situacao = 'SEM_FATURA' then 1 end)
+                       , sum(case when v.situacao = 'SEM_FATURA' then v.valor end)
+                    into vqt, vvt, vqapi, vqa, vva, vqp, vvp, vqe, vqs, vvs
+                    from vw_santander_comprovantes v
+                   where trunc(case :P706_TIPO_DATA when 'V' then v.dt_vencimento
+                                                    when 'E' then v.dt_emissao
+                                                    else v.dt_pagamento end) between vde and vate
+                     and ( :P706_CONTA is null or v.idcontabanc = :P706_CONTA )
+                     and ( :P706_FORMA is null or v.forma = :P706_FORMA )
+                     and ( :P706_FORNECEDOR is null
+                           or upper(v.fornecedor || ' ' || v.documento) like '%' || upper(:P706_FORNECEDOR) || '%' );
+                
+                  select count(*), nvl(sum(l.qtd), 0) into vlotes, vqenv
+                    from fila_envio_comprovantes_lote l
+                   where l.status = 'ENVIADO'
+                     and trunc(l.dt_processado) between vde and vate;
+                
+                  vpct := case when vqapi > 0 then round(100 * vqa / vqapi) end;
+                
+                  htp.p('<div class="c706-cards">');
+                  cartao(unistr('Pagamentos no per\00EDodo'), vqt, brl(vvt), '#1565c0');
+                  htp.p('<div class="c706-card" style="border-left-color:#2e7d32">'
+                     || '<div class="t">Cobertura de comprovante</div>'
+                     || '<div class="v">' || nvl(to_char(vpct) || '%', '-') || '</div>'
+                     || '<div class="c706-bar"><div style="width:' || nvl(vpct, 0) || '%"></div></div>'
+                     || '<div class="s">' || vqa || ' de ' || vqapi || ' pagos pela API</div></div>');
+                  cartao('Pagos sem comprovante', vqp, brl(vvp), case when vqp > 0 then '#b26a00' else '#c8c8c8' end);
+                  cartao('Pagos fora da API', vqs, brl(vvs) || ' (Internet Banking)', '#909090');
+                  cartao('Enviados no período', vlotes || ' lote(s)', vqenv || ' comprovante(s)', '#1565c0');
+                  htp.p('</div>');
+                
+                  htp.p('<div class="c706-pend">');
+                  htp.p('<span><span class="c706-b c706-pe">' || vqp || '</span> pago sem comprovante: '
+                     || '<a href="javascript:c706Filtra(''PENDENTE'')">ver</a> ou use "Buscar comprovantes no banco"</span>');
+                  htp.p('<span><span class="c706-b c706-sf">' || vqs || '</span> pago fora da API: '
+                     || '<a href="javascript:c706Filtra(''SEM_FATURA'')">ver</a></span>');
+                  htp.p('<span><span class="c706-b c706-er">' || vqe || '</span> erro ao anexar: '
+                     || '<a href="javascript:c706Filtra(''ERRO'')">ver</a></span>');
+                  htp.p('</div>');
+                end;
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region vincular-comprovante-a-uma-fatura (
+        name: Vincular comprovante a uma fatura
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pf.idpgtoforn
+                     , pck_romance.fnc_nomefornecedor(pf.idfornecedor) fornecedor
+                     , nf.documento
+                     , pf.dtvencimento vencimento
+                     , pf.databaixa baixa
+                     , nvl(pf.valorpago, pf.valorpagar - nvl(pf.desconto, 0) + nvl(pf.acrescimo, 0)) valor
+                     , ( select substr(cb.beneficiario, 1, 25) from contasbancarias cb
+                          where cb.idcontabanc = pf.idcontapagamento ) conta
+                     , '<a href="javascript:c706Escolher(' || pf.idpgtoforn || ')">Vincular</a>' acao
+                  from santander_comprovantes c
+                  join pagamentosfornecedores pf
+                    on pf.idcheque is null
+                   and abs(nvl(pf.valorpago, pf.valorpagar - nvl(pf.desconto, 0) + nvl(pf.acrescimo, 0)) - c.valor)
+                       <= greatest(1, c.valor * 0.02)
+                   and ( pf.databaixa between trunc(c.dt_pagamento) - 15 and trunc(c.dt_pagamento) + 16
+                         or pf.dtvencimento between trunc(c.dt_pagamento) - 15 and trunc(c.dt_pagamento) + 15 )
+                  left join notasfiscais nf on nf.idnotafiscal = pf.idnotafiscal
+                 where c.idcomprovante = :P706_COMPROV
+                   and not exists ( select 1 from pix_pagamentos px
+                                     where px.idpgtoforn = pf.idpgtoforn and px.status = 'PAYED' )
+                   and not exists ( select 1 from santander_comprovantes o
+                                     where o.idpgtoforn = pf.idpgtoforn )
+                 order by abs(nvl(pf.valorpago, pf.valorpagar - nvl(pf.desconto, 0) + nvl(pf.acrescimo, 0)) - c.valor)
+                        , abs(nvl(pf.databaixa, pf.dtvencimento) - c.dt_pagamento)
+                 fetch first 30 rows only
+                ```
+            pageItemsToSubmit: P706_COMPROV
+        }
+        layout {
+            sequence: 60
+            slot: body
+        }
+        appearance {
+            template: @/inline-dialog
+            templateOptions: [
+                #DEFAULT#
+                js-dialog-autoheight
+                js-dialog-size720x480
+            ]
+        }
+        advanced {
+            htmlDomId: cand706
+        }
+        reportLayout {
+            numberOfRows: 30
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: " "
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        messages {
+            whenNoDataFound: Nenhuma fatura livre com valor (até 2%) e data (até 15 dias) próximos. Confira se a fatura foi lançada.
+        }
+
+        column ACAO (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column BAIXA (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Baixa
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CONTA (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DOCUMENTO (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: NF
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FORNECEDOR (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPGTOFORN (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Fatura
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: end
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VENCIMENTO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    pageItem P706_ATE (
+        type: datePicker
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 14
+        }
+        default {
+            type: expression
+            plsqlExpression: to_char(sysdate, 'DD/MM/YYYY')
+        }
+    )
+
+    pageItem P706_COMPROV (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P706_CONTA (
+        type: selectList
+        label {
+            label: Conta pagadora
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select substr(sc.beneficiario, 1, 30) || ' - ' || cb.agencia || '/' || cb.conta d
+                     , sc.idcontabanc r
+                  from santander_contas sc
+                  join contasbancarias cb on cb.idcontabanc = sc.idcontabanc
+                 where sc.workspace_id is not null
+                 order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Todas -"
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P706_DE (
+        type: datePicker
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 14
+        }
+        default {
+            type: expression
+            plsqlExpression: to_char(trunc(sysdate) - 7, 'DD/MM/YYYY')
+        }
+    )
+
+    pageItem P706_EMAILS (
+        type: textField
+        label {
+            label: E-mails de destino
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @enviar-lote-de-comprovantes
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 70
+            valuePlaceholder: financeiro@crisdu.com.br, contabil@crisdu.com.br
+        }
+        validation {
+            maxLength: 1000
+        }
+        help {
+            inlineHelpText: Um ou mais e-mails, separados por vírgula. Vai um ZIP com os PDFs e uma planilha-resumo.
+        }
+    )
+
+    pageItem P706_ENVIAR (
+        type: selectList
+        label {
+            label: O que enviar
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Os marcados na lista;S,Todos os anexados do filtro (até 300);F
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @enviar-lote-de-comprovantes
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: S
+        }
+    )
+
+    pageItem P706_FATURA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P706_FORMA (
+        type: selectList
+        label {
+            label: Forma
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Boleto;BOLETO,Pix chave;DICT,Pix ag/conta;BENEFICIARIO,Guia;GUIA,Pix fora da API;PIX
+            displayExtraValues: false
+            nullDisplayValue: " - Todas -"
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P706_FORNECEDOR (
+        type: textField
+        label {
+            label: Fornecedor ou NF
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        validation {
+            maxLength: 60
+        }
+    )
+
+    pageItem P706_LOTE (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P706_SITUACAO (
+        type: selectList
+        label {
+            label: Situação
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Anexado;ANEXADO,Pendente;PENDENTE,Erro;ERRO,Pago fora da API;SEM_FATURA
+            displayExtraValues: false
+            nullDisplayValue: " - Todas -"
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P706_TIPO_DATA (
+        type: selectList
+        label {
+            label: Data por
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Pagamento;P,Vencimento;V,Emissão da fatura;E
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: P
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Filtrar
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button buscar-banco (
+        buttonName: BUSCAR_BANCO
+        label: Buscar comprovantes no banco
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button enviar (
+        buttonName: ENVIAR
+        label: Colocar na fila de envio
+        layout {
+            sequence: 10
+            region: @enviar-lote-de-comprovantes
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process buscar-comprovantes-no-banco (
+        name: Buscar comprovantes no banco
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  roman.pck_santander_comprovantes.prc_buscar_async(
+                    pdias => trunc(sysdate) - nvl(to_date(:P706_DE, 'DD/MM/RRRR'), trunc(sysdate) - 1) );
+                exception
+                  when others then
+                    apex_error.add_error(
+                      p_message          => regexp_replace(sqlerrm, '^ORA-[0-9]+: ', ''),
+                      p_display_location => apex_error.c_inline_in_notification);
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Busca de comprovantes iniciada em segundo plano (todas as contas, do início do período até hoje). Em alguns minutos clique em Filtrar.
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000706070
+        }
+        serverSideCondition {
+            whenButtonPressed: @buscar-banco
+        }
+    )
+
+    process desvincular-comprovante (
+        name: Desvincular comprovante
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  roman.pck_santander_comprovantes.prc_desvincular(to_number(:P706_COMPROV));
+                exception
+                  when others then
+                    apex_error.add_error(
+                      p_message          => regexp_replace(sqlerrm, '^ORA-[0-9]+: ', ''),
+                      p_display_location => apex_error.c_inline_in_notification);
+                end;
+                ```
+        }
+        execution {
+            sequence: 50
+        }
+        successMessage {
+            successMessage: Comprovante desvinculado e anexo removido da fatura.
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000706074
+        }
+        serverSideCondition {
+            type: request=Value
+            value: DESVINCULAR
+        }
+    )
+
+    process enviar-lote (
+        name: Enviar lote
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vids    varchar2(32767);
+                  vqtd    pls_integer := 0;
+                  vlote   number;
+                  vfiltro varchar2(1000);
+                  vconta  varchar2(100);
+                begin
+                  -- nome da conta para o texto do filtro (subconsulta nao vale em expressao PL/SQL)
+                  if :P706_CONTA is not null then
+                    select max(substr(sc.beneficiario, 1, 30)) into vconta
+                      from santander_contas sc where sc.idcontabanc = :P706_CONTA;
+                  end if;
+                
+                  if nvl(:P706_ENVIAR, 'S') = 'F' then
+                    -- Todo o filtro da tela: so o que ja tem o PDF anexado. Le 1 a mais que o
+                    -- limite para o fnc_criar_lote avisar quando passar.
+                    for r in ( select v.idcomprovante
+                                 from vw_santander_comprovantes v
+                
+                                where trunc(case :P706_TIPO_DATA when 'V' then v.dt_vencimento
+                                                                 when 'E' then v.dt_emissao
+                                                                 else v.dt_pagamento end)
+                                      between nvl(to_date(:P706_DE, 'DD/MM/RRRR'), trunc(sysdate) - 7)
+                                          and nvl(to_date(:P706_ATE, 'DD/MM/RRRR'), trunc(sysdate))
+                                  and ( :P706_CONTA is null or v.idcontabanc = :P706_CONTA )
+                                  and ( :P706_FORMA is null or v.forma = :P706_FORMA )
+                                  and ( :P706_FORNECEDOR is null
+                                        or upper(v.fornecedor || ' ' || v.documento) like '%' || upper(:P706_FORNECEDOR) || '%' )
+                                  and v.situacao = 'ANEXADO'
+                                order by v.dt_pagamento
+                                fetch first 301 rows only )
+                    loop
+                      vids := vids || case when vids is not null then ':' end || r.idcomprovante;
+                      vqtd := vqtd + 1;
+                    end loop;
+                  else
+                    for i in 1 .. apex_application.g_f01.count loop
+                      vids := vids || case when vids is not null then ':' end || apex_application.g_f01(i);
+                      vqtd := vqtd + 1;
+                    end loop;
+                  end if;
+                
+                  if vqtd = 0 then
+                    apex_error.add_error(
+                      p_message          => 'Nenhum comprovante anexado para enviar. Marque na lista ou ajuste o filtro.',
+                      p_display_location => apex_error.c_inline_in_notification);
+                    return;
+                  end if;
+                
+                  vfiltro := substr(
+                       case :P706_TIPO_DATA when 'V' then 'Vencimento' when 'E' then unistr('Emiss\00E3o da fatura') else 'Pagamento' end
+                    || ' de ' || :P706_DE || unistr(' at\00E9 ') || :P706_ATE
+                    || case when vconta is not null then '; conta ' || vconta end
+                    || case when :P706_FORMA is not null then '; forma ' || :P706_FORMA end
+                    || case when :P706_FORNECEDOR is not null then '; fornecedor/NF ' || :P706_FORNECEDOR end
+                    , 1, 1000);
+                
+                  vlote := roman.pck_santander_comprovantes.fnc_criar_lote(
+                             pids     => vids
+                           , pemails  => :P706_EMAILS
+                           , pfiltro  => vfiltro
+                           , pusuario => :APP_USER );
+                
+                  apex_application.g_print_success_message :=
+                    'Lote ' || vlote || ' na fila de envio. O e-mail com o ZIP sai em alguns segundos; '
+                    || unistr('acompanhe no hist\00F3rico de lotes.');
+                exception
+                  when others then
+                    apex_error.add_error(
+                      p_message          => regexp_replace(sqlerrm, '^ORA-[0-9]+: ', ''),
+                      p_display_location => apex_error.c_inline_in_notification);
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000706071
+        }
+        serverSideCondition {
+            whenButtonPressed: @enviar
+        }
+    )
+
+    process reenviar-lote (
+        name: Reenviar lote
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  roman.pck_santander_comprovantes.prc_reenviar_lote(to_number(:P706_LOTE));
+                exception
+                  when others then
+                    apex_error.add_error(
+                      p_message          => regexp_replace(sqlerrm, '^ORA-[0-9]+: ', ''),
+                      p_display_location => apex_error.c_inline_in_notification);
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        successMessage {
+            successMessage: Lote de volta na fila de envio.
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000706072
+        }
+        serverSideCondition {
+            type: request=Value
+            value: REENVIAR
+        }
+    )
+
+    process vincular-comprovante (
+        name: Vincular comprovante
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  roman.pck_santander_comprovantes.prc_vincular_manual(
+                    pidcomprovante => to_number(:P706_COMPROV)
+                  , pidpgtoforn    => to_number(:P706_FATURA) );
+                exception
+                  when others then
+                    apex_error.add_error(
+                      p_message          => regexp_replace(sqlerrm, '^ORA-[0-9]+: ', ''),
+                      p_display_location => apex_error.c_inline_in_notification);
+                end;
+                ```
+        }
+        execution {
+            sequence: 40
+        }
+        successMessage {
+            successMessage: Comprovante ligado à fatura. O PDF é anexado em alguns segundos; clique em Filtrar para ver.
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000706073
+        }
+        serverSideCondition {
+            type: request=Value
+            value: VINCULAR
+        }
+    )
+
+)
+

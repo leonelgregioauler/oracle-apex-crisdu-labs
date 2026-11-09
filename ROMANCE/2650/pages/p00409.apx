@@ -1,0 +1,1172 @@
+page 409 (
+    name: Provisões x Pagamentos
+    title: Provisões x Pagamentos
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region acumulado-tipos-de-pagamentos (
+        name: Acumulado Tipos de Pagamentos
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select fm.descricao tipo
+                     , nvl(sum(pf.valorpago),0) pago
+                from pagamentosfornecedores pf
+                    , formaspagamentos fm
+                where trunc(pf.databaixa) between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                  and pf.tipopagamento = fm.idformapagamento
+                  and pf.databaixa is not null
+                  and pf.valorpago > 0
+                  and pf.tipopagamento != 'D'
+                  and exists ( select 1
+                               from razoessociaisfiliais rf
+                                  , notasfiscais nf
+                               where rf.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                 and nf.idnotafiscal        = pf.idnotafiscal
+                                 and rf.grupocrisdu         = 'S' )
+                group by descricao 
+                     
+                
+                ```
+        }
+        layout {
+            sequence: 60
+            slot: body
+            startNewRow: false
+            columnSpan: 2
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+
+        column PAGO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Pago
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column TIPO (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Tipo
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region pagamentos-diários (
+        name: Pagamentos Diários
+        type: chart
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        chart {
+            type: line
+        }
+        performance {
+            lazyLoading: true
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            position: top
+            hideAndShowBehavior: none
+        }
+
+        series valores (
+            name: Valores
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select trunc(pf.databaixa) data
+                        , sum(nvl(pf.valorpago,0)) pago
+                        , 'Data '||trunc(pf.databaixa)||' Valor: '||trim(to_char(sum(pf.valorpago),'999G999G999G999G999G990D00')) label
+                        , trim(to_char(( select sum(nvl(pf.valorpago,0)) 
+                                         from pagamentosfornecedores pf
+                                         where trunc(pf.databaixa) between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                                           and pf.databaixa is not null
+                                           and pf.valorpago > 0
+                                           and pf.tipopagamento != 'D'
+                                           and exists ( select 1
+                                                        from razoessociaisfiliais rf
+                                                           , notasfiscais nf
+                                                        where rf.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                                          and nf.idnotafiscal        = pf.idnotafiscal
+                                                          and rf.grupocrisdu         = 'S' ) ),'999G999G999G999G999G990D00')) total
+                    from pagamentosfornecedores pf
+                    where trunc(pf.databaixa) between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                      and pf.databaixa is not null
+                      and pf.valorpago > 0
+                      and pf.tipopagamento != 'D'
+                      and exists ( select 1
+                                   from razoessociaisfiliais rf
+                                      , notasfiscais nf
+                                   where rf.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                     and nf.idnotafiscal        = pf.idnotafiscal
+                                     and rf.grupocrisdu         = 'S' )
+                    group by trunc(pf.databaixa)
+                    order by 1
+                    ```
+            }
+            columnMapping {
+                seriesName: TOTAL
+                label: DATA
+                value: PAGO
+                customTooltip: LABEL
+            }
+            label {
+                show: true
+            }
+        )
+
+        axis x (
+            name: x
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    region previstos-x-realizados (
+        name: Previstos x Realizados
+        type: chart
+        layout {
+            sequence: 80
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        performance {
+            lazyLoading: true
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series pago (
+            name: Pago
+            execution {
+                sequence: 20
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select t.data
+                         , t.valor
+                    from ( 
+                          select dt.data
+                               , nvl(pago.valor,0) valor
+                          from datasperiodos dt
+                             , ( select trunc(pf.databaixa) data
+                                      , sum(pf.valorpago) valor
+                                 from pagamentosfornecedores pf
+                                 where trunc(pf.databaixa) between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                                   and pf.databaixa is not null
+                                   and pf.valorpago > 0
+                                   and pf.tipo != 'D'
+                                   and exists ( select 1
+                                                from razoessociaisfiliais rf
+                                                   , notasfiscais nf
+                                                where rf.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                                  and nf.idnotafiscal        = pf.idnotafiscal
+                                                  and rf.grupocrisdu         = 'S' )
+                                 group by trunc(pf.databaixa) ) pago
+                          where dt.data = pago.data(+)
+                            and dt.data between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM) ) t
+                    order by 1 
+                    
+                    ```
+            }
+            columnMapping {
+                label: DATA
+                value: VALOR
+            }
+            label {
+                show: true
+                position: outsideBarEdge
+            }
+        )
+
+        series previsão (
+            name: Previsão
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select t.data
+                         , t.valor
+                    from ( 
+                          select dt.data
+                               , nvl(prev.valor,0) valor
+                          from datasperiodos dt
+                             , ( select p.datavencimento data
+                                      , sum(p.valorpagar) valor
+                                 from provisoespagamentos p
+                                 where p.datavencimento between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                                   and p.datainicio     = to_date(:P409_DATAINICIO)
+                                   and p.datafim        = to_date(:P409_DATAFIM)
+                                 group by p.datavencimento ) prev
+                          where dt.data = prev.data(+)
+                            and dt.data between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM) ) t
+                    order by 1
+                    
+                    ```
+            }
+            columnMapping {
+                label: DATA
+                value: VALOR
+            }
+            label {
+                show: true
+                position: outsideBarEdge
+            }
+        )
+
+        axis x (
+            name: x
+            value {
+                format: dateShort
+            }
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    region previsão-de-vencimentos-prox-30-dias (
+        name: Previsão de Vencimentos Prox. 30 dias
+        type: chart
+        layout {
+            sequence: 100
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        performance {
+            lazyLoading: true
+        }
+        dataCursor {
+            dimOnHover: false
+        }
+        animation {
+            onDataChange: none
+        }
+        tooltip {
+            showGroupName: false
+        }
+        legend {
+            position: top
+            hideAndShowBehavior: none
+        }
+
+        series previsto (
+            name: Previsto + 30
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select dt.data
+                         , prev.valor
+                         , trim(to_char(( select sum(pf.valorpagar) valor
+                                          from pagamentosfornecedores pf
+                                          where trunc(pf.dtvencimento) between trunc(sysdate) and trunc(sysdate)+30
+                                            and exists ( select 1
+                                                         from notasfiscais nf
+                                                            , razoessociaisfiliais rf
+                                                         where nf.idnotafiscal = pf.idnotafiscal
+                                                           and rf.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                                           and rf.grupocrisdu         = 'S' )
+                                            and nvl(pf.valorpago,0) = 0 ),'999G999G999G999G999G990D00')) total
+                    from datasperiodos dt
+                       , ( select trunc(pf.dtvencimento) data
+                                , sum(pf.valorpagar) valor
+                           from pagamentosfornecedores pf
+                           where trunc(pf.dtvencimento) between trunc(sysdate) and trunc(sysdate)+30
+                             and exists ( select 1
+                                          from notasfiscais nf
+                                             , razoessociaisfiliais rf
+                                          where nf.idnotafiscal = pf.idnotafiscal
+                                            and rf.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                            and rf.grupocrisdu         = 'S' )
+                             and nvl(pf.valorpago,0) = 0
+                           group by trunc(pf.dtvencimento) ) prev
+                    where dt.data = prev.data(+)
+                      and dt.data between trunc(sysdate) and trunc(sysdate)+30
+                    order by 1
+                    ```
+            }
+            columnMapping {
+                seriesName: TOTAL
+                label: DATA
+                value: VALOR
+            }
+            label {
+                show: true
+                position: outsideBarEdge
+            }
+        )
+
+        axis x (
+            name: x
+            title: Data
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            title: Valor
+            value {
+                format: decimal
+            }
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    region previsão-mês (
+        name: Previsão Mês
+        type: chart
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select dt.descr_mes mes
+                     , dt.mes nummes
+                     , sum(prev.valor) valor
+                from datasperiodos dt
+                   , ( select trunc(pf.dtvencimento) data
+                            , sum(pf.valorpagar) valor
+                       from pagamentosfornecedores pf
+                       where extract (year from pf.dtvencimento) = 2021
+                         and exists ( select 1
+                                      from notasfiscais nf
+                                         , razoessociaisfiliais rf
+                                      where nf.idnotafiscal = pf.idnotafiscal
+                                        and rf.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                        and rf.grupocrisdu         = 'S' )
+                         and nvl(pf.valorpago,0) = 0
+                       group by trunc(pf.dtvencimento) ) prev
+                where dt.data = prev.data(+)
+                  and dt.ano = 2021
+                  and dt.mes >= to_number(to_char(sysdate,'MM'))
+                group by dt.descr_mes, dt.mes
+                order by dt.mes
+                ```
+        }
+        layout {
+            sequence: 110
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        chartAppearance {
+            orientation: horizontal
+        }
+        performance {
+            lazyLoading: true
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            position: bottom
+            hideAndShowBehavior: none
+        }
+
+        series prev-mês (
+            name: Prev. Mês
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select dt.descr_mes mes
+                         , dt.mes nummes
+                         , sum(prev.valor) valor
+                    from datasperiodos dt
+                       , ( select trunc(pf.dtvencimento) data
+                                , sum(pf.valorpagar) valor
+                           from pagamentosfornecedores pf
+                           where extract (year from pf.dtvencimento) = 2021
+                             and exists ( select 1
+                                          from notasfiscais nf
+                                             , razoessociaisfiliais rf
+                                          where nf.idnotafiscal = pf.idnotafiscal
+                                            and rf.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                            and rf.grupocrisdu         = 'S' )
+                             and nvl(pf.valorpago,0) = 0
+                           group by trunc(pf.dtvencimento) ) prev
+                    where dt.data = prev.data(+)
+                      and dt.ano = 2021
+                      and dt.mes >= to_number(to_char(sysdate,'MM'))
+                    group by dt.descr_mes, dt.mes
+                    order by dt.mes
+                    ```
+            }
+            columnMapping {
+                label: MES
+                value: VALOR
+            }
+            label {
+                show: true
+            }
+        )
+
+        axis x (
+            name: x
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    region provisionamentos-realizados (
+        name: Provisionamentos Realizados
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.datacongelado
+                     , p.datainicio
+                     , p.datafim
+                     , count(1) qtdlancamentos
+                     , sum(p.valorpagar) apagar
+                     , null carregar
+                from provisoespagamentos p
+                group by p.datacongelado
+                       , p.datainicio
+                       , p.datafim
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-collapsed
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+
+        column APAGAR (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: A Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column CARREGAR (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            type: link
+            heading {
+                heading: Carregar
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 409
+                    items: {
+                        P409_DATAINICIO: #DATAINICIO#
+                        P409_DATAFIM: #DATAFIM#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-view.png" class="apex-edit-view" alt="">
+            }
+        )
+
+        column DATACONGELADO (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Data Congelado
+                alignment: center
+            }
+            layout {
+                sequence: 1
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+        )
+
+        column DATAFIM (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Data Fim
+                alignment: center
+            }
+            layout {
+                sequence: 3
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+        )
+
+        column DATAINICIO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Data Início
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+        )
+
+        column QTDLANCAMENTOS (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Qtd Lançamentos
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+        )
+
+    )
+
+    region tipo-de-pagamentos (
+        name: "Tipo de pagamentos "
+        type: chart
+        layout {
+            sequence: 70
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        performance {
+            lazyLoading: true
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            position: top
+            hideAndShowBehavior: none
+        }
+
+        series quantidade (
+            name: Quantidade
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select t.data, t.tipo, nvl(dp.qtd,0) qtd
+                      from (
+                             select trunc(pf.databaixa) data
+                                  , fm.descricao tipo
+                                  , nvl(count(distinct(pf.idpgtoforn)),0) qtd
+                                 --, fm.descricao||' na data '||trunc(pf.databaixa)||' Valor: '||trim(to_char(sum(pf.valorpago),'999G999G999G999G999G990D00')) label
+                               from pagamentosfornecedores pf
+                                  , formaspagamentos fm
+                              where trunc(pf.databaixa) between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                                and pf.tipopagamento = fm.idformapagamento
+                                and pf.databaixa is not null
+                                and pf.valorpago > 0
+                                and pf.tipopagamento != 'D'
+                                and exists ( select 1
+                                             from razoessociaisfiliais rf
+                                                , notasfiscais nf
+                                             where rf.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                               and nf.idnotafiscal        = pf.idnotafiscal
+                                               and rf.grupocrisdu         = 'S' )
+                              group by trunc(pf.databaixa)
+                                  , descricao) dp
+                         , (select dt.data, fp.descricao tipo
+                              from datasperiodos dt, formaspagamentos fp
+                             where dt.data between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                               and exists (select 1
+                                             from pagamentosfornecedores
+                                            where trunc(databaixa) between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                                              and tipopagamento = fp.idformapagamento)) t
+                     where t.data = dp.data(+)
+                       and t.tipo = dp.tipo(+)
+                    order by 1
+                     
+                    
+                    ```
+            }
+            columnMapping {
+                seriesName: TIPO
+                label: DATA
+                value: QTD
+            }
+            label {
+                show: true
+            }
+        )
+
+        axis x (
+            name: x
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    region valores-tipos-de-pagamentos-diários (
+        name: Valores Tipos de Pagamentos diários
+        type: chart
+        layout {
+            sequence: 50
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        performance {
+            lazyLoading: true
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            position: top
+            hideAndShowBehavior: none
+        }
+
+        series tipos-pagamentos (
+            name: Tipos Pagamentos
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select t.data, t.tipo, dp.pago
+                      from (
+                             select trunc(pf.databaixa) data
+                                  , fm.descricao tipo
+                                  , nvl(sum(pf.valorpago),0) pago
+                                 --, fm.descricao||' na data '||trunc(pf.databaixa)||' Valor: '||trim(to_char(sum(pf.valorpago),'999G999G999G999G999G990D00')) label
+                               from pagamentosfornecedores pf
+                                  , formaspagamentos fm
+                              where trunc(pf.databaixa) between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                                and pf.tipopagamento = fm.idformapagamento
+                                and pf.databaixa is not null
+                                and pf.valorpago > 0
+                                and pf.tipopagamento != 'D'
+                                and exists ( select 1
+                                             from razoessociaisfiliais rf
+                                                , notasfiscais nf
+                                             where rf.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                               and nf.idnotafiscal        = pf.idnotafiscal
+                                               and rf.grupocrisdu         = 'S' )
+                              group by trunc(pf.databaixa)
+                                  , descricao) dp
+                         , (select dt.data, fp.descricao tipo
+                              from datasperiodos dt, formaspagamentos fp
+                             where dt.data between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                               and exists (select 1
+                                             from pagamentosfornecedores
+                                            where trunc(databaixa) between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                                              and tipopagamento = fp.idformapagamento)) t
+                     where t.data = dp.data(+)
+                       and t.tipo = dp.tipo(+)
+                    order by 1
+                     
+                    
+                    ```
+            }
+            columnMapping {
+                seriesName: TIPO
+                label: DATA
+                value: PAGO
+            }
+            label {
+                show: true
+                position: outsideBarEdge
+            }
+        )
+
+        axis x (
+            name: x
+            title: Data
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            title: Valor
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    region variação-previsto-x-realizado (
+        name: Variação Previsto X Realizado
+        type: chart
+        layout {
+            sequence: 90
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        performance {
+            lazyLoading: true
+        }
+        dataCursor {
+            dimOnHover: false
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series variação (
+            name: % Variação
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select dt.data
+                         , case
+                             when ( pago.valor - prev.valor ) != 0 then
+                               ( ( pago.valor - prev.valor ) / pago.valor ) * 100 
+                             else 0
+                           end variacao
+                    from datasperiodos dt
+                       , ( select p.datavencimento data
+                                , sum(p.valorpagar) valor
+                           from provisoespagamentos p
+                           where p.datavencimento between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                             and p.datainicio     = to_date(:P409_DATAINICIO)
+                             and p.datafim        = to_date(:P409_DATAFIM)
+                           group by p.datavencimento ) prev
+                       , ( select trunc(pf.databaixa) data
+                                , sum(pf.valorpago) valor
+                           from pagamentosfornecedores pf
+                           where trunc(pf.databaixa) between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                             and pf.databaixa is not null
+                             and pf.valorpago > 0
+                             and pf.tipo != 'D'
+                             and exists ( select 1
+                                          from razoessociaisfiliais rf
+                                             , notasfiscais nf
+                                          where rf.idrazaosocialfilial = nf.idrazaosocialfildestino
+                                            and nf.idnotafiscal        = pf.idnotafiscal
+                                            and rf.grupocrisdu         = 'S' )
+                           group by trunc(pf.databaixa) ) pago
+                    where dt.data = prev.data(+)
+                      and dt.data = pago.data(+)
+                      and dt.data between to_date(:P409_DATAINICIO) and to_date(:P409_DATAFIM)
+                    order by 1
+                    ```
+            }
+            columnMapping {
+                label: DATA
+                value: VARIACAO
+            }
+            label {
+                show: true
+            }
+        )
+
+        axis x (
+            name: x
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            value {
+                format: decimal
+            }
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    pageItem P409_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P409_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    dynamicAction submit-data-fim (
+        name: Submit Data Fim
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P409_DATAFIM
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: FILTRAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction submit-dataini (
+        name: Submit DataIni
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P409_DATAINICIO
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: FILTRAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process alimenta-datas (
+        name: Alimenta Datas
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  select p.datainicio
+                       , p.datafim
+                  into :P409_DATAINICIO
+                     , :P409_DATAFIM
+                  from provisoespagamentos p
+                  where p.idprovisaopagamento = ( select max(pp.idprovisaopagamento)
+                                                  from provisoespagamentos pp );
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 5497369933458153246
+        }
+        serverSideCondition {
+            type: itemIsNull
+            item: P409_DATAINICIO
+        }
+    )
+
+    branch (
+        name: Filtrar
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 409
+                items: {
+                    P409_DATAINICIO: &P409_DATAINICIO.
+                    P409_DATAFIM: &P409_DATAFIM.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: FILTRAR
+        }
+    )
+
+)
+

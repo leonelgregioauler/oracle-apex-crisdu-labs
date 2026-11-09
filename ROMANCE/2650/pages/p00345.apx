@@ -1,0 +1,363 @@
+page 345 (
+    name: Operacional V3
+    title: Operacional V3
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region acompanhamento-das-contas (
+        name: Acompanhamento das Contas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomepessoa(c.idpessoa) destino
+                     , pck_cadastros_rmc.fnc_retornacontabancaria(c.idcontabanc) conta
+                     , initcap(c.beneficiario) beneficiario  
+                     , sum(e.valormovimento) saldo
+                     , c.idcontabanc
+                from extratoscontasbancarias e  
+                   , contasbancarias         c
+                where e.idcontabancaria = c.idcontabanc
+                  and e.valormovimento  > 0
+                  and trunc(e.datamovimento) >= to_date('27/02/2020','DD/MM/RRRR')
+                  and ( :P345_IDCONTABANCARIA is null or c.idcontabanc = :P345_IDCONTABANCARIA )
+                  and exists ( select 1
+                               from extratoscontasbancarias ex
+                               where ex.idcontabancaria = e.idcontabancaria
+                                 and ex.gera_deposito   = 'S' )
+                  and ( :P345_IDFILIAL is null or exists ( select 1
+                                                           from filiais f
+                                                           where f.idpessoa = c.idpessoa 
+                                                             and f.idfilial = :P345_IDFILIAL ) )
+                  and exists ( select 1
+                               from filiais f
+                               where f.idpessoa = c.idpessoa
+                                 and f.ativo    = 'S'
+                                 and f.tipofilial = 'D'
+                                 and f.idgrupo != 5 )
+                group by c.idpessoa
+                       , c.idcontabanc
+                       , c.beneficiario 
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 18127399280050416
+        }
+
+        column BENEFICIARIO (
+            type: plainText
+            heading {
+                heading: Beneficiáro
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column CONTA (
+            type: plainText
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column DESTINO (
+            type: plainText
+            heading {
+                heading: Destino
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column IDCONTABANC (
+            type: hidden
+            heading {
+                heading: Idcontabanc
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SALDO (
+            type: link
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            link {
+                target: {
+                    page: 365
+                    items: {
+                        P365_IDCONTA: #IDCONTABANC#
+                    }
+                    action: resetPagination
+                }
+                linkText: #SALDO#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 202692 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn BENEFICIARIO (
+                sequence: 3
+            )
+
+            displayColumn CONTA (
+                sequence: 2
+            )
+
+            displayColumn DESTINO (
+                sequence: 1
+            )
+
+            displayColumn IDCONTABANC (
+                sequence: 5
+            )
+
+            displayColumn SALDO (
+                sequence: 4
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P345_IDCONTABANCARIA (
+        type: selectList
+        label {
+            label: Conta Bancária
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(cb.beneficiario||'('||b.nomebanco)||' - '||cb.agencia ||', '||cb.conta||'  - Empresa: '||pck_romance.fnc_nomefilial(f.idfilial) display_value
+                     , cb.idcontabanc    return_value
+                from contasbancarias cb
+                   , bancos b
+                   , filiais f
+                where cb.idbanco      = b.idbanco
+                  and cb.idpessoa     = f.idpessoa
+                  and cb.ativo        = 'S'
+                  and exists ( select 1
+                               from vw_filiais ff
+                               where ff.idfilial = f.idfilial
+                                 and ff.ativo    = 'S'
+                                 and ff.tipofilial = 'D'
+                                 and ff.idgrupo != 5 )
+                  and ( :P345_IDFILIAL is null or f.idfilial = :P345_IDFILIAL )
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P345_IDFILIAL
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P345_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nome
+                     , idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and f.idgrupo != 5
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 345
+                items: {
+                    P345_IDFILIAL: &P345_IDFILIAL.
+                    P345_IDCONTABANCARIA: &P345_IDCONTABANCARIA.
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

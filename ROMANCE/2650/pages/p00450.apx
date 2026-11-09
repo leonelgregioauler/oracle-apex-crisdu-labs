@@ -1,0 +1,406 @@
+page 450 (
+    name: Contas a Pagar
+    title: Contas a Pagar
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region a-pagar (
+        name: "A Pagar "
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select fornecedor
+                     , nvl(v1,0) v1
+                     , case 
+                         when nvl(v2,0) > 0 then
+                           0
+                         when nvl(v2,0) < 0 then
+                           v2 * -1
+                         else
+                           0
+                       end v2
+                from (
+                      select initcap(p.nomepessoa) fornecedor
+                           , ( select sum(vc.valor)-nvl(sum(nf.vlrdesconto),0)
+                               from vencimentos vc
+                                  , notasfiscais nf
+                               where nf.idnotafiscal = vc.idnotafiscal
+                                 and nf.idfornemitente = f.idfornecedor
+                                 and trunc(vc.datavencimento) <= to_date(:P450_DATAFIM,'DD/MM/RRRR')
+                                 and extract(year from vc.datavencimento) >= 2022
+                                 and exists ( select 1
+                                              from pagamentosfornecedores pf
+                                              where pf.idfornecedor = f.idfornecedor
+                                                and pf.idvencimento = vc.idvencimento
+                                                and ( pf.valorpago + nvl(pf.desconto,0) - pf.valorpagar ) < 0 
+                                                /*and ( pf.valorpago + nvl(pf.desconto,0) - nvl(pf.acrescimo,0) ) < pf.valorpagar )*/ ) ) v1
+                           , ( select sum(e.valormovimento)
+                               from extratoscontasbancarias e
+                                  , contasbancarias c
+                               where e.idcontabancaria  = c.idcontabanc
+                                 and c.idpessoa         = f.idpessoa 
+                                 and e.contabilizar     = 'S'
+                                 and e.tipopagamento    = 'D'
+                                 and trunc(e.datamovimento) <= to_date(:P450_DATAFIM,'DD/MM/RRRR') ) v2
+                      from fornecedores f
+                         , pessoas p
+                      where f.idpessoa = p.idpessoa
+                        and exists ( select 1
+                                     from extratoscontasbancarias ex
+                                        , contasbancarias c
+                                     where ex.idcontabancaria = c.idcontabanc
+                                       and c.idpessoa         = p.idpessoa
+                                       and extract(year from ex.datamovimento) >= 2022 ) ) t
+                where nvl(t.v1,0) + nvl(t.v2,0) != 0
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado. Verifique os filtros.
+        }
+        download {
+            filename: contas_a_pagar
+        }
+        advanced {
+            savedReportMappingIdentifier: 814126259845371309
+        }
+
+        column FORNECEDOR (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column V1 (
+            type: plainText
+            heading {
+                heading: V1
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column V2 (
+            type: plainText
+            heading {
+                heading: V2
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 8352724 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn APXWS_CC_001 (
+                sequence: 4
+            )
+
+            displayColumn FORNECEDOR (
+                sequence: 1
+            )
+
+            displayColumn V1 (
+                sequence: 2
+            )
+
+            displayColumn V2 (
+                sequence: 3
+            )
+
+            computation APXWS_CC_001 (
+                identifier: C01
+                source {
+                    expression: B  +  C
+                    dataType: number
+                }
+                label {
+                    column: Total
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+            )
+
+            sort (
+                column: FORNECEDOR
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: APXWS_CC_001
+            )
+
+            aggregate (
+                column: V1
+            )
+
+            aggregate (
+                column: V2
+            )
+
+            filter ir-condition (
+                column: APXWS_CC_001
+                operator: >
+                value: 0
+            )
+
+            filter ir-condition-2 (
+                column: FORNECEDOR
+                operator: notIn
+                value: Eduardo Perez Nogueira,Top Bojos Taquara,Crisdu Ind Igrejinha,Transportadora Crisdu,Revenda Friburgo,Revenda Intermediário,Crisdu Ind Esteio,Crisdu Ind Taquara,Top Bojos,Revenda De Tecidos Brusque,Trading Romance, Crisdu Ind Tres Coroas
+            )
+
+            highlight ir-condition-3 (
+                name: Total
+                condition {
+                    column: APXWS_CC_001
+                    operator: >
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #147A00
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    region filtro (
+        name: Filtro
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P450_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtro
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    dynamicAction refresh (
+        name: Refresh
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P450_DATAINICIO
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: FILTRAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction refresh-data-fim (
+        name: Refresh Data Fim
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P450_DATAFIM
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: FILTRAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process popula-datas (
+        name: Popula Datas
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  select trunc(sysdate)
+                  into :P450_DATAFIM
+                  from dual;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 814127897968371325
+        }
+        serverSideCondition {
+            type: itemIsNull
+            item: P450_DATAFIM
+        }
+    )
+
+    branch (
+        name: Go To Page 450
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 450
+                items: {
+                    P450_DATAFIM: &P450_DATAFIM.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: FILTRAR
+        }
+    )
+
+)
+

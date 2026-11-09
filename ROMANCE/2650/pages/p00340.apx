@@ -1,0 +1,1241 @@
+page 340 (
+    name: Controle de Recebimentos de NF
+    title: Controle de Recebimentos de NF
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region controle-de-recebimento-por-empresas (
+        name: Controle de Recebimento por Empresas
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P340_TIPO_PESQUISA
+            value: E
+        }
+    )
+
+    region controle-de-recebimento-por-fornecedores (
+        name: Controle de Recebimento por Fornecedores
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefornecedor(f.idfornecedor) "Fornecedor"
+                     , nvl(notas.qtd,0) "Notas"
+                     , nvl(div.qtd,0) "Divergências"
+                     , nvl(round((div.qtd/notas.qtd * 100),2),0) "% Divergência"
+                     , nvl(resumo.qtdenviado,0) "Qtd Enviado"
+                     , nvl(resumo.totalenviado,0) "R$ Enviado"
+                     , nvl(resumo.qtdrecebido,0) "Qtd Recebido"
+                     , nvl(resumo.totalrecebido,0) "R$ Recebido"
+                from fornecedores f
+                   , (
+                       select nf.idfornemitente idfornecedor
+                            , count(nf.idnotafiscal) qtd
+                       from notasfiscais nf
+                       where nf.idfornemitente is not null
+                         and nf.situacaofilial = 'R'
+                         and trunc(nf.datarecebimento) between to_date(:P340_DATAINICIO) and to_date(:P340_DATAFIM)
+                       group by nf.idfornemitente ) notas
+                   , (
+                       select nf.idfornemitente idfornecedor
+                            , count(nf.idnotafiscal) qtd
+                       from notasfiscais nf
+                       where nf.idfornemitente is not null
+                         and nf.situacaofilial = 'R'
+                         and trunc(nf.datarecebimento) between to_date(:P340_DATAINICIO) and to_date(:P340_DATAFIM)
+                         and exists ( select 1
+                                      from itemnf i
+                                      where i.idnotafiscal = nf.idnotafiscal
+                                        and ( nvl(i.qtd_pp,0)   != nvl(i.qtd_pp_chegou,0) 
+                                           or nvl(i.qtd_p,0)    != nvl(i.qtd_p_chegou,0)
+                                           or nvl(i.qtd_m,0)    != nvl(i.qtd_m_chegou,0)
+                                           or nvl(i.qtd_g,0)    != nvl(i.qtd_g_chegou,0)
+                                           or nvl(i.qtd_gg,0)   != nvl(i.qtd_gg_chegou,0)
+                                           or nvl(i.qtd_egg,0)  != nvl(i.qtd_egg_chegou,0)
+                                           or nvl(i.qtd_exgg,0) != nvl(i.qtd_exgg_chegou,0)
+                                           or nvl(i.qtd_u,0)    != nvl(i.qtd_u_chegou,0) ) )
+                       group by nf.idfornemitente ) div
+                   , ( select nf.idfornemitente idfornecedor
+                            , sum(nvl(i.qtd_pp,0)  
+                                 +nvl(i.qtd_p,0)   
+                                 +nvl(i.qtd_m,0)   
+                                 +nvl(i.qtd_g,0)   
+                                 +nvl(i.qtd_gg,0)  
+                                 +nvl(i.qtd_egg,0) 
+                                 +nvl(i.qtd_exgg,0)
+                                 +nvl(i.qtd_u,0)) qtdenviado
+                            , sum(nvl(i.qtd_pp_chegou,0) 
+                                 +nvl(i.qtd_p_chegou,0)
+                                 +nvl(i.qtd_m_chegou,0)
+                                 +nvl(i.qtd_g_chegou,0)
+                                 +nvl(i.qtd_gg_chegou,0)
+                                 +nvl(i.qtd_egg_chegou,0)
+                                 +nvl(i.qtd_exgg_chegou,0)
+                                 +nvl(i.qtd_u_chegou,0)) qtdrecebido    
+                            , sum(nvl(i.qtd_pp,0)  
+                                 +nvl(i.qtd_p,0)   
+                                 +nvl(i.qtd_m,0)   
+                                 +nvl(i.qtd_g,0)   
+                                 +nvl(i.qtd_gg,0)  
+                                 +nvl(i.qtd_egg,0) 
+                                 +nvl(i.qtd_exgg,0)
+                                 +nvl(i.qtd_u,0)*i.custound) totalenviado
+                            , sum(nvl(i.qtd_pp_chegou,0) 
+                                 +nvl(i.qtd_p_chegou,0)
+                                 +nvl(i.qtd_m_chegou,0)
+                                 +nvl(i.qtd_g_chegou,0)
+                                 +nvl(i.qtd_gg_chegou,0)
+                                 +nvl(i.qtd_egg_chegou,0)
+                                 +nvl(i.qtd_exgg_chegou,0)
+                                 +nvl(i.qtd_u_chegou,0)*i.custound) totalrecebido    
+                       from notasfiscais nf
+                          , itemnf i
+                       where i.idnotafiscal = nf.idnotafiscal
+                         and nf.idfornemitente is not null
+                         and trunc(nf.datarecebimento) between to_date(:P340_DATAINICIO) and to_date(:P340_DATAFIM)
+                         and nf.situacaofilial = 'R'
+                       group by nf.idfornemitente ) resumo
+                where exists ( select 1                              
+                               from notasfiscais nf
+                               where nf.idfornemitente = f.idfornecedor
+                                 and nf.situacaofilial = 'R' )
+                  and f.idfornecedor = notas.idfornecedor(+)
+                  and f.idfornecedor = div.idfornecedor(+)
+                  and f.idfornecedor = resumo.idfornecedor(+)
+                order by 2 desc
+                ```
+            pageItemsToSubmit: [
+                P340_TIPO_PESQUISA
+                P340_DATAINICIO
+                P340_DATAFIM
+            ]
+        }
+        layout {
+            sequence: 30
+            parentRegion: @controle-de-recebimento-por-fornecedores-2
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent8
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1592135704209112145
+        }
+
+        column "% Divergência" (
+            type: plainText
+            heading {
+                heading: % Divergência
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00MI
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column Divergências (
+            type: plainText
+            heading {
+                heading: Divergências
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column Fornecedor (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column Notas (
+            type: plainText
+            heading {
+                heading: Notas
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Qtd Enviado" (
+            type: plainText
+            heading {
+                heading: Produtos Enviados
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "Qtd Recebido" (
+            type: plainText
+            heading {
+                heading: Produtos Recebidos
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column "R$ Enviado" (
+            type: plainText
+            heading {
+                heading: R$ Enviado
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column "R$ Recebido" (
+            type: plainText
+            heading {
+                heading: R$ Recebido
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15922232 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn "% Divergência" (
+                sequence: 4
+            )
+
+            displayColumn "Divergências" (
+                sequence: 3
+            )
+
+            displayColumn "Fornecedor" (
+                sequence: 1
+            )
+
+            displayColumn "Notas" (
+                sequence: 2
+            )
+
+            displayColumn "Qtd Enviado" (
+                sequence: 5
+            )
+
+            displayColumn "Qtd Recebido" (
+                sequence: 7
+            )
+
+            displayColumn "R$ Enviado" (
+                sequence: 6
+            )
+
+            displayColumn "R$ Recebido" (
+                sequence: 8
+            )
+
+            aggregate (
+                column: "Notas"
+            )
+
+            aggregate (
+                column: "Divergências"
+            )
+
+            aggregate (
+                column: "Qtd Enviado"
+            )
+
+            aggregate (
+                column: "R$ Enviado"
+            )
+
+            aggregate (
+                column: "Qtd Recebido"
+            )
+
+            aggregate (
+                column: "R$ Recebido"
+            )
+
+        )
+
+    )
+
+    region controle-de-recebimento-por-fornecedores-2 (
+        name: Controle de Recebimento por Fornecedores
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P340_TIPO_PESQUISA
+            value: F
+        }
+    )
+
+    region filtro (
+        name: Filtro
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region fornecedores-divergências (
+        name: Fornecedores + Divergências
+        type: plugin/d3PieChart
+        source {
+            sqlQuery:
+                ```sql
+                select t.fornecedor
+                     , t.notas
+                from (
+                select pck_romance.fnc_nomefornecedor(f.idfornecedor) fornecedor
+                     , nvl(notas.qtd,0) notas
+                from fornecedores f
+                   , (
+                       select nf.idfornemitente idfornecedor
+                            , count(nf.idnotafiscal) qtd
+                       from notasfiscais nf
+                       where nf.idfornemitente is not null
+                         and nf.situacaofilial = 'R'
+                         and trunc(nf.datarecebimento) between to_date(:P340_DATAINICIO) and to_date(:P340_DATAFIM)
+                         and exists ( select 1
+                                      from itemnf i
+                                      where i.idnotafiscal = nf.idnotafiscal
+                                        and ( nvl(i.qtd_pp,0)   != nvl(i.qtd_pp_chegou,0) 
+                                           or nvl(i.qtd_p,0)    != nvl(i.qtd_p_chegou,0)
+                                           or nvl(i.qtd_m,0)    != nvl(i.qtd_m_chegou,0)
+                                           or nvl(i.qtd_g,0)    != nvl(i.qtd_g_chegou,0)
+                                           or nvl(i.qtd_gg,0)   != nvl(i.qtd_gg_chegou,0)
+                                           or nvl(i.qtd_egg,0)  != nvl(i.qtd_egg_chegou,0)
+                                           or nvl(i.qtd_exgg,0) != nvl(i.qtd_exgg_chegou,0)
+                                           or nvl(i.qtd_u,0)    != nvl(i.qtd_u_chegou,0) ) )
+                       group by nf.idfornemitente ) notas
+                where exists ( select 1                              
+                               from notasfiscais nf
+                               where nf.idfornemitente = f.idfornecedor
+                                 and nf.situacaofilial = 'R' )
+                  and f.idfornecedor = notas.idfornecedor(+)
+                order by 2 desc ) t
+                where rownum <= 10
+                ```
+            pageItemsToSubmit: [
+                P340_TIPO_PESQUISA
+                P340_DATAINICIO
+                P340_DATAFIM
+            ]
+        }
+        layout {
+            sequence: 20
+            parentRegion: @controle-de-recebimento-por-fornecedores-2
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent6
+                t-Region--scrollBody
+            ]
+        }
+        settings {
+            labelColumn: FORNECEDOR
+            valueColumn: NOTAS
+            width: 500
+            displayOptions: [
+                tooltip
+                labels
+                percentages
+            ]
+        }
+    )
+
+    region fornecedores-notas (
+        name: Fornecedores + Notas
+        type: plugin/d3PieChart
+        source {
+            sqlQuery:
+                ```sql
+                select t.fornecedor
+                     , t.notas
+                from (
+                select pck_romance.fnc_nomefornecedor(f.idfornecedor) fornecedor
+                     , nvl(notas.qtd,0) notas
+                from fornecedores f
+                   , (
+                       select nf.idfornemitente idfornecedor
+                            , count(nf.idnotafiscal) qtd
+                       from notasfiscais nf
+                       where nf.idfornemitente is not null
+                         and nf.situacaofilial = 'R'
+                         and trunc(nf.datarecebimento) between to_date(:P340_DATAINICIO) and to_date(:P340_DATAFIM)
+                       group by nf.idfornemitente ) notas
+                where exists ( select 1                              
+                               from notasfiscais nf
+                               where nf.idfornemitente = f.idfornecedor
+                                 and nf.situacaofilial = 'R' )
+                  and f.idfornecedor = notas.idfornecedor(+)
+                order by 2 desc ) t
+                where rownum <= 10
+                ```
+            pageItemsToSubmit: [
+                P340_TIPO_PESQUISA
+                P340_DATAINICIO
+                P340_DATAFIM
+            ]
+        }
+        layout {
+            sequence: 10
+            parentRegion: @controle-de-recebimento-por-fornecedores-2
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        settings {
+            labelColumn: FORNECEDOR
+            valueColumn: NOTAS
+            width: 500
+            displayOptions: [
+                tooltip
+                labels
+                percentages
+            ]
+            colorScheme: modern2
+        }
+    )
+
+    region resumo (
+        name: Resumo
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome "Empresa"
+                     , nvl(notas.qtd,0) "Recebidas"
+                     , nvl(div.qtd,0) "Divergencias"
+                     , nvl(round((div.qtd/notas.qtd * 100),2),0) "% Divergência"
+                     , nvl(resumo.qtdenviado,0) "Qtd Enviado"
+                     , nvl(resumo.totalenviado,0) "R$ Enviado"
+                     , nvl(resumo.qtdrecebido,0) "Qtd Recebido"
+                     , nvl(resumo.totalrecebido,0) "R$ Recebido"
+                from vw_filiais f
+                   , (
+                       select nf.idfilialdestino idfilial
+                            , count(nf.idnotafiscal) qtd
+                       from notasfiscais nf
+                       where nf.situacaofilial  = 'R'
+                         and trunc(nf.datarecebimento) between to_date(:P340_DATAINICIO) and to_date(:P340_DATAFIM)
+                       group by nf.idfilialdestino ) notas
+                   , ( 
+                       select nf.idfilialdestino idfilial
+                            , count(nf.idnotafiscal) qtd
+                       from notasfiscais nf
+                       where nf.situacaofilial  = 'R'
+                         and trunc(nf.datarecebimento) between to_date(:P340_DATAINICIO) and to_date(:P340_DATAFIM)
+                         and exists ( select 1
+                                      from itemnf i
+                                      where i.idnotafiscal = nf.idnotafiscal
+                                        and ( nvl(i.qtd_pp,0)   != nvl(i.qtd_pp_chegou,0) 
+                                           or nvl(i.qtd_p,0)    != nvl(i.qtd_p_chegou,0)
+                                           or nvl(i.qtd_m,0)    != nvl(i.qtd_m_chegou,0)
+                                           or nvl(i.qtd_g,0)    != nvl(i.qtd_g_chegou,0)
+                                           or nvl(i.qtd_gg,0)   != nvl(i.qtd_gg_chegou,0)
+                                           or nvl(i.qtd_egg,0)  != nvl(i.qtd_egg_chegou,0)
+                                           or nvl(i.qtd_exgg,0) != nvl(i.qtd_exgg_chegou,0)
+                                           or nvl(i.qtd_u,0)    != nvl(i.qtd_u_chegou,0) ) )
+                       group by nf.idfilialdestino ) div
+                   , ( select nf.idfilialdestino idfilial
+                            , sum(nvl(i.qtd_pp,0)  
+                                 +nvl(i.qtd_p,0)   
+                                 +nvl(i.qtd_m,0)   
+                                 +nvl(i.qtd_g,0)   
+                                 +nvl(i.qtd_gg,0)  
+                                 +nvl(i.qtd_egg,0) 
+                                 +nvl(i.qtd_exgg,0)
+                                 +nvl(i.qtd_u,0)) qtdenviado
+                            , sum(nvl(i.qtd_pp_chegou,0) 
+                                 +nvl(i.qtd_p_chegou,0)
+                                 +nvl(i.qtd_m_chegou,0)
+                                 +nvl(i.qtd_g_chegou,0)
+                                 +nvl(i.qtd_gg_chegou,0)
+                                 +nvl(i.qtd_egg_chegou,0)
+                                 +nvl(i.qtd_exgg_chegou,0)
+                                 +nvl(i.qtd_u_chegou,0)) qtdrecebido    
+                            , sum(nvl(i.qtd_pp,0)  
+                                 +nvl(i.qtd_p,0)   
+                                 +nvl(i.qtd_m,0)   
+                                 +nvl(i.qtd_g,0)   
+                                 +nvl(i.qtd_gg,0)  
+                                 +nvl(i.qtd_egg,0) 
+                                 +nvl(i.qtd_exgg,0)
+                                 +nvl(i.qtd_u,0)*i.custound) totalenviado
+                            , sum(nvl(i.qtd_pp_chegou,0) 
+                                 +nvl(i.qtd_p_chegou,0)
+                                 +nvl(i.qtd_m_chegou,0)
+                                 +nvl(i.qtd_g_chegou,0)
+                                 +nvl(i.qtd_gg_chegou,0)
+                                 +nvl(i.qtd_egg_chegou,0)
+                                 +nvl(i.qtd_exgg_chegou,0)
+                                 +nvl(i.qtd_u_chegou,0)*i.custound) totalrecebido    
+                       from notasfiscais nf
+                          , itemnf i
+                       where i.idnotafiscal = nf.idnotafiscal
+                         and trunc(nf.datarecebimento) between to_date(:P340_DATAINICIO) and to_date(:P340_DATAFIM)
+                         and nf.situacaofilial = 'R'
+                       group by nf.idfilialdestino ) resumo
+                where f.tipofilial = 'D'
+                  and f.ativo = 'S'
+                  and exists ( select 1
+                               from notasfiscais nf
+                               where nf.idfilialdestino = f.idfilial )
+                  and f.idfilial = notas.idfilial(+)
+                  and f.idfilial = div.idfilial(+)
+                  and f.idfilial = resumo.idfilial(+)
+                ```
+            pageItemsToSubmit: [
+                P340_TIPO_PESQUISA
+                P340_DATAINICIO
+                P340_DATAFIM
+            ]
+        }
+        layout {
+            sequence: 10
+            parentRegion: @controle-de-recebimento-por-empresas
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent13
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1592134757520112135
+        }
+
+        column "% Divergência" (
+            type: plainText
+            heading {
+                heading: % Divergências
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00MI
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column Divergencias (
+            type: plainText
+            heading {
+                heading: Com Divergências
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column Empresa (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Qtd Enviado" (
+            type: plainText
+            heading {
+                heading: Produtos Enviados
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "Qtd Recebido" (
+            type: plainText
+            heading {
+                heading: Produtos Recebido
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column "R$ Enviado" (
+            type: plainText
+            heading {
+                heading: R$ Enviado
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column "R$ Recebido" (
+            type: plainText
+            heading {
+                heading: R$ Recebido
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column Recebidas (
+            type: plainText
+            heading {
+                heading: Recebidas
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15922097 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "% Divergência" (
+                sequence: 4
+            )
+
+            displayColumn "Divergencias" (
+                sequence: 3
+            )
+
+            displayColumn "Empresa" (
+                sequence: 1
+            )
+
+            displayColumn "Qtd Enviado" (
+                sequence: 5
+            )
+
+            displayColumn "Qtd Recebido" (
+                sequence: 7
+            )
+
+            displayColumn "R$ Enviado" (
+                sequence: 6
+            )
+
+            displayColumn "R$ Recebido" (
+                sequence: 8
+            )
+
+            displayColumn "Recebidas" (
+                sequence: 2
+            )
+
+            sort (
+                column: "Recebidas"
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: "Recebidas"
+            )
+
+            aggregate (
+                column: "Divergencias"
+            )
+
+            aggregate (
+                column: "Qtd Enviado"
+            )
+
+            aggregate (
+                column: "R$ Enviado"
+            )
+
+            aggregate (
+                column: "Qtd Recebido"
+            )
+
+            aggregate (
+                column: "R$ Recebido"
+            )
+
+        )
+
+    )
+
+    region total-divergências (
+        name: Total Divergências
+        type: plugin/html5BarChart
+        source {
+            sqlQuery:
+                ```sql
+                select f.nome "Empresa"
+                     , nvl(div.qtd,0) "Divergencias"
+                from vw_filiais f
+                   , ( 
+                       select nf.idfilialdestino idfilial
+                            , count(nf.idnotafiscal) qtd
+                       from notasfiscais nf
+                       where nf.situacaofilial  = 'R'
+                         and trunc(nf.datarecebimento) between to_date(:P340_DATAINICIO) and to_date(:P340_DATAFIM)
+                         and exists ( select 1
+                                      from itemnf i
+                                      where i.idnotafiscal = nf.idnotafiscal
+                                        and ( nvl(i.qtd_pp,0)   != nvl(i.qtd_pp_chegou,0) 
+                                           or nvl(i.qtd_p,0)    != nvl(i.qtd_p_chegou,0)
+                                           or nvl(i.qtd_m,0)    != nvl(i.qtd_m_chegou,0)
+                                           or nvl(i.qtd_g,0)    != nvl(i.qtd_g_chegou,0)
+                                           or nvl(i.qtd_gg,0)   != nvl(i.qtd_gg_chegou,0)
+                                           or nvl(i.qtd_egg,0)  != nvl(i.qtd_egg_chegou,0)
+                                           or nvl(i.qtd_exgg,0) != nvl(i.qtd_exgg_chegou,0)
+                                           or nvl(i.qtd_u,0)    != nvl(i.qtd_u_chegou,0) ) )
+                       group by nf.idfilialdestino ) div
+                where f.tipofilial = 'D'
+                  and f.ativo = 'S'
+                  and exists ( select 1
+                               from notasfiscais nf
+                               where nf.idfilialdestino = f.idfilial )
+                  and f.idfilial = div.idfilial(+)
+                order by 2 desc
+                ```
+            pageItemsToSubmit: [
+                P340_TIPO_PESQUISA
+                P340_DATAINICIO
+                P340_DATAFIM
+            ]
+        }
+        layout {
+            sequence: 30
+            parentRegion: @controle-de-recebimento-por-empresas
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        settings {
+            labelColumn: "Empresa"
+            valueColumn: "Divergencias"
+            maximumRows: 40
+        }
+    )
+
+    region total-nf (
+        name: Total NF
+        type: plugin/html5BarChart
+        source {
+            sqlQuery:
+                ```sql
+                select f.nome "Empresa"
+                     , nvl(notas.qtd,0) "Recebidas"
+                from vw_filiais f
+                   , (
+                       select nf.idfilialdestino idfilial
+                            , count(nf.idnotafiscal) qtd
+                       from notasfiscais nf
+                       where nf.situacaofilial  = 'R'
+                         and trunc(nf.datarecebimento) between to_date(:P340_DATAINICIO) and to_date(:P340_DATAFIM)
+                       group by nf.idfilialdestino ) notas
+                where f.tipofilial = 'D'
+                  and f.ativo = 'S'
+                  and exists ( select 1
+                               from notasfiscais nf
+                               where nf.idfilialdestino = f.idfilial )
+                  and f.idfilial = notas.idfilial(+)
+                order by 2 desc
+                ```
+            pageItemsToSubmit: [
+                P340_TIPO_PESQUISA
+                P340_DATAINICIO
+                P340_DATAFIM
+            ]
+        }
+        layout {
+            sequence: 20
+            parentRegion: @controle-de-recebimento-por-empresas
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        settings {
+            labelColumn: "Empresa"
+            valueColumn: "Recebidas"
+            maximumRows: 40
+        }
+    )
+
+    pageItem P340_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @filtro
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: expression
+            plsqlExpression: sysdate
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P340_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: Recebimento de
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: expression
+            plsqlExpression: sysdate-30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P340_TIPO_PESQUISA (
+        type: radioGroup
+        label {
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+            pageActionOnSelection: submitPage
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Fornecedor;F,Empresa;E
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtro
+            slot: regionBody
+            alignment: left
+            column: 4
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    dynamicAction muda-data-fim (
+        name: Muda Data Fim
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P340_DATAFIM
+        }
+        clientSideCondition {
+            type: itemIsNotNull
+            item: P340_DATAFIM
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: ATUALIZAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction muda-data-inicio (
+        name: Muda Data Inicio
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P340_DATAINICIO
+        }
+        clientSideCondition {
+            type: itemIsNotNull
+            item: P340_DATAINICIO
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: ATUALIZAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 340
+                items: {
+                    P340_TIPO_PESQUISA: &P340_TIPO_PESQUISA.
+                    P340_DATAINICIO: &P340_DATAINICIO.
+                    P340_DATAFIM: &P340_DATAFIM.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ATUALIZAR
+        }
+    )
+
+)
+

@@ -1,0 +1,181 @@
+page 215 (
+    name: Quitados
+    title: Quitados
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        width: 40%
+        height: 80%
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region quitados (
+        name: Quitados
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select empresa
+                     , sum(total) total
+                from (  select pck_romance.fnc_nomefilial(o.idfilial) empresa
+                             , sum(b.valorcobrado) total
+                        from catal.boletos b
+                           , pedidos       o
+                        where b.semanabaixa = ( select f.semana 
+                                                 from fechamentossemanais f 
+                                                 where f.idfechamento = :P215_IDFECHAMENTO )
+                          and b.idpedido    = o.idpedido
+                          and o.idfilial    != 1041 
+                        group by o.idfilial
+                        union
+                        select pck_romance.fnc_nomefilial(p.idfilial) empresa
+                             , sum(p.vlrtotalsemcomissao)
+                        from catal.pedidos p
+                        where p.situacao     = 'O'
+                         and semanaemissao   = ( select f.semana 
+                                                 from fechamentossemanais f 
+                                                 where f.idfechamento = :P215_IDFECHAMENTO )
+                         and p.idfilial     != 1041
+                         and not exists ( select 1
+                                          from boletos b
+                                          where b.idpedido = p.idpedido)
+                        group by p.idfilial                  
+                        union
+                        select pck_romance.fnc_nomefilial(pff.idfilialromance) empresa
+                             , sum(pf2.valorpago * nvl(pff.fatorconversao,1))
+                        from favorita.pagamentospedidos pf2
+                           , favorita.vencimentospedidos v
+                           , favorita.pedidos pff
+                        where pf2.idsemanapago      = ( select f.idsemana 
+                                                        from fechamentossemanais f 
+                                                        where f.idfechamento = :P215_IDFECHAMENTO )
+                          and v.idpedido           = pff.idpedido
+                          and v.idvencimentopedido = pf2.idvencimentopedido
+                          and pf2.idsituacao       = 20 --- quitado
+                          and not  exists ( select 1
+                                            from favorita.classificacoespedidos c
+                                            where c.idpedido = pff.idpedido
+                                              and c.idcaracteristicapedido  = 73 )
+                          and v.situacaovencimento = 'V'
+                        group by pff.idfilialromance )
+                group by empresa
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            subscription: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 2551384884483969755
+        }
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Empresa
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column TOTAL (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: end
+            }
+            layout {
+                sequence: 2
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 25513981 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn EMPRESA (
+                sequence: 1
+            )
+
+            displayColumn TOTAL (
+                sequence: 2
+            )
+
+            aggregate (
+                column: TOTAL
+            )
+
+        )
+
+    )
+
+    pageItem P215_IDFECHAMENTO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @quitados
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+)
+

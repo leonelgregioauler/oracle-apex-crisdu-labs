@@ -1,0 +1,1624 @@
+page 703 (
+    name: Pix Santander - DDA Boletos
+    title: Pix Santander - DDA Boletos
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            // Enter na caixa de busca vale como clique no botao Buscar.
+            $(function () {
+              $("#P703_BUSCA").on("keydown", function (e) {
+                if (e.which === 13) { e.preventDefault(); apex.submit("BUSCAR"); }
+              });
+            });
+            ```
+    }
+    security {
+        authorizationScheme: @autoriza-pix-operador
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region a-vencer-próximos-dias (
+        name: A vencer (próximos dias)
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select case when d.idpgtoforn is not null
+                             and not exists ( select 1 from pix_pagamentos px
+                                               where px.idpgtoforn = d.idpgtoforn
+                                                 and px.status not in ('REJECTED','ERRO','CANCELADO') )
+                        then apex_item.checkbox2(1, d.iddda) end sel
+                     , d.iddda
+                     , substr(d.code,1,25) || '...' linha_digitavel
+                     , d.dt_vencimento
+                     , d.dt_limite_pgto
+                     , to_char(d.valor_nominal,'FM999G999G999G990D00') valor
+                     , d.benef_nome beneficiario
+                     , d.benef_documento cnpj_cpf
+                     , d.especie
+                     , case d.match_tipo
+                         when 'AUTO_EXATO'   then 'Fatura ' || d.idpgtoforn || ' (exato)'
+                         when 'AUTO_PARCIAL' then 'Fatura ' || d.idpgtoforn || ' (conferir venc.)'
+                         when 'MANUAL'       then 'Fatura ' || d.idpgtoforn || ' (manual)'
+                         else '(!) Sem fatura vinculada'
+                       end vinculo
+                     , (select pck_romance.fnc_nomefornecedor(pf.idfornecedor)
+                          from pagamentosfornecedores pf
+                         where pf.idpgtoforn = d.idpgtoforn) fornecedor_fatura
+                     , case when exists ( select 1 from pix_pagamentos px
+                                           where px.idpgtoforn = d.idpgtoforn
+                                             and px.status not in ('REJECTED','ERRO','CANCELADO') )
+                            then 'Em pagamento'
+                            when d.situacao_titulo = 'SCHEDULED' then 'Agendado no banco'
+                            when d.situacao_titulo = 'PAID'      then 'Pago no banco' end em_pagamento
+                     , (select substr(sc.beneficiario,1,25) from santander_contas sc
+                         where sc.idcontabanc = d.idcontabanc) conta
+                     , d.nosso_numero
+                     , d.seu_numero
+                  from dda_titulos d
+                 where d.dt_vencimento > trunc(sysdate)
+                   and (:P703_SO_PENDENTES = 'N'
+                        or not exists ( select 1 from pix_pagamentos px
+                                         where px.idpgtoforn = d.idpgtoforn
+                                           and px.status not in ('REJECTED','ERRO','CANCELADO') ))
+                   and ( :P703_CONTA is null or d.idcontabanc = :P703_CONTA )
+                   and ( :P703_DTINI is null or d.dt_vencimento >= to_date(:P703_DTINI,'DD/MM/RRRR') )
+                   and ( :P703_DTFIM is null or d.dt_vencimento <= to_date(:P703_DTFIM,'DD/MM/RRRR') )
+                       -- situacao do vinculo com a fatura / do titulo no banco
+                   and ( :P703_STATUS is null
+                         or ( :P703_STATUS = 'SEM'   and nvl(d.match_tipo,'-') not in ('AUTO_EXATO','AUTO_PARCIAL','MANUAL') )
+                         or ( :P703_STATUS = 'VINC'  and d.match_tipo in ('AUTO_EXATO','MANUAL') )
+                         or ( :P703_STATUS = 'PARC'  and d.match_tipo = 'AUTO_PARCIAL' )
+                         or ( :P703_STATUS = 'BANCO' and d.situacao_titulo in ('SCHEDULED','PAID') ) )
+                       -- uma caixa so: nome do cedente, CNPJ, fornecedor da fatura ou valor
+                   and ( :P703_BUSCA is null
+                         or upper(d.benef_nome) like '%' || upper(:P703_BUSCA) || '%'
+                         or upper(d.seu_numero) like '%' || upper(:P703_BUSCA) || '%'
+                         or upper(d.nosso_numero) like '%' || upper(:P703_BUSCA) || '%'
+                         or upper( (select pck_romance.fnc_nomefornecedor(pf.idfornecedor)
+                                      from pagamentosfornecedores pf
+                                     where pf.idpgtoforn = d.idpgtoforn) )
+                            like '%' || upper(:P703_BUSCA) || '%'
+                            -- so vale como CNPJ/CPF com 8+ digitos: trechos curtos como
+                            -- '19000' aparecem dentro de quase todo CNPJ de matriz
+                         or ( length(regexp_replace(:P703_BUSCA,'[^0-9]')) >= 8
+                              and d.benef_documento like '%' || regexp_replace(:P703_BUSCA,'[^0-9]') || '%' )
+                            -- valor: aceita 19000, 19.000 e 19.000,00; texto vira nulo
+                         or nvl(d.valor_nominal, -1) = to_number( replace(replace(:P703_BUSCA,'.'),',','.')
+                                                                  default null on conversion error )
+                         or trunc(nvl(d.valor_nominal, -1)) = to_number( replace(replace(:P703_BUSCA,'.'),',','.')
+                                                                         default null on conversion error ) )
+                 order by d.dt_vencimento, d.iddda
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 100
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        download {
+            csvExportEnabled: true
+        }
+
+        column BENEFICIARIO (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Beneficiário
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CNPJ_CPF (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: CNPJ/CPF
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CONTA (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DT_LIMITE_PGTO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Limite Pgto
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DT_VENCIMENTO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column EM_PAGAMENTO (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 14
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column ESPECIE (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Espécie
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FORNECEDOR_FATURA (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Fornecedor (fatura)
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDDDA (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Id
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column LINHA_DIGITAVEL (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Linha Digitável
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column NOSSO_NUMERO (
+            reportColumnQueryId: 14
+            derivedColumn: N
+            heading {
+                heading: Nosso Número
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SEL (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Enviar
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SEU_NUMERO (
+            reportColumnQueryId: 15
+            derivedColumn: N
+            heading {
+                heading: Seu Número
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VINCULO (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Vínculo com Fatura
+                alignment: center
+            }
+            layout {
+                sequence: 12
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 12
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+            renderComponents: belowContent
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            outputAs: text
+        }
+    )
+
+    region vence-hoje (
+        name: VENCE HOJE
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select case when d.idpgtoforn is not null
+                             and not exists ( select 1 from pix_pagamentos px
+                                               where px.idpgtoforn = d.idpgtoforn
+                                                 and px.status not in ('REJECTED','ERRO','CANCELADO') )
+                        then apex_item.checkbox2(1, d.iddda) end sel
+                     , d.iddda
+                     , substr(d.code,1,25) || '...' linha_digitavel
+                     , d.dt_vencimento
+                     , d.dt_limite_pgto
+                     , to_char(d.valor_nominal,'FM999G999G999G990D00') valor
+                     , d.benef_nome beneficiario
+                     , d.benef_documento cnpj_cpf
+                     , d.especie
+                     , case d.match_tipo
+                         when 'AUTO_EXATO'   then 'Fatura ' || d.idpgtoforn || ' (exato)'
+                         when 'AUTO_PARCIAL' then 'Fatura ' || d.idpgtoforn || ' (conferir venc.)'
+                         when 'MANUAL'       then 'Fatura ' || d.idpgtoforn || ' (manual)'
+                         else '(!) Sem fatura vinculada'
+                       end vinculo
+                     , (select pck_romance.fnc_nomefornecedor(pf.idfornecedor)
+                          from pagamentosfornecedores pf
+                         where pf.idpgtoforn = d.idpgtoforn) fornecedor_fatura
+                     , case when exists ( select 1 from pix_pagamentos px
+                                           where px.idpgtoforn = d.idpgtoforn
+                                             and px.status not in ('REJECTED','ERRO','CANCELADO') )
+                            then 'Em pagamento'
+                            when d.situacao_titulo = 'SCHEDULED' then 'Agendado no banco'
+                            when d.situacao_titulo = 'PAID'      then 'Pago no banco' end em_pagamento
+                     , (select substr(sc.beneficiario,1,25) from santander_contas sc
+                         where sc.idcontabanc = d.idcontabanc) conta
+                     , d.nosso_numero
+                     , d.seu_numero
+                  from dda_titulos d
+                 where d.dt_vencimento = trunc(sysdate)
+                   and (:P703_SO_PENDENTES = 'N'
+                        or not exists ( select 1 from pix_pagamentos px
+                                         where px.idpgtoforn = d.idpgtoforn
+                                           and px.status not in ('REJECTED','ERRO','CANCELADO') ))
+                   and ( :P703_CONTA is null or d.idcontabanc = :P703_CONTA )
+                   and ( :P703_DTINI is null or d.dt_vencimento >= to_date(:P703_DTINI,'DD/MM/RRRR') )
+                   and ( :P703_DTFIM is null or d.dt_vencimento <= to_date(:P703_DTFIM,'DD/MM/RRRR') )
+                       -- situacao do vinculo com a fatura / do titulo no banco
+                   and ( :P703_STATUS is null
+                         or ( :P703_STATUS = 'SEM'   and nvl(d.match_tipo,'-') not in ('AUTO_EXATO','AUTO_PARCIAL','MANUAL') )
+                         or ( :P703_STATUS = 'VINC'  and d.match_tipo in ('AUTO_EXATO','MANUAL') )
+                         or ( :P703_STATUS = 'PARC'  and d.match_tipo = 'AUTO_PARCIAL' )
+                         or ( :P703_STATUS = 'BANCO' and d.situacao_titulo in ('SCHEDULED','PAID') ) )
+                       -- uma caixa so: nome do cedente, CNPJ, fornecedor da fatura ou valor
+                   and ( :P703_BUSCA is null
+                         or upper(d.benef_nome) like '%' || upper(:P703_BUSCA) || '%'
+                         or upper(d.seu_numero) like '%' || upper(:P703_BUSCA) || '%'
+                         or upper(d.nosso_numero) like '%' || upper(:P703_BUSCA) || '%'
+                         or upper( (select pck_romance.fnc_nomefornecedor(pf.idfornecedor)
+                                      from pagamentosfornecedores pf
+                                     where pf.idpgtoforn = d.idpgtoforn) )
+                            like '%' || upper(:P703_BUSCA) || '%'
+                            -- so vale como CNPJ/CPF com 8+ digitos: trechos curtos como
+                            -- '19000' aparecem dentro de quase todo CNPJ de matriz
+                         or ( length(regexp_replace(:P703_BUSCA,'[^0-9]')) >= 8
+                              and d.benef_documento like '%' || regexp_replace(:P703_BUSCA,'[^0-9]') || '%' )
+                            -- valor: aceita 19000, 19.000 e 19.000,00; texto vira nulo
+                         or nvl(d.valor_nominal, -1) = to_number( replace(replace(:P703_BUSCA,'.'),',','.')
+                                                                  default null on conversion error )
+                         or trunc(nvl(d.valor_nominal, -1)) = to_number( replace(replace(:P703_BUSCA,'.'),',','.')
+                                                                         default null on conversion error ) )
+                 order by d.dt_vencimento, d.iddda
+                ```
+        }
+        layout {
+            sequence: 15
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 100
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        download {
+            csvExportEnabled: true
+        }
+
+        column BENEFICIARIO (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Beneficiário
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CNPJ_CPF (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: CNPJ/CPF
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CONTA (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DT_LIMITE_PGTO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Limite Pgto
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DT_VENCIMENTO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column EM_PAGAMENTO (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 14
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column ESPECIE (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Espécie
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FORNECEDOR_FATURA (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Fornecedor (fatura)
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDDDA (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Id
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column LINHA_DIGITAVEL (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Linha Digitável
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column NOSSO_NUMERO (
+            reportColumnQueryId: 14
+            derivedColumn: N
+            heading {
+                heading: Nosso Número
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SEL (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Enviar
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SEU_NUMERO (
+            reportColumnQueryId: 15
+            derivedColumn: N
+            heading {
+                heading: Seu Número
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VINCULO (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Vínculo com Fatura
+                alignment: center
+            }
+            layout {
+                sequence: 12
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region vencidos-dias-anteriores (
+        name: VENCIDOS - dias anteriores
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select case when d.idpgtoforn is not null
+                             and not exists ( select 1 from pix_pagamentos px
+                                               where px.idpgtoforn = d.idpgtoforn
+                                                 and px.status not in ('REJECTED','ERRO','CANCELADO') )
+                        then apex_item.checkbox2(1, d.iddda) end sel
+                     , d.iddda
+                     , substr(d.code,1,25) || '...' linha_digitavel
+                     , d.dt_vencimento
+                     , d.dt_limite_pgto
+                     , to_char(d.valor_nominal,'FM999G999G999G990D00') valor
+                     , d.benef_nome beneficiario
+                     , d.benef_documento cnpj_cpf
+                     , d.especie
+                     , case d.match_tipo
+                         when 'AUTO_EXATO'   then 'Fatura ' || d.idpgtoforn || ' (exato)'
+                         when 'AUTO_PARCIAL' then 'Fatura ' || d.idpgtoforn || ' (conferir venc.)'
+                         when 'MANUAL'       then 'Fatura ' || d.idpgtoforn || ' (manual)'
+                         else '(!) Sem fatura vinculada'
+                       end vinculo
+                     , (select pck_romance.fnc_nomefornecedor(pf.idfornecedor)
+                          from pagamentosfornecedores pf
+                         where pf.idpgtoforn = d.idpgtoforn) fornecedor_fatura
+                     , case when exists ( select 1 from pix_pagamentos px
+                                           where px.idpgtoforn = d.idpgtoforn
+                                             and px.status not in ('REJECTED','ERRO','CANCELADO') )
+                            then 'Em pagamento'
+                            when d.situacao_titulo = 'SCHEDULED' then 'Agendado no banco'
+                            when d.situacao_titulo = 'PAID'      then 'Pago no banco' end em_pagamento
+                     , (select substr(sc.beneficiario,1,25) from santander_contas sc
+                         where sc.idcontabanc = d.idcontabanc) conta
+                     , d.nosso_numero
+                     , d.seu_numero
+                  from dda_titulos d
+                 where d.dt_vencimento < trunc(sysdate)
+                   and (:P703_SO_PENDENTES = 'N'
+                        or not exists ( select 1 from pix_pagamentos px
+                                         where px.idpgtoforn = d.idpgtoforn
+                                           and px.status not in ('REJECTED','ERRO','CANCELADO') ))
+                   and ( :P703_CONTA is null or d.idcontabanc = :P703_CONTA )
+                   and ( :P703_DTINI is null or d.dt_vencimento >= to_date(:P703_DTINI,'DD/MM/RRRR') )
+                   and ( :P703_DTFIM is null or d.dt_vencimento <= to_date(:P703_DTFIM,'DD/MM/RRRR') )
+                       -- situacao do vinculo com a fatura / do titulo no banco
+                   and ( :P703_STATUS is null
+                         or ( :P703_STATUS = 'SEM'   and nvl(d.match_tipo,'-') not in ('AUTO_EXATO','AUTO_PARCIAL','MANUAL') )
+                         or ( :P703_STATUS = 'VINC'  and d.match_tipo in ('AUTO_EXATO','MANUAL') )
+                         or ( :P703_STATUS = 'PARC'  and d.match_tipo = 'AUTO_PARCIAL' )
+                         or ( :P703_STATUS = 'BANCO' and d.situacao_titulo in ('SCHEDULED','PAID') ) )
+                       -- uma caixa so: nome do cedente, CNPJ, fornecedor da fatura ou valor
+                   and ( :P703_BUSCA is null
+                         or upper(d.benef_nome) like '%' || upper(:P703_BUSCA) || '%'
+                         or upper(d.seu_numero) like '%' || upper(:P703_BUSCA) || '%'
+                         or upper(d.nosso_numero) like '%' || upper(:P703_BUSCA) || '%'
+                         or upper( (select pck_romance.fnc_nomefornecedor(pf.idfornecedor)
+                                      from pagamentosfornecedores pf
+                                     where pf.idpgtoforn = d.idpgtoforn) )
+                            like '%' || upper(:P703_BUSCA) || '%'
+                            -- so vale como CNPJ/CPF com 8+ digitos: trechos curtos como
+                            -- '19000' aparecem dentro de quase todo CNPJ de matriz
+                         or ( length(regexp_replace(:P703_BUSCA,'[^0-9]')) >= 8
+                              and d.benef_documento like '%' || regexp_replace(:P703_BUSCA,'[^0-9]') || '%' )
+                            -- valor: aceita 19000, 19.000 e 19.000,00; texto vira nulo
+                         or nvl(d.valor_nominal, -1) = to_number( replace(replace(:P703_BUSCA,'.'),',','.')
+                                                                  default null on conversion error )
+                         or trunc(nvl(d.valor_nominal, -1)) = to_number( replace(replace(:P703_BUSCA,'.'),',','.')
+                                                                         default null on conversion error ) )
+                 order by d.dt_vencimento, d.iddda
+                ```
+        }
+        layout {
+            sequence: 17
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--danger
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 100
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        download {
+            csvExportEnabled: true
+        }
+
+        column BENEFICIARIO (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Beneficiário
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CNPJ_CPF (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: CNPJ/CPF
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CONTA (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DT_LIMITE_PGTO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Limite Pgto
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DT_VENCIMENTO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column EM_PAGAMENTO (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 14
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column ESPECIE (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Espécie
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FORNECEDOR_FATURA (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Fornecedor (fatura)
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDDDA (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Id
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column LINHA_DIGITAVEL (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Linha Digitável
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column NOSSO_NUMERO (
+            reportColumnQueryId: 14
+            derivedColumn: N
+            heading {
+                heading: Nosso Número
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SEL (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Enviar
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SEU_NUMERO (
+            reportColumnQueryId: 15
+            derivedColumn: N
+            heading {
+                heading: Seu Número
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VINCULO (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Vínculo com Fatura
+                alignment: center
+            }
+            layout {
+                sequence: 12
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region vínculo-manual (
+        name: Vínculo manual
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+            renderComponents: belowContent
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            outputAs: text
+        }
+    )
+
+    region última-busca-no-santander (
+        name: Última busca no Santander
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vstatus  varchar2(20) := roman.pck_santander_pix.fnc_dda_status;
+                  vultima  varchar2(400);
+                  vquando  varchar2(20);
+                  vavisos  number;
+                begin
+                  begin
+                    select to_char(l.momento,'DD/MM HH24:MI'), substr(l.payload_resp,1,300)
+                      into vquando, vultima
+                      from roman.pix_log l
+                     where l.operacao = 'DDA' and l.payload_resp like 'Consulta DDA:%'
+                     order by l.momento desc
+                     fetch first 1 rows only;
+                  exception when no_data_found then vquando := null; end;
+                
+                  select count(*) into vavisos
+                    from roman.pix_log l
+                   where l.operacao = 'DDA' and l.payload_resp like 'ATENCAO%'
+                     and l.momento > (select nvl(max(m.momento), sysdate - 1) from roman.pix_log m
+                                       where m.operacao = 'DDA' and m.payload_resp like 'Busca DDA iniciada%');
+                
+                  htp.p('<div style="padding:8px 12px">');
+                  if vstatus = 'EM_ANDAMENTO' then
+                    htp.p('<span class="fa fa-spinner fa-anim-spin"></span> <b>Busca em andamento</b> - recarregue a página em alguns instantes. ');
+                  end if;
+                  if vquando is not null then
+                    htp.p('Última busca concluída em <b>' || vquando || '</b>: ' || apex_escape.html(vultima));
+                    if vavisos > 0 then
+                      htp.p(' <span class="u-warning-text">(' || vavisos || ' aviso(s) de dia com lista incompleta - ver página 702, log)</span>');
+                    end if;
+                  else
+                    htp.p('Nenhuma busca concluída ainda.');
+                  end if;
+                  htp.p('</div>');
+                end;
+                ```
+        }
+        layout {
+            sequence: 5
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P703_BUSCA (
+        type: textField
+        label {
+            label: Fornecedor, CNPJ, valor, nosso ou seu número
+            alignment: left
+        }
+        layout {
+            sequence: 5
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 40
+        }
+        validation {
+            maxLength: 60
+        }
+    )
+
+    pageItem P703_CONTA (
+        type: selectList
+        label {
+            label: Conta pagadora
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select substr(sc.beneficiario,1,40) d, sc.idcontabanc r
+                  from santander_contas sc
+                 where sc.ativo = 'S'
+                 order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Todas -"
+        }
+        layout {
+            sequence: 7
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P703_DTFIM (
+        type: datePicker
+        label {
+            label: até
+            alignment: left
+        }
+        layout {
+            sequence: 9
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+    )
+
+    pageItem P703_DTINI (
+        type: datePicker
+        label {
+            label: Vencimento de
+            alignment: left
+        }
+        layout {
+            sequence: 8
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+    )
+
+    pageItem P703_IDDDA (
+        type: numberField
+        label {
+            label: Id do título DDA
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @vínculo-manual
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+    )
+
+    pageItem P703_IDPGTOFORN (
+        type: numberField
+        label {
+            label: Id da fatura (idpgtoforn)
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @vínculo-manual
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+    )
+
+    pageItem P703_SO_PENDENTES (
+        type: radioGroup
+        label {
+            label: Somente pendentes de envio
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayNullValue: false
+        }
+        layout {
+            sequence: 12
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: S
+        }
+    )
+
+    pageItem P703_STATUS (
+        type: selectList
+        label {
+            label: Situação
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sem fatura vinculada;SEM,Vinculado à fatura;VINC,Conferir vencimento;PARC,Agendado ou pago no banco;BANCO
+            displayExtraValues: false
+            nullDisplayValue: " - Todas -"
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Filtrar
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button consultar-dda (
+        buttonName: CONSULTAR_DDA
+        label: Atualizar DDA no Santander
+        layout {
+            sequence: 10
+            region: @a-vencer-próximos-dias
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button enviar-boletos (
+        buttonName: ENVIAR_BOLETOS
+        label: Enviar Boletos ao Banco
+        layout {
+            sequence: 20
+            region: @a-vencer-próximos-dias
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+            requiresConfirmation: true
+        }
+        confirmation {
+            message: Enviar os boletos selecionados ao Santander? O pagamento só sai após a autorização da gestora na página 701.
+            style: warning
+        }
+    )
+
+    button vincular (
+        buttonName: VINCULAR
+        label: Vincular Título à Fatura
+        layout {
+            sequence: 10
+            region: @vínculo-manual
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process consulta-dda-no-santander (
+        name: Consulta DDA no Santander
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  -- Em segundo plano: a busca por cedente pode passar de 1 minuto e o
+                  -- proxy web corta a requisicao em 60 s (504).
+                  roman.pck_santander_pix.prc_consultar_dda_async(:APP_USER);
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Busca do DDA iniciada em segundo plano. Recarregue a página em 1 a 2 minutos; o andamento aparece em "Última busca".
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000703080
+        }
+        serverSideCondition {
+            whenButtonPressed: @consultar-dda
+        }
+    )
+
+    process envia-boletos-selecionados (
+        name: Envia boletos selecionados
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vok    number := 0;
+                  verros number := 0;
+                  vmsg   varchar2(32767);
+                begin
+                  if apex_application.g_f01.count = 0 then
+                    apex_error.add_error(
+                      p_message          => 'Selecione ao menos um boleto vinculado a fatura.',
+                      p_display_location => apex_error.c_inline_in_notification);
+                    return;
+                  end if;
+                
+                  for i in 1 .. apex_application.g_f01.count loop
+                    begin
+                      roman.pck_santander_pix.prc_enviar_boleto(
+                        piddda   => to_number(apex_application.g_f01(i)),
+                        pusuario => :APP_USER );
+                      vok := vok + 1;
+                    exception
+                      when others then
+                        verros := verros + 1;
+                        vmsg := substr(vmsg || 'Titulo ' || apex_application.g_f01(i) || ': ' ||
+                                       sqlerrm || ' | ', 1, 30000);
+                    end;
+                  end loop;
+                
+                  if verros > 0 then
+                    apex_error.add_error(
+                      p_message          => vok || ' enviado(s), ' || verros || ' com erro. ' || vmsg,
+                      p_display_location => apex_error.c_inline_in_notification);
+                  end if;
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: Boletos enviados. Aguardando autorização da gestora na página 701.
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000703081
+        }
+        serverSideCondition {
+            whenButtonPressed: @enviar-boletos
+        }
+    )
+
+    process vincula-titulo-a-fatura-manualmente (
+        name: Vincula titulo a fatura manualmente
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vsaldo number;
+                begin
+                  if :P703_IDDDA is null or :P703_IDPGTOFORN is null then
+                    apex_error.add_error(
+                      p_message          => 'Informe o Id do titulo DDA e o Id da fatura.',
+                      p_display_location => apex_error.c_inline_in_notification);
+                    return;
+                  end if;
+                
+                  select pf.valorpagar - nvl(pf.desconto,0) + nvl(pf.acrescimo,0)
+                       - nvl(pf.valorpago,0) into vsaldo
+                    from roman.pagamentosfornecedores pf
+                   where pf.idpgtoforn = :P703_IDPGTOFORN;
+                
+                  if vsaldo <= 0 then
+                    apex_error.add_error(
+                      p_message          => 'Fatura ' || :P703_IDPGTOFORN || ' sem saldo a pagar.',
+                      p_display_location => apex_error.c_inline_in_notification);
+                    return;
+                  end if;
+                
+                  update roman.dda_titulos
+                     set idpgtoforn = :P703_IDPGTOFORN
+                       , match_tipo = 'MANUAL'
+                   where iddda = :P703_IDDDA;
+                
+                  if sql%rowcount = 0 then
+                    apex_error.add_error(
+                      p_message          => 'Titulo DDA ' || :P703_IDDDA || ' nao encontrado.',
+                      p_display_location => apex_error.c_inline_in_notification);
+                    return;
+                  end if;
+                
+                  commit;
+                exception
+                  when no_data_found then
+                    apex_error.add_error(
+                      p_message          => 'Fatura ' || :P703_IDPGTOFORN || ' nao encontrada.',
+                      p_display_location => apex_error.c_inline_in_notification);
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        successMessage {
+            successMessage: Título vinculado à fatura.
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000703082
+        }
+        serverSideCondition {
+            whenButtonPressed: @vincular
+        }
+    )
+
+    branch (
+        name: Go To Page 703
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 703
+                items: {
+                    P703_SO_PENDENTES: &P703_SO_PENDENTES.
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

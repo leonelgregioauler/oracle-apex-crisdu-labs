@@ -1,0 +1,1955 @@
+page 219 (
+    name: Produtos mais Vendidos
+    title: Produtos mais Vendidos
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region categorias-mais-vendidos (
+        name: Categorias mais Vendidos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                -- Maicon Aimi - 8271602 - 23/01/2023(OLD)
+                /*
+                select t.categoria "Categoria"
+                     , t.distribuido "Distribuido"
+                     , t.vendido "Vendido"
+                     , round( (t.vendido / t.distribuido) * 100, 2 ) "Perc Venda"
+                     , t.empresa "Empresa"
+                     , t.na_rua "Na Rua"
+                     , t.valor 
+                from ( 
+                      select ( select pck_romance.fnc_nomecategoria(p.idcategoria)
+                               from produtos p
+                               where p.idproduto       =  mv.idproduto ) categoria
+                           , sum(mv.distribuido) distribuido
+                           , sum(NVL(mv.vendido,0)) vendido
+                           , ( select listagg(pck_romance.fnc_nomefornecedor(fp.idfornecedor)) within group (order by 1)
+                               from fornecedoresprodutos fp
+                                  , estoquefilial e
+                               where fp.idproduto       = e.idproduto 
+                                 and e.idestoquefilial  = mv.idestoquefil 
+                               group by fp.idproduto ) fornecedores
+                           , pck_romance.fnc_nomefilial(mv.idfilial) empresa
+                           , ( select sum(it.quantidade)
+                               from itensnotavenda it
+                               where it.idestoquefil = mv.idestoquefil
+                                 and exists ( select 1
+                                              from notasvendas nv
+                                              where nv.idsituacaonotavenda = 3
+                                                and nv.idnotavenda = it.idnotavenda
+                                                and nv.idfilial    = mv.idfilial ) ) na_rua
+                           , sum(mv.valor) valor
+                      from vw_percentualvenda_mv mv
+                      where ( :P219_IDFILIAL is null or mv.idfilial = :P219_IDFILIAL)
+                        and exists ( select 1
+                                     from usuariosfiliais u
+                                     where u.idfilial = mv.idfilial
+                                       and u.usuario  = v('APP_USER') ) 
+                        and ( :P219_IDGRUPO is null or exists ( select 1
+                                                                from filiais f
+                                                                where f.idfilial = mv.idfilial
+                                                                  and f.idgrupo  = :P219_IDGRUPO ))
+                        and ( ( :P219_FILTRAR = 'S' and mv.idsemanacobranca = :P219_SEMANA )
+                           or ( :P219_FILTRAR = 'P' and  mv.idsemanacobranca between :P219_SEMANAINI and :P219_SEMANAFIM  ))  
+                        and (:P219_IDPRODUTO is null or ( exists ( select 1 
+                                                                   from estoquefilial i
+                                                                   where i.idestoquefilial = mv.idestoquefil 
+                                                                     and i.idproduto = :P219_IDPRODUTO)))
+                        and ( :P219_IDFORNECEDOR is null or exists ( select 1
+                                                                     from fornecedoresprodutos f
+                                                                        , estoquefilial        e
+                                                                     where f.idfornecedor = :P219_IDFORNECEDOR 
+                                                                       and f.idproduto    = e.idproduto
+                                                                       and e.idestoquefilial = mv.idestoquefil ) )
+                        and :P219_TIPO = 'C'
+                        and ( :P219_IDCATEGORIA = -1 or exists ( select 1
+                                                                 from produtos p
+                                                                 where p.idproduto =  mv.idproduto
+                                                                   and p.idcategoria = :P219_IDCATEGORIA ) )
+                        and ( :P219_IDFILIAL is not null 
+                            or :P219_SEMANA is not null 
+                            or :P219_SEMANAINI is not null 
+                            or :P219_IDFORNECEDOR is not null )
+                      group by mv.idestoquefil , mv.idfilial, mv.idproduto ) t
+                */
+                
+                
+                -- Maicon Aimi - 8271602 - 23/01/2023 Melhoria na query(NEW)
+                select pck_romance.fnc_nomecategoria(p.idcategoria)  "Categoria",
+                       sum(i.quantidade) "Distribuido",
+                       sum(NVL(i.quantidade,0) - NVL(i.qtddevolvida,0)) "Vendido",
+                       round(((sum(NVL(i.quantidade,0) - NVL(i.qtddevolvida,0)) * 100 ) /  sum(i.quantidade) ),2) "Perc Venda",
+                       pck_romance.fnc_nomefilial(n.idfilial) "Empresa",
+                       sum(nvl(( select sum(it.quantidade) "na_rua"
+                                from itensnotavenda it
+                               where it.iditemnotavenda = i.iditemnotavenda
+                                 and exists ( select 1
+                                                from notasvendas nv
+                                               where nv.idsituacaonotavenda = 3
+                                                 and nv.idnotavenda = it.idnotavenda)),0)) "na_rua",
+                       sum((NVL(i.quantidade,0) - NVL(i.qtddevolvida,0))*i.valorvenda) "valor"
+                     , roman.pck_romance.fnc_nomecaracteristica(p.idcaracteristicacateg) Caracteristica
+                     , (select INITCAP(c.nome) from caracteristicascategorias c where c.idcaracteristicacateg = p.idcaracteristicadetalhe) Modelo
+                     , (select INITCAP(c.nome) from caracteristicascategorias c where c.idcaracteristicacateg = p.idcaracteristicacategmat) Material
+                     , (select INITCAP(c.nome) from caracteristicascategorias c where c.idcaracteristicacateg = p.idcaracteristicasubcat) Genero
+                  from roman.notasvendas n,
+                       roman.itensnotavenda i,
+                       roman.produtos p
+                 where i.idnotavenda = n.idnotavenda
+                   and p.idproduto = i.idproduto
+                   and (:P219_IDFILIAL is null or n.idfilial = :P219_IDFILIAL)
+                   and exists ( select 1
+                                  from usuariosfiliais u
+                                 where u.idfilial = n.idfilial
+                                   and u.usuario  = v('APP_USER') )
+                   and ( :P219_IDGRUPO is null or exists ( select 1
+                                                             from filiais f
+                                                            where f.idfilial = n.idfilial
+                                                              and f.idgrupo  = :P219_IDGRUPO ))
+                   and ( ( :P219_FILTRAR = 'S' and n.idsemanacobranca = :P219_SEMANA )
+                       or ( :P219_FILTRAR = 'P' and  n.idsemanacobranca between :P219_SEMANAINI and :P219_SEMANAFIM  ))
+                   and (:P219_IDPRODUTO is null or ( exists ( select 1 
+                                                                from estoquefilial i
+                                                               where i.idestoquefilial = i.idestoquefil 
+                                                                 and i.idproduto = :P219_IDPRODUTO)))
+                   and ( :P219_IDFORNECEDOR is null or exists ( select 1
+                                                                  from fornecedoresprodutos f
+                                                                     , estoquefilial        e
+                                                                 where f.idfornecedor = :P219_IDFORNECEDOR 
+                                                                   and f.idproduto    = e.idproduto
+                                                                   and e.idestoquefilial = i.idestoquefil ) )
+                   and :P219_TIPO = 'C'
+                   /*and ( :P219_IDCATEGORIA is null or exists ( select 1
+                                                              from produtos p
+                                                             where p.idproduto =  i.idproduto
+                                                               and p.idcategoria = :P219_IDCATEGORIA ) )*/
+                   and ( :P219_IDFILIAL is not null 
+                        or :P219_SEMANA is not null 
+                        or :P219_SEMANAINI is not null 
+                        or :P219_IDFORNECEDOR is not null )
+                     --
+                   and (:P219_IDCATEGORIA is null or p.idcategoria = :P219_IDCATEGORIA)
+                   and (:P219_MODELO is null or p.idcaracteristicadetalhe = :P219_MODELO)
+                   and (:P219_CARACTERISTICA is null or p.idcaracteristicacateg = :P219_CARACTERISTICA)
+                   and (:P219_MATERIAL is null or p.idcaracteristicacategmat = :P219_MATERIAL)
+                   and (:P219_GENERO is null or p.idcaracteristicasubcat = :P219_GENERO)
+                 group by p.idcategoria,
+                          n.idfilial,
+                          p.idcaracteristicasubcat,
+                          p.idcaracteristicacategmat,
+                          p.idcaracteristicadetalhe,
+                          idcaracteristicacateg;
+                          
+                
+                
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body-3
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: item=value
+            item: P219_TIPO
+            value: C
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Selecione um filtro.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            subscription: false
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 3055099499810464847
+        }
+
+        column CARACTERISTICA (
+            type: plainText
+            heading {
+                heading: Característica
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column Categoria (
+            type: plainText
+            heading {
+                heading: Categoria
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column Distribuido (
+            type: plainText
+            heading {
+                heading: Distribuido
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column Empresa (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column GENERO (
+            type: plainText
+            heading {
+                heading: Gênero
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column MATERIAL (
+            type: plainText
+            heading {
+                heading: Material
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column MODELO (
+            type: plainText
+            heading {
+                heading: Modelo
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column "Perc Venda" (
+            type: plainText
+            heading {
+                heading: Perc venda
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column Vendido (
+            type: plainText
+            heading {
+                heading: Vendido
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column na_rua (
+            type: plainText
+            heading {
+                heading: Na Rua
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column valor (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        savedReport 32810866 (
+            visibility: primaryDefault
+            view {
+                groupBy: true
+                pivot: true
+                rowsPerPage: 50
+            }
+
+            displayColumn CARACTERISTICA (
+                sequence: 7
+            )
+
+            displayColumn "Categoria" (
+                sequence: 5
+            )
+
+            displayColumn "Distribuido" (
+                sequence: 2
+            )
+
+            displayColumn "Empresa" (
+                sequence: 1
+            )
+
+            displayColumn GENERO (
+                sequence: 9
+            )
+
+            displayColumn MATERIAL (
+                sequence: 8
+            )
+
+            displayColumn MODELO (
+                sequence: 6
+            )
+
+            displayColumn "Perc Venda" (
+                sequence: 4
+            )
+
+            displayColumn "Vendido" (
+                sequence: 3
+            )
+
+            displayColumn "na_rua" (
+                sequence: 10
+            )
+
+            displayColumn "valor" (
+                sequence: 11
+            )
+
+            groupByColumn (
+                column: "Categoria"
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByColumn (
+                column: "Empresa"
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByAggregate (
+                heading: Distribuido
+                aggregate {
+                    column: "Distribuido"
+                }
+                appearance {
+                    formatMask: 999G999G999G999G999G999G990
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: Vendido
+                aggregate {
+                    column: "Vendido"
+                }
+                appearance {
+                    formatMask: 999G999G999G999G999G999G990
+                }
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByAggregate (
+                heading: %
+                aggregate {
+                    function: average
+                    column: "Perc Venda"
+                }
+                appearance {
+                    formatMask: 999G999G999G999G999G999G990
+                }
+                layout {
+                    sequence: 3
+                }
+            )
+
+            groupByAggregate (
+                heading: Total Venda
+                aggregate {
+                    column: VALOR
+                }
+                appearance {
+                    formatMask: 999G999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 4
+                }
+            )
+
+            groupBySort (
+                column: "Categoria"
+                sort {
+                    sequence: 1
+                }
+            )
+
+            groupBySort (
+                column: "Empresa"
+                sort {
+                    sequence: 2
+                }
+            )
+
+            pivotColumn (
+                column: "Empresa"
+                layout {
+                    sequence: 1
+                }
+            )
+
+            pivotRowColumn (
+                column: "Categoria"
+                layout {
+                    sequence: 1
+                }
+            )
+
+            pivotAggregate ir-pivot-agg (
+                heading: %
+                aggregate {
+                    function: average
+                    column: "Perc Venda"
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990
+                }
+                layout {
+                    sequence: 3
+                }
+            )
+
+            pivotAggregate ir-pivot-agg-2 (
+                heading: Distribuido
+                aggregate {
+                    function: sum
+                    column: "Distribuido"
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+            pivotAggregate ir-pivot-agg-3 (
+                heading: Vendido
+                aggregate {
+                    function: sum
+                    column: "Vendido"
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990
+                }
+                layout {
+                    sequence: 2
+                }
+            )
+
+        )
+
+    )
+
+    region filtro (
+        name: Filtro
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        headerAndFooter {
+            footerText: * Valor Venda = Bruto
+        }
+    )
+
+    region produtos-mais-vendidos (
+        name: Produtos mais Vendidos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ( select pck_romance.fnc_nomeproduto(e.idproduto)
+                         from estoquefilial e
+                         where e.idestoquefilial = mv.idestoquefil ) "Produto"
+                     , sum(mv.distribuido) "Distribuido"
+                     , sum(NVL(mv.vendido,0)) "Vendido"
+                     , round(( (  sum(mv.vendido) * 100 ) /  sum(mv.distribuido) ),2) "Perc Venda"
+                     , ( select listagg(pck_romance.fnc_nomefornecedor(fp.idfornecedor)) within group (order by 1)
+                         from fornecedoresprodutos fp
+                            , estoquefilial e
+                         where fp.idproduto       = e.idproduto 
+                           and e.idestoquefilial  = mv.idestoquefil 
+                         group by fp.idproduto ) fornecedores
+                     , pck_romance.fnc_nomefilial(mv.idfilial) "Empresa"
+                     , ( select sum(it.quantidade)
+                         from itensnotavenda it
+                         where it.idestoquefil = mv.idestoquefil
+                           and exists ( select 1
+                                        from notasvendas nv
+                                        where nv.idsituacaonotavenda = 3
+                                          and nv.idnotavenda = it.idnotavenda
+                                          and nv.idfilial    = mv.idfilial ) ) "Na Rua"
+                     /*, p.idcaracteristicasubcat idgenero
+                     , p.idcaracteristicacategmat idmaterial
+                     , p.idcaracteristicadetalhe idmodelo
+                     , idcaracteristicacateg caracteristica*/
+                     --
+                     , roman.pck_romance.fnc_nomecaracteristica(p.idcaracteristicacateg) Caracteristica
+                     , (select INITCAP(c.nome) from caracteristicascategorias c where c.idcaracteristicacateg = p.idcaracteristicadetalhe) Modelo
+                     , (select INITCAP(c.nome) from caracteristicascategorias c where c.idcaracteristicacateg = p.idcaracteristicacategmat) Material
+                     , (select INITCAP(c.nome) from caracteristicascategorias c where c.idcaracteristicacateg = p.idcaracteristicasubcat) Genero
+                     --
+                from vw_percentualvenda_mv mv
+                   , roman.produtos p 
+                where mv.idproduto = p.idproduto
+                  and ( :P219_IDFILIAL is null or mv.idfilial = :P219_IDFILIAL)
+                  and exists ( select 1
+                               from usuariosfiliais u
+                               where u.idfilial = mv.idfilial
+                                 and u.usuario  = v('APP_USER') ) 
+                  and ( :P219_IDGRUPO is null or exists ( select 1
+                                                          from filiais f
+                                                          where f.idfilial = mv.idfilial
+                                                            and f.idgrupo  = :P219_IDGRUPO ))
+                  and ( ( :P219_FILTRAR = 'S' and mv.idsemanacobranca = :P219_SEMANA )
+                     or ( :P219_FILTRAR = 'P' and  mv.idsemanacobranca between :P219_SEMANAINI and :P219_SEMANAFIM  ))  
+                  and (:P219_IDPRODUTO is null or ( exists ( select 1 
+                                                             from estoquefilial i
+                                                             where i.idestoquefilial = mv.idestoquefil 
+                                                               and i.idproduto = :P219_IDPRODUTO)))
+                  and ( :P219_IDFORNECEDOR is null or exists ( select 1
+                                                               from fornecedoresprodutos f
+                                                                  , estoquefilial        e
+                                                               where f.idfornecedor = :P219_IDFORNECEDOR 
+                                                                 and f.idproduto    = e.idproduto
+                                                                 and e.idestoquefilial = mv.idestoquefil ) )
+                  and ( :P219_IDFILIAL is not null 
+                      or :P219_SEMANA is not null 
+                      or :P219_SEMANAINI is not null 
+                      or :P219_IDFORNECEDOR is not null )
+                  --
+                  and (:P219_MODELO is null or p.idcaracteristicadetalhe = :P219_MODELO)
+                  and (:P219_CARACTERISTICA is null or p.idcaracteristicacateg = :P219_CARACTERISTICA)
+                  and (:P219_MATERIAL is null or p.idcaracteristicacategmat = :P219_MATERIAL)
+                  and (:P219_GENERO is null or p.idcaracteristicasubcat = :P219_GENERO)
+                group by mv.idestoquefil 
+                       , mv.idfilial
+                       , p.idcaracteristicasubcat
+                       , p.idcaracteristicacategmat
+                       , p.idcaracteristicadetalhe
+                       , idcaracteristicacateg
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body-3
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: item=value
+            item: P219_TIPO
+            value: P
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Selecione um filtro.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            subscription: false
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 22494409115698866
+        }
+
+        column CARACTERISTICA (
+            type: plainText
+            heading {
+                heading: Caracteristica
+            }
+            layout {
+                sequence: 85
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column Distribuido (
+            type: plainText
+            heading {
+                heading: Distribuido
+                alignment: center
+            }
+            layout {
+                sequence: 35
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column Empresa (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column FORNECEDORES (
+            type: plainText
+            heading {
+                heading: Fornecedores
+                alignment: center
+            }
+            layout {
+                sequence: 75
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column GENERO (
+            type: plainText
+            heading {
+                heading: Genero
+            }
+            layout {
+                sequence: 115
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column MATERIAL (
+            type: plainText
+            heading {
+                heading: Material
+            }
+            layout {
+                sequence: 105
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column MODELO (
+            type: plainText
+            heading {
+                heading: Modelo
+            }
+            layout {
+                sequence: 95
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "Na Rua" (
+            type: plainText
+            heading {
+                heading: Na rua
+                alignment: center
+            }
+            layout {
+                sequence: 65
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column "Perc Venda" (
+            type: plainText
+            heading {
+                heading: Perc venda
+                alignment: center
+            }
+            layout {
+                sequence: 55
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column Produto (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 25
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column Vendido (
+            type: plainText
+            heading {
+                heading: Vendido
+                alignment: center
+            }
+            layout {
+                sequence: 45
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        savedReport 224956 (
+            visibility: primaryDefault
+            view {
+                pivot: true
+                default: pivot
+                rowsPerPage: 50
+            }
+
+            displayColumn "Distribuido" (
+                sequence: 3
+            )
+
+            displayColumn "Empresa" (
+                sequence: 1
+            )
+
+            displayColumn "Na Rua" (
+                sequence: 6
+            )
+
+            displayColumn "Perc Venda" (
+                sequence: 5
+            )
+
+            displayColumn "Produto" (
+                sequence: 2
+            )
+
+            displayColumn "Vendido" (
+                sequence: 4
+            )
+
+            sort (
+                column: "Vendido"
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            pivotColumn (
+                column: "Empresa"
+                layout {
+                    sequence: 1
+                }
+            )
+
+            pivotRowColumn (
+                column: "Produto"
+                layout {
+                    sequence: 1
+                }
+            )
+
+            pivotAggregate ir-pivot-agg (
+                heading: Distribuido
+                aggregate {
+                    function: sum
+                    column: "Distribuido"
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+            pivotAggregate ir-pivot-agg-2 (
+                heading: Vendido
+                aggregate {
+                    function: sum
+                    column: "Vendido"
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990
+                }
+                layout {
+                    sequence: 2
+                }
+            )
+
+            pivotAggregate ir-pivot-agg-3 (
+                heading: %
+                aggregate {
+                    function: average
+                    column: "Perc Venda"
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990
+                }
+                layout {
+                    sequence: 3
+                }
+            )
+
+            pivotSort (
+                column: "Produto"
+                sort {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P219_CARACTERISTICA (
+        type: selectOne
+        label {
+            label: Característica
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select INITCAP(nome) nome
+                     , c.idcaracteristicacateg
+                from caracteristicascategorias c
+                where idcategoria = :P219_IDCATEGORIA
+                  and tipo = 'C'
+                ORDER BY NOME;
+                ```
+        }
+        cascadingLov {
+            parentItems: [
+                P219_MODELO
+                P219_IDCATEGORIA
+            ]
+        }
+        layout {
+            sequence: 90
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+    )
+
+    pageItem P219_FILIALGRUPO (
+        type: radioGroup
+        label {
+            label: Filtrar
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Empresa;E,Grupo;G
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: E
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P219_FILTRAR (
+        type: radioGroup
+        label {
+            label: Filtrar
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Semana;S,Periodo;P
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 120
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: S
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P219_GENERO (
+        type: selectOne
+        label {
+            label: Gênero
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select INITCAP(nome) nome
+                     , c.idcaracteristicacateg
+                from caracteristicascategorias c
+                where idcategoria = :P219_IDCATEGORIA
+                  and tipo = 'S'
+                ORDER BY NOME;
+                ```
+        }
+        cascadingLov {
+            parentItems: P219_IDCATEGORIA
+        }
+        layout {
+            sequence: 110
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+    )
+
+    pageItem P219_IDCATEGORIA (
+        type: selectOne
+        label {
+            label: Categoria
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select c.nome
+                     , c.idcategoria
+                from categorias c
+                where c.idcategoria not in (140,141)
+                  and c.ativo = 'S'
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 70
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P219_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefilial(idfilial) display_value
+                     , idfilial
+                from filiais f
+                where f.tipofilial = 'D'
+                  and f.ativo = 'S'
+                  and exists ( select 1
+                               from usuariosfiliais u
+                               where u.idfilial = f.idfilial
+                                 and u.usuario  = v('APP_USER') ) 
+                  and exists ( select 1
+                               from representantes r
+                               where pck_romance.fnc_filialgerente(idgerente) = f.idfilial
+                                 and r.usanetbook = 'S' )
+                order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 20
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P219_IDFORNECEDOR (
+        type: popupLov
+        label {
+            label: Fornecedor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nomefornecedor display_value
+                     , idfornecedor   return_value
+                from vw_fornecedores_rmc
+                order by 1
+                ```
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 40
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 60
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P219_IDGRUPO (
+        type: radioGroup
+        label {
+            label: Grupo
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select descricao display_value
+                     , idgrupo  return_value
+                from gruposromance
+                order by 1
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P219_IDPRODUTO (
+        type: popupLov
+        label {
+            label: Produto
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distinct initcap(p.nomeproduto) display_value
+                    , p.idproduto 
+                from produtos p
+                   , fornecedoresprodutos f
+                where p.idproduto = f.idproduto
+                  and (:P219_IDFORNECEDOR  is null or f.idfornecedor = :P219_IDFORNECEDOR )
+                order by 1
+                ```
+            nullDisplayValue: - Todos -
+        }
+        cascadingLov {
+            parentItems: P219_IDFORNECEDOR
+        }
+        layout {
+            sequence: 60
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P219_MATERIAL (
+        type: selectOne
+        label {
+            label: Material
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select INITCAP(nome) nome
+                     , c.idcaracteristicacateg
+                from caracteristicascategorias c
+                where idcategoria = :P219_IDCATEGORIA
+                  and tipo = 'M'
+                ORDER BY NOME;
+                ```
+        }
+        layout {
+            sequence: 100
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+    )
+
+    pageItem P219_MODELO (
+        type: selectOne
+        label {
+            label: Modelo
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select INITCAP(nome) nome
+                     , c.idcaracteristicacateg
+                from caracteristicascategorias c
+                where idcategoria = :P219_IDCATEGORIA
+                  and tipo = 'D'
+                ORDER BY NOME;
+                ```
+        }
+        cascadingLov {
+            parentItems: P219_IDCATEGORIA
+        }
+        layout {
+            sequence: 80
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+    )
+
+    pageItem P219_SEMANA (
+        type: selectOne
+        label {
+            label: Semana
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select semana display_value
+                     , idsemana RETURN_VALUE
+                from ( select distinct semana, idsemana
+                       from fechamentossemanais
+                       order by idsemana desc )
+                where rownum < 30
+                ```
+        }
+        layout {
+            sequence: 130
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P219_SEMANAFIM (
+        type: selectOne
+        label {
+            label: Até
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select trim(to_char(semana,'00')||'/'||ano) display_value
+                     , idsemana RETURN_VALUE
+                from semana_dias
+                where idsemana >=534
+                  and idsemana > :P219_SEMANAINI
+                order by idsemana 
+                ```
+        }
+        cascadingLov {
+            parentItems: P219_SEMANAINI
+        }
+        layout {
+            sequence: 160
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P219_SEMANAINI (
+        type: selectOne
+        label {
+            label: De
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+            maxValuesInList: 999
+            fetchOnSearch: true
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select trim(to_char(semana,'00')||'/'||ano) display_value
+                     , idsemana RETURN_VALUE
+                from semana_dias
+                where idsemana >=534
+                order by idsemana 
+                ```
+        }
+        layout {
+            sequence: 150
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P219_TIPO (
+        type: radioGroup
+        label {
+            label: Tipo Pesquisa
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Produto;P,Categoria;C
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: P
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button p219-filtrar (
+        buttonName: P219_FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 170
+            region: @filtro
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction empresa-ou-grupo (
+        name: Empresa ou Grupo
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P219_FILIALGRUPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P219_FILIALGRUPO
+            value: E
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P219_IDFILIAL
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P219_IDGRUPO
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P219_IDFILIAL
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P219_IDGRUPO
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    dynamicAction filtro-de-tipo (
+        name: Filtro de Tipo
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P219_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P219_TIPO
+            value: P
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P219_IDCATEGORIA
+                    P219_MODELO
+                ]
+            }
+            execution {
+                sequence: 70
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P219_IDCATEGORIA
+                    P219_CARACTERISTICA
+                ]
+            }
+            execution {
+                sequence: 80
+            }
+        )
+
+        action native-hide-3 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P219_IDCATEGORIA
+                    P219_MATERIAL
+                ]
+            }
+            execution {
+                sequence: 90
+            }
+        )
+
+        action native-hide-4 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P219_IDCATEGORIA
+                    P219_GENERO
+                ]
+            }
+            execution {
+                sequence: 100
+            }
+        )
+
+        action native-hide-5 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P219_IDPRODUTO
+            }
+            execution {
+                sequence: 60
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-6 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P219_IDCATEGORIA
+            }
+            execution {
+                sequence: 60
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P219_IDCATEGORIA
+                    P219_MODELO
+                ]
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P219_IDCATEGORIA
+                    P219_CARACTERISTICA
+                ]
+            }
+            execution {
+                sequence: 30
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show-3 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P219_IDCATEGORIA
+                    P219_MODELO
+                ]
+            }
+            execution {
+                sequence: 40
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show-4 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P219_IDCATEGORIA
+                    P219_GENERO
+                ]
+            }
+            execution {
+                sequence: 50
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show-5 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P219_IDPRODUTO
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-6 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P219_IDCATEGORIA
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    dynamicAction semana (
+        name: = Semana
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P219_FILTRAR
+        }
+        clientSideCondition {
+            type: item=value
+            item: P219_FILTRAR
+            value: S
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P219_SEMANA
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P219_SEMANAINI
+                    P219_SEMANAFIM
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P219_SEMANA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P219_SEMANAINI
+                    P219_SEMANAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    branch (
+        name: FILTRO
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 219
+                items: {
+                    P219_IDFILIAL: &P219_IDFILIAL.
+                    P219_SEMANA: &P219_SEMANA.
+                    P219_SEMANAINI: &P219_SEMANAINI.
+                    P219_SEMANAFIM: &P219_SEMANAFIM.
+                    P219_IDFORNECEDOR: &P219_IDFORNECEDOR.
+                    P219_FILIALGRUPO: &P219_FILIALGRUPO.
+                    P219_FILTRAR: &P219_FILTRAR.
+                    P219_IDGRUPO: &P219_IDGRUPO.
+                    P219_IDPRODUTO: &P219_IDPRODUTO.
+                    P219_TIPO: &P219_TIPO.
+                    P219_IDCATEGORIA: &P219_IDCATEGORIA.
+                }
+                successMessage: false
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @p219-filtrar
+        }
+    )
+
+)
+

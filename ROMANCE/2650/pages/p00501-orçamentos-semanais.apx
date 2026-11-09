@@ -1,0 +1,733 @@
+page 501 (
+    name: Orçamentos Semanais
+    alias: ORÇAMENTOS-SEMANAIS
+    title: Orçamentos Semanais
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function setcolor_ig_cells() {
+              // for each cell in Orçamento Realizado
+              $(".setcolor td.orc_real").each(function() {
+                var $cell = $(this);
+                var $tr   = $cell.closest("tr");
+            
+                // valor do realizado
+                var vReal = $cell.find("input,select").val();
+                if (vReal === undefined) vReal = $cell.text();
+            
+                // valor da semana (coluna com classe orc_semana)
+                var $semTd = $tr.find("td.orc_semana");
+                var vSemana = $semTd.find("input,select").val();
+                if (vSemana === undefined) vSemana = $semTd.text();
+            
+                // converter para número (tirar pontos de milhar e trocar vírgula por ponto)
+                var realizado = parseFloat(String(vReal).trim().replace(/\./g,"").replace(",","."));
+                var semana    = parseFloat(String(vSemana).trim().replace(/\./g,"").replace(",","."));
+            
+                // rules for coloring
+                this.style.color = "";
+                if (!isNaN(realizado) && !isNaN(semana)) {
+                  if (realizado <= semana) {
+                    this.style.color = "green";
+                  } else if (realizado > semana) {
+                    this.style.color = "red";
+                  } else {
+                    this.style.color = ""; // igual é neutro
+                  }
+                }
+              })
+            };
+            
+            
+            (function() {
+              var items = ["P501_SEMANAINICIAL", "P501_SEMANAFINAL"];
+              var state = {}; // por item: {prevDigits, caretStart, caretEnd, op, data}
+            
+              function fmt(d) {
+                d = (d || "").replace(/\D/g, "").slice(0, 6); // SS + AAAA
+                return d.length <= 2 ? d : d.slice(0,2) + "/" + d.slice(2);
+              }
+              function digitsBeforeCaret(str, pos) {
+                var n = 0;
+                for (var i=0; i<Math.min(pos, str.length); i++) if (/\d/.test(str[i])) n++;
+                return n;
+              }
+              function caretFromDigitIndex(idx, formatted) {
+                if (idx <= 0) return 0;
+                var seen = 0;
+                for (var i=0; i<formatted.length; i++) {
+                  if (/\d/.test(formatted[i])) {
+                    seen++;
+                    if (seen === idx) return i + 1;
+                  }
+                }
+                return formatted.length;
+              }
+              function applyEdit(prevDigits, op, data, dStart, dEnd) {
+                // edita a STRING DE DÍGITOS com base na operação
+                var left  = prevDigits.slice(0, dStart);
+                var mid   = prevDigits.slice(dStart, dEnd);
+                var right = prevDigits.slice(dEnd);
+            
+                // default: retorna prevDigits e caret no mesmo lugar
+                var newDigits = prevDigits, newCaret = dStart;
+            
+                if (op === "insertText") {
+                  var add = (data || "").replace(/\D/g,"");
+                  if (!add) return {digits: prevDigits, caret: dStart};
+                  newDigits = left + add + right;
+                  newCaret  = dStart + add.length;
+                } else if (op === "insertFromPaste") {
+                  var addP = (data || "").replace(/\D/g,"");
+                  if (!addP) return {digits: prevDigits, caret: dStart};
+                  newDigits = left + addP + right;
+                  newCaret  = dStart + addP.length;
+                } else if (op === "deleteContentBackward") {
+                  if (dStart !== dEnd) {
+                    newDigits = left + right;
+                    newCaret  = dStart;
+                  } else if (dStart > 0) {
+                    newDigits = prevDigits.slice(0, dStart-1) + prevDigits.slice(dStart);
+                    newCaret  = dStart - 1;
+                  }
+                } else if (op === "deleteContentForward") {
+                  if (dStart !== dEnd) {
+                    newDigits = left + right;
+                    newCaret  = dStart;
+                  } else if (dStart < prevDigits.length) {
+                    newDigits = prevDigits.slice(0, dStart) + prevDigits.slice(dStart+1);
+                    newCaret  = dStart;
+                  }
+                } else {
+                  // fallback (ex.: auto-preenchimentos): reconstrói a partir do valor atual
+                  var addF = (data || "").replace(/\D/g,"");
+                  if (dStart !== dEnd) {
+                    newDigits = left + addF + right;
+                    newCaret  = dStart + addF.length;
+                  } else {
+                    newDigits = left + addF + right;
+                    newCaret  = dStart + addF.length;
+                  }
+                }
+            
+                // limita no máx 6 dígitos
+                if (newDigits.length > 6) {
+                  newDigits = newDigits.slice(0,6);
+                  if (newCaret > 6) newCaret = 6;
+                }
+                return {digits: newDigits, caret: newCaret};
+              }
+            
+              items.forEach(function(id){
+                var el = document.getElementById(id);
+                if (!el) return;
+                el.setAttribute("maxlength","7");
+            
+                state[id] = {prevDigits: (el.value||"").replace(/\D/g,"").slice(0,6)};
+            
+                // antes de aplicar a alteração: capturamos contexto
+                el.addEventListener("beforeinput", function(e){
+                  var s = state[id];
+                  s.prevDigits = (el.value || "").replace(/\D/g,"").slice(0,6);
+                  s.caretStart = digitsBeforeCaret(el.value, el.selectionStart);
+                  s.caretEnd   = digitsBeforeCaret(el.value, el.selectionEnd);
+                  s.op         = e.inputType || "";
+                  s.data       = e.data || "";
+                });
+            
+                // após a alteração do navegador: nós substituímos pelo nosso cálculo estável
+                el.addEventListener("input", function(){
+                  var s = state[id] || {};
+                  // Se o navegador não disparou beforeinput (alguns casos), inicializa agora
+                  if (s.prevDigits == null) {
+                    s.prevDigits = (el.value || "").replace(/\D/g,"").slice(0,6);
+                    s.caretStart = digitsBeforeCaret(el.value, el.selectionStart);
+                    s.caretEnd   = digitsBeforeCaret(el.value, el.selectionEnd);
+                    s.op         = "";
+                    s.data       = "";
+                  }
+            
+                  var res = applyEdit(s.prevDigits, s.op, s.data, s.caretStart, s.caretEnd);
+                  var formatted = fmt(res.digits);
+            
+                  if (el.value !== formatted) el.value = formatted;
+            
+                  var newCaret = caretFromDigitIndex(res.caret, formatted);
+                  requestAnimationFrame(function(){
+                    try { el.setSelectionRange(newCaret, newCaret); } catch(e){}
+                  });
+            
+                  // prepara próximo ciclo
+                  state[id] = {prevDigits: res.digits};
+                });
+            
+                // formata o valor inicial (se houver)
+                var init = fmt((el.value||"").replace(/\D/g,""));
+                if (el.value !== init) el.value = init;
+            
+                // validação (opcional)
+                el.addEventListener("blur", function(){
+                  var v = el.value;
+                  if (!v) return;
+                  var ok = /^(0[1-9]|[1-4][0-9]|5[0-3])\/(19|20)\d{2}$/.test(v);
+                  if (!ok) {
+                    apex.message.showErrors([{
+                      type: "error",
+                      location: "inline",
+                      pageItem: id,
+                      message: "Use o formato SS/AAAA (semana 01–53)."
+                    }]);
+                    el.focus();
+                  }
+                });
+              });
+            })();
+            
+            
+            
+            ```
+        executeWhenPageLoads: setcolor_ig_cells()
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+    )
+
+    region orçamentos-semanais (
+        name: Orçamentos Semanais
+        type: interactiveGrid
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT f.idorcamentocomprafinanceiro
+                     , f.idsemana
+                     , f.valordisponivelsemana orcamento_semana
+                     , nvl(( SELECT SUM(op.valororcamento)
+                             FROM roman.orcamentospedidoscompras op
+                             WHERE op.idsemana = f.idsemana ),0) orcamento_fornec
+                     , nvl(( SELECT SUM(it.valortotal)
+                             FROM roman.pedidoscomprasroman pd
+                                , roman.itenspedidocompraroman it
+                             WHERE pd.idpedidocompraroman = it.idpedidocompraroman
+                               AND pd.idsemanaentrega = f.idsemana ),0) orcamento_realizado
+                FROM roman.orcamentoscomprasfinanceiro f
+                WHERE ( :P501_SEMANAINICIAL is null or f.idsemana BETWEEN ( SELECT s.idsemana
+                                                                            FROM roman.semana_dias s
+                                                                            WHERE s.semanacompleta = :P501_SEMANAINICIAL ) AND ( SELECT s.idsemana
+                                                                                                                                 FROM roman.semana_dias s
+                                                                                                                                 WHERE s.semanacompleta = :P501_SEMANAFINAL ))
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+            cssClasses: setcolor
+        }
+        edit {
+            enabled: true
+            allowedOperations: [
+                add
+                update
+                delete
+            ]
+        }
+        toolbar {
+            controls: [
+                searchCol
+                searchField
+                actionsMenu
+                resetButton
+                saveButton
+            ]
+        }
+        download {
+            formats: [
+                csv
+                html
+                excel
+                pdf
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 1322857981768800733
+        }
+
+        savedReport 13340866 (
+            visibility: primary
+            view {
+                default: grid
+            }
+            singleRowView {
+                displayedColumns: true
+            }
+
+            displayColumn (
+                column: @IDORCAMENTOCOMPRAFINANCEIRO
+                layout {
+                    sequence: 3
+                }
+            )
+
+            displayColumn (
+                column: @ORCAMENTO_SEMANA
+                layout {
+                    sequence: 4
+                }
+            )
+
+            displayColumn (
+                column: @ORCAMENTO_FORNEC
+                layout {
+                    sequence: 5
+                }
+            )
+
+            displayColumn (
+                column: @ORCAMENTO_REALIZADO
+                layout {
+                    sequence: 6
+                }
+            )
+
+            displayColumn (
+                column: @APEX$ROW_ACTION
+                layout {
+                    frozen: true
+                    sequence: 1
+                }
+            )
+
+            displayColumn (
+                column: @IDSEMANA
+                layout {
+                    sequence: 2
+                }
+            )
+
+            sort (
+                column: @IDSEMANA
+                sort {
+                    nulls: last
+                    sequence: 1
+                }
+            )
+
+        )
+
+        column APEX$ROW_ACTION (
+            type: actionsMenu
+            layout {
+                sequence: 20
+            }
+        )
+
+        column APEX$ROW_SELECTOR (
+            type: rowSelector
+            layout {
+                sequence: 10
+            }
+        )
+
+        column IDORCAMENTOCOMPRAFINANCEIRO (
+            type: hidden
+            layout {
+                sequence: 30
+            }
+            source {
+                databaseColumn: IDORCAMENTOCOMPRAFINANCEIRO
+                dataType: number
+                primaryKey: true
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column IDSEMANA (
+            type: selectList
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            lov {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    SELECT s.semanacompleta || ' - ' || s.dt_ini || ' a ' || s.dt_fim AS display_value
+                         , s.idsemana         AS return_value
+                    FROM   semana_dias s
+                    WHERE  s.ano BETWEEN EXTRACT(YEAR FROM SYSDATE) - 2
+                                     AND EXTRACT(YEAR FROM SYSDATE) + 1
+                    ORDER  BY s.dt_ini desc;
+                    
+                    ```
+                displayExtraValues: false
+                displayNullValue: false
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: IDSEMANA
+                dataType: number
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+            }
+        )
+
+        column ORCAMENTO_FORNEC (
+            type: numberField
+            heading {
+                heading: Orçamento dos Fornecedores
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: ORCAMENTO_FORNEC
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column ORCAMENTO_REALIZADO (
+            type: numberField
+            heading {
+                heading: Orçamento Realizado
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                cssClasses: orc_real
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: ORCAMENTO_REALIZADO
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column ORCAMENTO_SEMANA (
+            type: numberField
+            heading {
+                heading: Orçamento da Semana
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                cssClasses: orc_semana
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: ORCAMENTO_SEMANA
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+    )
+
+    pageItem P501_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+        }
+    )
+
+    pageItem P501_SEMANAFINAL (
+        type: textField
+        label {
+            label: <strong>Semana Final:</strong>
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--xlarge
+            ]
+            width: 30
+        }
+    )
+
+    pageItem P501_SEMANAINICIAL (
+        type: textField
+        label {
+            label: <strong>Semana Inicial:</strong>
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--xlarge
+            ]
+            width: 30
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Consultar Semanas
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: change
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--success
+                t-Button--iconLeft
+            ]
+            icon: fa-spinner
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction altera-cor-após-refresh (
+        name: Altera cor após refresh
+        execution {
+            sequence: 20
+        }
+        when {
+            event: region/interactiveGrid/interactivegridselectionchange
+            selectionType: region
+            region: @orçamentos-semanais
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode: setcolor_ig_cells()
+            }
+            affectedElements {
+                selectionType: columns
+                columns: ORCAMENTO_REALIZADO
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction new (
+        name: New
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @filtrar
+        }
+
+        action native-set-value (
+            action: setValue
+            settings {
+                value: 1
+            }
+            affectedElements {
+                selectionType: items
+                items: P501_FILTRAR
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process orçamentos-semanais-save-interactive-grid-data (
+        name: Orçamentos Semanais - Save Interactive Grid Data
+        type: executeCode
+        editableRegion: @orçamentos-semanais
+        source {
+            plsqlCode:
+                ```plsql
+                DECLARE
+                  v_md5            VARCHAR2(4000);
+                  v_operacao       VARCHAR2(1);
+                  v_id             NUMBER;
+                  v_valor          NUMBER;
+                  v_semana_atual   NUMBER;
+                  v_semanaexist    VARCHAR2(1);
+                BEGIN
+                  -- Descobre a operação primeiro
+                  IF :APEX$ROW_STATUS = 'C' THEN
+                    v_operacao := 'I';
+                  ELSIF :APEX$ROW_STATUS = 'D' THEN
+                    v_operacao := 'D';
+                  ELSE
+                    v_operacao := 'U';
+                  END IF;
+                   
+                  --Verifica se existe orçamento para a semana
+                  BEGIN
+                    --
+                    SELECT 'S'
+                    INTO v_semanaexist
+                    FROM roman.orcamentoscomprasfinanceiro oc
+                    WHERE oc.idsemana = :IDSEMANA;
+                    --
+                  EXCEPTION
+                    WHEN OTHERS THEN 
+                    v_semanaexist := 'N';
+                    --
+                  END;
+                  -- Buscar semana atual com base na data do sistema
+                  SELECT idsemana
+                    INTO v_semana_atual
+                    FROM semana_dias
+                   WHERE TRUNC(SYSDATE) BETWEEN dt_ini AND dt_fim;
+                
+                  -- Validar se a semana informada é menor que a atual
+                  IF v_semanaexist = 'S' and v_operacao in ('I') THEN
+                    -- Alternativa ao raise_application_error explicada abaixo
+                    APEX_ERROR.ADD_ERROR (
+                      p_message => 'Já existe orçamento para a semana',
+                      p_display_location => APEX_ERROR.c_inline_in_notification
+                    );
+                    RETURN;
+                  /*ELSIF :IDSEMANA < v_semana_atual AND v_operacao in ('I','U') THEN
+                    -- Alternativa ao raise_application_error explicada abaixo
+                    APEX_ERROR.ADD_ERROR (
+                      p_message => 'A semana deve ser igual ou maior que a atual.',
+                      p_display_location => APEX_ERROR.c_inline_in_notification
+                    );
+                    RETURN;*/
+                  END IF;
+                
+                  -- Carregar valores das variáveis
+                  v_id    := :IDORCAMENTOCOMPRAFINANCEIRO;
+                  v_valor := NVL(TO_NUMBER(:ORCAMENTO_SEMANA, '999G999G999G999G990D00'), 0);
+                
+                  -- Executar procedure
+                  pck_compras_romance.prc_orcamentoscomprasfinanceiro (
+                    pidorcamentocomprafin => v_id,
+                    pidsemana             => :IDSEMANA,
+                    pvalordisponivelsem   => v_valor,
+                    pmd5                  => v_md5,
+                    poperacao_dml         => v_operacao
+                  );
+                
+                
+                  -- Atualizar item da página
+                  :IDORCAMENTOCOMPRAFINANCEIRO := v_id;
+                
+                
+                END;
+                
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 49947774652554508
+        }
+    )
+
+)
+

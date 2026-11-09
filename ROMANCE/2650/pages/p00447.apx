@@ -1,0 +1,1531 @@
+page 447 (
+    name: Requisicao de Pagamento
+    title: Requisicao de Pagamento
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region ações (
+        name: "Ações "
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region para-uso-t-i (
+        name: Para Uso T.I
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from roman.usuariosgruposatendimento u
+                 where u.idgrupoatendimento = 0
+                   and u.usuario = v('APP_USER')--'MAICONAIMI'
+                ```
+        }
+    )
+
+    region requisições-realizadas (
+        name: Requisições Realizadas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select t.idrequisicaopgto
+                     , t.Filial_origem
+                     , t.Documento
+                     , t.Tip_Documento
+                     , t.datainclusao 
+                     , t.usuarioinclusao
+                     , t.situacao
+                     , t.Fornecedor
+                     , t.contafinanceira
+                     , t.subcontafinanceira
+                     , t.valor
+                     , t.desconto 
+                     , t.acrescimo
+                     , t.valortotal
+                     , t.vencimento
+                     , t.parcelas
+                     , t.qtd_anexos "Qtd Anexos"
+                     , t.comprovante_pgto "comprovante pgto"
+                     , t.usuarioaprovacao
+                     , t.cnpjdest
+                     , t.idsituacao
+                     , decode(t.fiscal,'S','Sim','Não') fiscal
+                     , t.observacao
+                     , t.liberado_fiscal
+                     , t.centro_custo
+                     , t.nome_destino
+                     , (select g.grupo from gruposfinanceiros g, razoessociaisfiliais rf where g.idgrupofinanceiro = rf.idgrupofinanceiro and rf.cnpj = t.cnpjdest and rownum=1) grupo_financeiro
+                  from(       
+                       select r.idrequisicaopgto
+                            , roman.pck_romance.fnc_nomefilial(r.idfilial) Filial_origem
+                            , r.documento Documento
+                            , ( select descricao 
+                                from roman.formaspagamentos fp
+                                where fp.idformapagamento = r.idformapagamento)Tip_Documento
+                            , r.datainclusao 
+                            , r.usuarioinclusao
+                            , decode(r.idsituacao,1,'Pendente',2,'Atendimento Financeiro',3,'Atendimento Fiscal',4,'Ajuste Lançamento',5,'Concluído Fiscal',6,'Programado',7,'Quitado',8,'Cancelado',10,'Programado - Fiscal Pendente',11,'Programado - Ajuste Fiscal Pendente',12,'Quitado - Fiscal Pendente',13,'Quitado - Ajuste Fiscal Pendente') situacao
+                            , roman.pck_romance.fnc_nomefornecedor(r.idfornecedor)Fornecedor
+                            , md.contafinanceira
+                            , md.subcontafinanceira
+                            , r.valor
+                            , r.desconto 
+                            , r.acrescimo
+                            , r.valortotal
+                            , r.vencimento
+                            , ( select count(*) || '/' || r.parcelas
+                                  from roman.pagamentosfornecedores pgf
+                                 where pgf.idnotafiscal = r.idnotafiscal ) parcelas
+                            , ( select count(1) from roman.anexosrequisicoes a where a.idrequisicaopgto = r.idrequisicaopgto) Qtd_Anexos
+                            , ( select count(1) from roman.anexosrequisicoes a 
+                                where a.idrequisicaopgto = r.idrequisicaopgto 
+                                  and a.comprovantepgto = 'S') comprovante_pgto
+                            , r.usuarioaprovacao
+                            , case 
+                                 when r.idgrupo is null then
+                                   ( select rs.cnpj--||'-'||rs.razaosocial 
+                                     from roman.razoessociaisfiliais rs
+                                        , roman.requisicoespagamentos rq
+                                     where rs.idfilial = rq.idfilialdestino
+                                      and rs.idrazaosocialfilial = rq.idrazaosocialdest 
+                                      and rq.idrequisicaopgto = r.idrequisicaopgto )
+                               else 
+                                   ( select rs.cnpj--||'-'||rs.razaosocial 
+                                     from roman.razoessociaisfiliais rs
+                                        , roman.requisicoespagamentos rq
+                                     where rs.idfilial  = rq.idgrupo
+                                       and rs.idrazaosocialfilial = rq.idfilialdestgr 
+                                       and rq.idrequisicaopgto = r.idrequisicaopgto )
+                               end cnpjdest
+                           , r.idsituacao
+                           , r.fiscal
+                           , r.observacao
+                           , (r.usuariofinalizadofiscal||' - '||to_char(r.datafinalizadofiscal,'dd/mm/yyyy hh24:mi:ss')) liberado_fiscal
+                           , r.idfilialdestino destino
+                           , pck_romance.fnc_nomefilial(r.idfilialdestino) nome_destino
+                           , ( select c.nome from centrodecustos c, matrizregrasdespesas m where m.idmatrizregra = r.idmatrizdespesa and c.idcentrodecusto = m.idcentrodecusto and rownum=1) centro_custo
+                       from roman.requisicoespagamentos r
+                         , roman.vw_matrizregrasdespesas md
+                       where r.idmatrizdespesa = md.idmatrizregra(+)
+                         and ( :P447_TIPODATA = 'I' and  trunc(r.datainclusao) between to_date(:P447_DATAINICIO) and to_date(:P447_DATAFIM) or :P447_DATAINICIO is null and :P447_DATAFIM is null 
+                            or :P447_TIPODATA = 'V' and  trunc(r.vencimento) between to_date(:P447_DATAINICIO) and to_date(:P447_DATAFIM) or :P447_DATAINICIO is null and :P447_DATAFIM is null )
+                         and (   :P447_SITUACAO is null
+                              or ( :P447_SITUACAO = 2
+                                   and r.idsituacao in (2, 3, 5) )
+                              or ( :P447_SITUACAO = 3
+                                   and ( r.idsituacao in (3, 10, 11, 12, 13)
+                                         or ( r.idsituacao = 2 and nvl(r.fiscal,'N') = 'S' and r.datafinalizadofiscal is null ) ) )
+                              or ( :P447_SITUACAO not in (2, 3) and r.idsituacao = :P447_SITUACAO ) )
+                       --and r.idsituacao  != 8 
+                         and (:P447_ANTECIPACAO is null or r.antecipacao = :P447_ANTECIPACAO )
+                         and (:P447_IDFILIAL is null or r.idfilial = :P447_IDFILIAL )
+                         and (:P447_COMPROVANTEPGTO is null or r.comprovantepgto = :P447_COMPROVANTEPGTO )
+                         and :P447_FILTRAR = 'S'
+                         and (:P447_ENVIAR_SETOR_FISCAL is null or r.fiscal = :P447_ENVIAR_SETOR_FISCAL)
+                 ) t
+                 where ( :P447_ATENDIMENTOO in ('FIN','TODOS') or
+                         (:P447_ATENDIMENTOO = 'COM' and substr(replace(cnpjdest,'.',''),1,8) in ('48320045','45397622','45300144','58279786','58011726','58762135') 
+                           or t.usuarioinclusao = 'MICHELEZIMPEL') or  --Equipe fiscal comercio, CNPJ RAIZ: 48.320.045, 45.397.622, 45.300.144. / (T10172827 - ADAPTO - CNPJ 58279786000108 / CAPTALEADS - CNPJ 58011726000100)
+                          :P447_ATENDIMENTOO = 'IND' and substr(replace(cnpjdest,'.',''),1,8) in ('07318638','59370062') ) -- Equipe fiscal indústria, CNPJ RAIZ: 07.318.638 (59.370.062/0001-38 add t10032867)
+                 order by 1 desc
+                
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1126504150225190373
+        }
+
+        column ACRESCIMO (
+            type: plainText
+            heading {
+                heading: Acréscimo
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column CENTRO_CUSTO (
+            type: plainText
+            heading {
+                heading: Centro Custo
+            }
+            layout {
+                sequence: 260
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column CNPJDEST (
+            type: plainText
+            heading {
+                heading: CNPJ Filial Destino
+                alignment: center
+            }
+            layout {
+                sequence: 200
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column CONTAFINANCEIRA (
+            type: plainText
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column DATAINCLUSAO (
+            type: plainText
+            heading {
+                heading: Data Inclusão
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/YYYY HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DESCONTO (
+            type: plainText
+            heading {
+                heading: Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column DOCUMENTO (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column FILIAL_ORIGEM (
+            type: plainText
+            heading {
+                heading: Filial Origem
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column FISCAL (
+            type: plainText
+            heading {
+                heading: Enviado ao Fiscal
+                alignment: center
+            }
+            layout {
+                sequence: 230
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AD
+            }
+        )
+
+        column FORNECEDOR (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column GRUPO_FINANCEIRO (
+            type: plainText
+            heading {
+                heading: Grupo Financeiro
+            }
+            layout {
+                sequence: 280
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AI
+            }
+        )
+
+        column IDREQUISICAOPGTO (
+            type: link
+            heading {
+                heading: Ver/Editar
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 448
+                    items: {
+                        P448_IDREQUISICAO: #IDREQUISICAOPGTO#
+                        P448_ATENDIMENTOO: &P447_ATENDIMENTOO.
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil.png" class="apex-edit-pencil" alt="">
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column IDSITUACAO (
+            type: plainText
+            heading {
+                heading: Idsituacao
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column LIBERADO_FISCAL (
+            type: plainText
+            heading {
+                heading: Liberado Fiscal
+            }
+            layout {
+                sequence: 250
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column NOME_DESTINO (
+            type: plainText
+            heading {
+                heading: Destino
+            }
+            layout {
+                sequence: 270
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 240
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AE
+            }
+        )
+
+        column PARCELAS (
+            type: plainText
+            heading {
+                heading: Parcelas
+            }
+            layout {
+                sequence: 290
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AJ
+            }
+        )
+
+        column "Qtd Anexos" (
+            type: link
+            heading {
+                heading: Qtd Anexos
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 449
+                    items: {
+                        P449_IDREQUISICAO: #IDREQUISICAOPGTO#
+                    }
+                    action: resetPagination
+                }
+                linkText: #Qtd Anexos#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column SITUACAO (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column SUBCONTAFINANCEIRA (
+            type: plainText
+            heading {
+                heading: Subconta
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column TIP_DOCUMENTO (
+            type: plainText
+            heading {
+                heading: "Tipo "
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column USUARIOAPROVACAO (
+            type: plainText
+            heading {
+                heading: Usuário Responsável
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column USUARIOINCLUSAO (
+            type: plainText
+            heading {
+                heading: Usuário Solicitação
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AB
+            }
+        )
+
+        column VALOR (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column VENCIMENTO (
+            type: plainText
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "comprovante pgto" (
+            type: link
+            heading {
+                heading: Comprovante Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 449
+                    items: {
+                        P449_IDREQUISICAO: #IDREQUISICAOPGTO#
+                    }
+                    action: resetPagination
+                }
+                linkText: #comprovante pgto#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 5639328 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 1000
+            }
+
+            displayColumn CENTRO_CUSTO (
+                sequence: 15
+            )
+
+            displayColumn CNPJDEST (
+                sequence: 7
+            )
+
+            displayColumn CONTAFINANCEIRA (
+                sequence: 16
+            )
+
+            displayColumn DATAINCLUSAO (
+                sequence: 5
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 3
+            )
+
+            displayColumn FILIAL_ORIGEM (
+                sequence: 6
+            )
+
+            displayColumn FORNECEDOR (
+                sequence: 9
+            )
+
+            displayColumn GRUPO_FINANCEIRO (
+                sequence: 19
+            )
+
+            displayColumn IDREQUISICAOPGTO (
+                sequence: 2
+            )
+
+            displayColumn LIBERADO_FISCAL (
+                sequence: 18
+            )
+
+            displayColumn NOME_DESTINO (
+                sequence: 8
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 20
+            )
+
+            displayColumn "Qtd Anexos" (
+                sequence: 13
+            )
+
+            displayColumn SITUACAO (
+                sequence: 1
+            )
+
+            displayColumn SUBCONTAFINANCEIRA (
+                sequence: 17
+            )
+
+            displayColumn TIP_DOCUMENTO (
+                sequence: 4
+            )
+
+            displayColumn USUARIOAPROVACAO (
+                sequence: 12
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 10
+            )
+
+            displayColumn VENCIMENTO (
+                sequence: 11
+            )
+
+            displayColumn "comprovante pgto" (
+                sequence: 14
+            )
+
+            sort (
+                column: VENCIMENTO
+                sort {
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: CNPJDEST
+                sort {
+                    sequence: 2
+                }
+            )
+
+            aggregate (
+                column: VALOR
+            )
+
+            aggregate (
+                column: DESCONTO
+            )
+
+            aggregate (
+                column: ACRESCIMO
+            )
+
+            aggregate (
+                column: VALORTOTAL
+            )
+
+            filter ir-condition (
+                column: CNPJDEST
+                operator: contains
+                value: 07318
+                advanced {
+                    enabled: false
+                }
+            )
+
+            filter ir-condition-2 (
+                column: CNPJDEST
+                operator: in
+                value: 23267786000103,51655441000162,51828627000176,55072620000128,51828627000257,15332237000147,31770527000129,14698061000189,19941894000142,23284088000116,13505669000187,09480114000150,46732027000170,19707412000194,19707412000194,47900332000196,22995206000131,28769704000142,32404720000109,20095036000103,42835674000156,18685277000160,30340985000165,09198297000116,47890014000191,48083236000165,48649384000102,46732027000250,49740464000123,46847578000189,45288998000100,48429844000189 ,50487006000103,32404720000109,32404720000109,47890014000191,47900332000196,21641313000107,49740464000123,14610551000181
+                advanced {
+                    enabled: false
+                }
+            )
+
+            filter ir-condition-3 (
+                column: TIP_DOCUMENTO
+                operator: notIn
+                value: Deposito, Cartão de Crédito, Gerencial, Abatimento
+            )
+
+            controlBreak (
+                column: SITUACAO
+                layout {
+                    sequence: 1
+                }
+            )
+
+            highlight ir-condition-4 (
+                name: Ajuste de lançamento
+                condition {
+                    column: SITUACAO
+                    value: Ajuste Lançamento
+                }
+                colors {
+                    background: #FF7755
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P447_ANTECIPACAO (
+        type: plugin/simpleCheckbox
+        label {
+            label: Antecipação
+            alignment: left
+        }
+        settings {
+            checkedValue: S
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P447_ATENDIMENTOO (
+        type: selectList
+        label {
+            label: Atendimento
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Fiscal Indústria', 'IND'-- Opção disponível para todos os usuários
+                  from dual
+                
+                union
+                
+                -- Opção disponível para todos os usuários
+                select 'Fiscal Comércio', 'COM'
+                  from dual
+                
+                union
+                
+                -- Opção disponível apenas para os usuários listados abaixo e para o time de T.I.
+                select 'Financeiro', 'FIN'
+                  from dual
+                 where ( favorita.pck_util_fav.fnc_verificaacesso(442, pidusuario => favorita.pck_util_fav.fnc_idusuario(v('APP_USER'))) = 'S' -- T10840041
+                        /* or ( exists (select 1
+                                        from roman.usuariosgruposatendimento ug
+                                       where ug.idgrupoatendimento = 0
+                                         and ug.usuario = v('APP_USER')))*/)
+                
+                union
+                
+                -- Esta opção deve seguir a mesma validação da opção "Financeiro"
+                select 'Todos', 'TODOS'
+                  from dual
+                 where ( favorita.pck_util_fav.fnc_verificaacesso(442, pidusuario => favorita.pck_util_fav.fnc_idusuario(v('APP_USER'))) = 'S' -- T10840041
+                         or ( exists (select 1
+                                        from roman.usuariosgruposatendimento ug
+                                       where ug.idgrupoatendimento = 0
+                                         and ug.usuario = v('APP_USER'))))
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: static
+            staticValue: COM
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P447_COMPROVANTEPGTO (
+        type: plugin/simpleCheckbox
+        label {
+            label: Comprovante Pagamento
+            alignment: left
+        }
+        settings {
+            checkedValue: S
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P447_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                begin
+                  return to_char(sysdate);
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P447_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                begin
+                  return to_char(sysdate - 10);
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P447_ENVIAR_SETOR_FISCAL (
+        type: selectList
+        label {
+            label: Enviado Setor Fiscal
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N
+            nullDisplayValue: Ambos
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P447_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P447_IDFILIAL (
+        type: selectList
+        label {
+            label: Filial
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomefilial(f.idfilial) display_value 
+                     , f.idfilial return_value 
+                from filiais f
+                where f.ativo = 'S'
+                  --and f.tipofilial in ( select idtipofilial
+                                      --  from acessostiposfiliais
+                order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: -- Todas --
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P447_IDREQUISICAOPGTO (
+        type: textField
+        label {
+            label: ID Requisição Pag.
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @para-uso-t-i
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+    )
+
+    pageItem P447_SITUACAO (
+        type: selectList
+        label {
+            label: Situação
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select '-- Todas --' display_value
+                     , null return_value
+                  from dual
+                 where :P447_ATENDIMENTOO = 'FIN'
+                
+                union
+                
+                select s.situacao display_value
+                     , s.idsituacao return_value
+                  from roman.situacoesrequisicoes s
+                 where :P447_ATENDIMENTOO = 'FIN'
+                
+                union
+                
+                select s.situacao display_value
+                     , s.idsituacao return_value
+                  from roman.situacoesrequisicoes s
+                 where s.idsituacao in (2, 3, 5, 10, 11, 12, 13)
+                   and  :P447_ATENDIMENTOO in ('COM', 'IND')
+                
+                union
+                
+                select s.situacao display_value
+                     , s.idsituacao return_value
+                  from roman.situacoesrequisicoes s
+                 where :P447_ATENDIMENTOO in ('COM', 'IND')
+                   and v('APP_USER') in  (  'MAICONAIMI', 
+                                            'EDUARDAZOTTI',
+                                            'DIEGOPIECHO',
+                                            'GABRIELLYMACHADO',
+                                            'FLAVIANALIMA',
+                                            'MARCIAD',
+                                            'SIMONES',
+                                            'GENISONF',
+                                            'LUANAMS',
+                                            'MARIANEMACIEL',
+                                            'SHEILAVANONI',
+                                            'MICHELEZIMPEL',
+                                            'CHARLIENEA',
+                                            'GABRIELLYMACHADO',
+                                            'RAIANAS',
+                                            'SABRINAVIANNA',
+                                            'THIAGOALMEIDA',
+                                            'FLAVIANALIMA',
+                                            'THIAGOALMEIDA',
+                                            'MARIANEV',
+                                            'GENISONF',
+                                            'LUANASOUZA',
+                                            'CLADYCAVALCANTE',
+                                            'POLIANESHIRMER',
+                                            'RAMILEDENTE',
+                                            'CLAUDIR',
+                                            'SABRINAFV', -- T9542368
+                                            'CLARARICK',  -- T9542368
+                                            'RENATAK', -- 9963562
+                                            'LAIZACOSTA', -- 10372046
+                                            'KARENOLEQUES', -- 11253491
+                                            'VYTORIABLAUTH', -- 12643725
+                                            'MIRELAMULLER', -- 12728821
+                                            'TATIANECM',
+                                            'CRISTIANAROLDO', -- 14781511
+                                            'EMELIW') ---16225649
+                union
+                
+                select '-- Todas --' display_value
+                     , null return_value
+                  from dual
+                 where :P447_ATENDIMENTOO in ('COM', 'IND')
+                   and v('APP_USER') in  ( 'DIEGOPIECHO'
+                                         , 'EDUARDAZOTTI'
+                                         , 'MAICONAIMI'
+                                         , 'MARCIAD'
+                                         , 'SIMONES'
+                                         , 'GENISONF'
+                                         , 'LUANAMS'
+                                         , 'MARIANEMACIEL'
+                                         , 'SHEILAVANONI'
+                                         , 'MICHELEZIMPEL'
+                                         , 'CHARLIENEA'
+                                         , 'GABRIELLYMACHADO'
+                                         , 'TATIANECM'
+                                         , 'RAIANAS'
+                                         , 'SABRINAVIANNA'
+                                         , 'THIAGOALMEIDA'
+                                         , 'FLAVIANALIMA'
+                                         , 'THIAGOALMEIDA'
+                                         , 'MARIANEV'
+                                         , 'GENISONF'
+                                         , 'LUANASOUZA'
+                                         , 'CLADYCAVALCANTE'
+                                         , 'POLIANESHIRMER'
+                                         , 'HAYANES'
+                                         , 'CLAUDIR' -- T9488264
+                                         , 'SABRINAFV' --T9542368
+                                         , 'WILLIAMSANTOS' --T9937660
+                                         , 'RENATAK' --9963562
+                                         , 'KARENOLEQUES'-- 11253491
+                                         , 'MIRELAMULLER'-- 14736631
+                                         , 'LISIANEOLIVEIRA'--13993104
+                                         , 'CRISTIANAROLDO' --14812338
+                                         , 'EMELIW') -- 16225649
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        cascadingLov {
+            parentItems: P447_ATENDIMENTOO
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P447_TIPODATA (
+        type: radioGroup
+        label {
+            label: Tipo de Data
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Inclusão;I,Vencimento;V
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @ações
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: I
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: belowBox
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--primary
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button ir-requisicao (
+        buttonName: IR_REQUISICAO
+        label: Let's Go!
+        layout {
+            sequence: 20
+            region: @para-uso-t-i
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--small
+                t-Button--stretch
+                t-Button--gapBottom
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 448
+                items: {
+                    P448_IDREQUISICAO: &P447_IDREQUISICAOPGTO.
+                    P448_ATENDIMENTOO: &P447_ATENDIMENTOO.
+                }
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button nova-requisicao (
+        buttonName: Nova_Requisicao
+        label: Nova Requisição
+        layout {
+            sequence: 10
+            region: @ações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 448
+                items: {
+                    P448_IDREQUISICAO:
+                    P448_IDMOEDA: 1
+                }
+                clearCache: 448
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from dual
+                  where favorita.pck_util_fav.fnc_verificaacesso(441, pidusuario => favorita.pck_util_fav.fnc_idusuario(v('APP_USER'))) = 'S' -- t9993579
+                  --where  v('APP_USER') in ('LETICIAMEDEIROS', 'FRANCIELEPETRY') -- T9553617 > ESTE CONTROLE FOI AJUSTADO PARA OBEDECER PARAMETROS NO t9993579
+                ```
+        }
+    )
+
+    branch (
+        name: Go To Page 675
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 447
+                items: {
+                    P447_DATAINICIO: &P447_DATAINICIO.
+                    P447_DATAFIM: &P447_DATAFIM.
+                    P447_SITUACAO: &P447_SITUACAO.
+                    P447_FILTRAR: S
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

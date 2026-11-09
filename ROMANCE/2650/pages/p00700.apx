@@ -1,0 +1,908 @@
+page 700 (
+    name: Pix Santander - Faturas do Dia
+    title: Pix Santander - Faturas do Dia
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            // Totalizador: lista inteira (vem da query) e faturas marcadas na pagina.
+            function tot700() {
+              var brl = function (c) { return (c / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); };
+              var cbs = $("input[name=f01]");
+              var tq = 0, tc = 0, sq = 0, sc = 0;
+              if (cbs.length) { tq = +cbs.first().data("tqtd") || 0; tc = +cbs.first().data("tcent") || 0; }
+              cbs.filter(":checked").each(function () { sq++; sc += +$(this).data("cent") || 0; });
+              $("#tot700").html("Na lista: <b>" + tq + "</b> fatura(s) - <b>" + brl(tc) + "</b>" +
+                                " \u00a0 | \u00a0 Selecionadas: <b>" + sq + "</b> - <b>" + brl(sc) + "</b>");
+            }
+            $(function () {
+              tot700();
+              $(document).on("change", "input[name=f01]", tot700);
+              $(document).on("apexafterrefresh", tot700);
+            });
+            ```
+    }
+    security {
+        authorizationScheme: @autoriza-pix-operador
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region faturas-para-envio-ao-santander (
+        name: Faturas para envio ao Santander
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select apex_item.checkbox2( p_idx        => 1
+                                          , p_value      => pf.idpgtoforn
+                                            -- valor da linha e totais da lista, em centavos, para o totalizador
+                                          , p_attributes => 'data-cent="' || round((pf.valorpagar - nvl(pf.desconto,0) + nvl(pf.acrescimo,0) - nvl(pf.valorpago,0)) * 100) || '"'
+                                                         || ' data-tqtd="' || count(*) over () || '"'
+                                                         || ' data-tcent="' || round(sum(pf.valorpagar - nvl(pf.desconto,0) + nvl(pf.acrescimo,0) - nvl(pf.valorpago,0)) over () * 100) || '"'
+                                                         || decode(:P700_MARCARTODOS,'S',' CHECKED',null) ) sel
+                     , pf.idpgtoforn
+                     , pf.dtvencimento
+                     , pck_romance.fnc_nomefornecedor(pf.idfornecedor) fornecedor
+                     , (select nf.documento from notasfiscais nf
+                         where nf.idnotafiscal = pf.idnotafiscal) nrnf
+                     , pf.valorpagar - nvl(pf.desconto,0) + nvl(pf.acrescimo,0)
+                       - nvl(pf.valorpago,0) valorpagar
+                     , decode(pf.pagamentoliberado,'S','Sim','Não') despesa_conferida
+                       -- Forma oficial do ERP (formaspagamentos), origem no vencimento
+                     , nvl(fp.descricao, '(' || pf.codforma || ')') tipo
+                       -- Validacao da via de pagamento contra o cadastro
+                     , case
+                         when pf.codforma in ('B','E') then
+                           case when dd.iddda is not null and dd.situacao_titulo in ('SCHEDULED','PAID') then
+                                  '(!) Boleto já ' || decode(dd.situacao_titulo,'SCHEDULED','AGENDADO','PAGO') ||
+                                  ' no banco por outro canal - não enviar; baixar pela página 306'
+                                when dd.iddda is not null then
+                                  'Boleto no DDA: R$ ' || to_char(dd.valor_nominal,'FM999G999G990D00') ||
+                                  ' venc. ' || to_char(dd.dt_vencimento,'DD/MM/RRRR') || ' - ' || dd.benef_nome ||
+                                  -- identifica o boleto que a API vai pagar, para nao agendar o
+                                  -- mesmo no Internet Banking (Pollibox 05/10/2026: mesmo valor e data)
+                                  case when dd.nosso_numero is not null then ' - nosso nº ' || dd.nosso_numero end ||
+                                  case when dd.seu_numero is not null then ' - doc ' || dd.seu_numero end
+                                else '(!) Boleto ainda não localizado no DDA - atualize na página 703' end
+                         when pf.codforma in ('H','T','I') then
+                           case
+                             when cx.chave is not null then
+                               'Chave Pix: ' || decode(cx.tipochave,1,'CPF/CNPJ',2,'Aleatória',3,'Telefone',4,'E-mail') || ' - ' || cx.chave
+                             when cb.idcontabanc is null then '(!) Sem conta bancária do favorecido'
+                             when bc.codigo is null then '(!) Banco ' || bc.nomebanco || ' sem código Febraban'
+                             when cb.agencia is null or cb.conta is null or cb.documento is null then '(!) Conta incompleta (agência/conta/CNPJ)'
+                             else 'Transferência Pix: ' || bc.nomebanco || ' ' || cb.agencia || '/' || cb.conta
+                           end
+                         -- Guia: linha digitavel da requisicao (so entram na lista as que tem)
+                         when pf.codforma = 'G' then
+                           case
+                             when length(pf.linha_guia) <> 48 or substr(pf.linha_guia,1,1) <> '8' then
+                               '(!) Linha digitável não é de guia (48 dígitos começando com 8) - corrija na requisição'
+                             when pck_santander_pix.fnc_guia_valor(pf.linha_guia)
+                                  <> pf.valorpagar - nvl(pf.desconto,0) + nvl(pf.acrescimo,0) - nvl(pf.valorpago,0) then
+                               '(!) Valor na guia R$ ' || to_char(pck_santander_pix.fnc_guia_valor(pf.linha_guia),'FM999G999G990D00') ||
+                               ' diferente do saldo da fatura'
+                             else 'Guia: linha ' || substr(pf.linha_guia,1,12) || '...' ||
+                                  case when pck_santander_pix.fnc_guia_valor(pf.linha_guia) is not null then
+                                    ' - R$ ' || to_char(pck_santander_pix.fnc_guia_valor(pf.linha_guia),'FM999G999G990D00') end
+                           end
+                         else '(!) Forma não paga pelo hub - segue no fluxo manual'
+                       end forma_pagamento
+                       -- Conta pagadora (multi-conta): de qual conta integrada sai o pagamento
+                     , (select 'Ag ' || trim(cbp.agencia) || '  C/C ' || trim(cbp.conta) ||
+                               '  -  ' || substr(cbp.beneficiario,1,30)
+                          from contasbancarias cbp
+                         where cbp.idcontabanc = pf.idcontapagamento) conta_pagadora
+                       -- Empresa da fatura (filial de destino da nota) x conta pagadora escolhida
+                       -- x pagador do boleto. O envio barra empresas diferentes (so gestor envia).
+                       -- Subconsulta no select: left join com subconsulta no ON + outro join da
+                       -- ORA-01799 (701, 22/10/2026).
+                     , ( select case
+                                  when substr(regexp_replace(rz.cnpj,'[^0-9]'),1,8)
+                                       <> ( select substr(regexp_replace(sc.cnpj,'[^0-9]'),1,8)
+                                              from santander_contas sc
+                                             where sc.idcontabanc = nvl(:P700_IDCONTABANC, pf.idcontapagamento) )
+                                  then '<span class="fa fa-exclamation-triangle u-danger-text"></span> <b>'
+                                       || apex_escape.html(substr(rz.razaosocial,1,35)) || '</b><br>'
+                                       || '<span class="u-danger-text" style="font-size:11px">Conta pagadora de outra empresa - só gestor pode enviar</span>'
+                                  when dd.pagador is not null
+                                   and substr(dd.pagador,1,8) <> substr(regexp_replace(rz.cnpj,'[^0-9]'),1,8)
+                                  then '<span class="fa fa-exclamation-triangle u-danger-text"></span> '
+                                       || apex_escape.html(substr(rz.razaosocial,1,35)) || '<br>'
+                                       || '<span class="u-danger-text" style="font-size:11px">Boleto em nome de outra empresa (CNPJ '
+                                       || dd.pagador || ') - confira o vínculo na 703</span>'
+                                  else apex_escape.html(substr(rz.razaosocial,1,35))
+                                end
+                           from notasfiscais nf
+                           join razoessociaisfiliais rz on rz.idrazaosocialfilial = nf.idrazaosocialfildestino
+                          where nf.idnotafiscal = pf.idnotafiscal ) empresa
+                  from ( select pfx.*
+                              , nvl(pfx.tipopagamento,
+                                    (select v.tipopagamento from vencimentos v
+                                      where v.idvencimento = pfx.idvencimento)) codforma
+                              , pck_santander_pix.fnc_guia_linha(pfx.idpgtoforn) linha_guia
+                           from pagamentosfornecedores pfx
+                          where pfx.idcheque is null
+                            and pfx.tipopagamento is not null
+                            and pfx.databaixa is null
+                            and pfx.valorpagar - nvl(pfx.desconto,0) + nvl(pfx.acrescimo,0)
+                                > nvl(pfx.valorpago,0)
+                              -- A conta pagadora vem do filtro, nao da fatura: a escolha da
+                              -- tela e gravada no lancamento no momento do envio.
+                            and pfx.pagamentoliberado = 'S'
+                              -- periodo obrigatorio: sem data inicial a lista fica vazia
+                            and trunc(pfx.dtvencimento) >= to_date(:P700_DATAINICIO,'DD/MM/RRRR')
+                            and trunc(pfx.dtvencimento) <= trunc(nvl(to_date(:P700_DATA,'DD/MM/RRRR'),sysdate))
+                            and (:P700_IDFORNECEDOR is null or pfx.idfornecedor = :P700_IDFORNECEDOR)
+                            and ( :P700_IDGRUPOFINANCEIRO is null
+                                  or exists ( select 1
+                                                from notasfiscais nf
+                                                   , razoessociaisfiliais rz
+                                               where nf.idnotafiscal = pfx.idnotafiscal
+                                                 and nf.idrazaosocialfildestino = rz.idrazaosocialfilial
+                                                 and rz.idgrupofinanceiro = :P700_IDGRUPOFINANCEIRO ) )
+                            and not exists ( select 1 from pix_pagamentos px
+                                              where px.idpgtoforn = pfx.idpgtoforn
+                                                and px.status not in ('REJECTED','ERRO','CANCELADO') ) ) pf
+                       left join formaspagamentos fp on fp.idformapagamento = pf.codforma
+                       left join contasbancarias cb
+                              on cb.idcontabanc = nvl( pf.idcontabanc
+                                                     , (select v.idcontabanc from vencimentos v
+                                                         where v.idvencimento = pf.idvencimento) )
+                       left join bancos bc on bc.idbanco = cb.idbanco
+                       left join ( select p.idcontabancaria, min(p.tipochave) tipochave, min(p.chave) chave
+                                     from chavespix p
+                                    group by p.idcontabancaria ) cx
+                              on cx.idcontabancaria = cb.idcontabanc
+                       left join ( select d.idpgtoforn, min(d.iddda) iddda
+                                        , min(d.situacao_titulo) situacao_titulo
+                                        , min(d.valor_nominal) valor_nominal
+                                        , min(d.dt_vencimento) dt_vencimento
+                                        , min(d.benef_nome) benef_nome
+                                        , min(d.nosso_numero) nosso_numero
+                                        , min(d.seu_numero) seu_numero
+                                        , min(d.pagador_documento) pagador
+                                     from dda_titulos d
+                                    where d.idpgtoforn is not null
+                                    group by d.idpgtoforn ) dd
+                              on dd.idpgtoforn = pf.idpgtoforn
+                   -- Somente as formas cobertas pelo hub; filtro multi-selecao (H:B:E)
+                 where pf.codforma in ('H','B','E','T','I','G')
+                   -- guia so com linha digitavel na requisicao (sem ela segue no fluxo manual)
+                   and ( pf.codforma <> 'G' or pf.linha_guia is not null )
+                   and ( :P700_FORMAS is null
+                         or instr(':' || :P700_FORMAS || ':', ':' || pf.codforma || ':') > 0 )
+                   -- do maior valor para o menor
+                 order by pf.valorpagar - nvl(pf.desconto,0) + nvl(pf.acrescimo,0)
+                          - nvl(pf.valorpago,0) desc
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 100
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        messages {
+            whenNoDataFound: Informe o período de vencimentos e clique em Buscar.
+        }
+
+        column CONTA_PAGADORA (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Conta pagadora
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DESPESA_CONFERIDA (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Conferida
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DTVENCIMENTO (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column EMPRESA (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Empresa da fatura
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column FORMA_PAGAMENTO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Como será pago
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FORNECEDOR (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPGTOFORN (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Id
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column NRNF (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Nota Fiscal
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SEL (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Enviar
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TIPO (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Tipo
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALORPAGAR (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G990D00
+            }
+            sorting {
+                defaultSequence: 1
+                direction: desc
+                sortable: false
+            }
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+            renderComponents: belowContent
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            outputAs: text
+        }
+    )
+
+    region totais (
+        name: Totais
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  -- preenchido pelo JS da pagina (tot700)
+                  htp.p('<div id="tot700" style="padding:8px 12px;font-size:1.1em"></div>');
+                end;
+                ```
+        }
+        layout {
+            sequence: 15
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P700_DATA (
+        type: datePicker
+        label {
+            label: Vencimentos até
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        default {
+            type: expression
+            plsqlExpression: to_char(sysdate,'DD/MM/RRRR')
+        }
+    )
+
+    pageItem P700_DATAINICIO (
+        type: datePicker
+        label {
+            label: Vencimentos a partir de (*)
+            alignment: left
+        }
+        layout {
+            sequence: 5
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        help {
+            helpText: Obrigatório. Quanto menor o período, mais rápida a busca.
+        }
+    )
+
+    pageItem P700_FORMAS (
+        type: checkboxGroup
+        label {
+            label: Formas de pagamento
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:PIX;H,Transferência;T,Transf. Intermediários;I,Boleto;B,Cobrança DDA;E,Guia;G
+        }
+        layout {
+            sequence: 25
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: H:T:I:B:E:G
+        }
+    )
+
+    pageItem P700_IDCONTABANC (
+        type: selectList
+        label {
+            label: Conta pagadora (*)
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Ag ' || trim(cb.agencia) || '  C/C ' || trim(cb.conta) ||
+                       '  -  ' || substr(sc.beneficiario,1,40) d
+                     , sc.idcontabanc r
+                  from santander_contas sc
+                     , contasbancarias cb
+                 where cb.idcontabanc = sc.idcontabanc
+                   and sc.ativo = 'S'
+                 order by substr(sc.beneficiario,1,40)
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Selecione a conta -"
+        }
+        layout {
+            sequence: 15
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P700_IDFORNECEDOR (
+        type: popupLov
+        label {
+            label: Fornecedor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefornecedor(idfornecedor) ||'  
+                  ID:'||idfornecedor display_value
+                     , fe.idfornecedor return_value
+                from fornecedores fe
+                where fe.ativo = 'S'
+                order by 1
+                ```
+            nullDisplayValue: " - Todos -"
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 50
+        }
+    )
+
+    pageItem P700_IDGRUPOFINANCEIRO (
+        type: selectList
+        label {
+            label: Grupo Financeiro
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select g.grupo d
+                     , g.idgrupofinanceiro r
+                  from gruposfinanceiros g
+                 order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Todos -"
+        }
+        layout {
+            sequence: 17
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+    )
+
+    pageItem P700_MARCARTODOS (
+        type: radioGroup
+        label {
+            label: Marcar todos ao buscar
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayNullValue: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+    )
+
+    pageItem P700_SO_CONFERIDAS (
+        type: radioGroup
+        label {
+            label: Somente despesas conferidas
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: S
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Buscar
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button enviar-banco (
+        buttonName: ENVIAR_BANCO
+        label: Enviar ao Banco
+        layout {
+            sequence: 10
+            region: @faturas-para-envio-ao-santander
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process casa-dda-com-faturas-lancadas (
+        name: Casa DDA com faturas lancadas
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                -- Casa os titulos DDA ja gravados com faturas lancadas depois da ultima
+                -- busca de DDA, somente no periodo da tela. Nao chama o banco.
+                begin
+                  if :P700_DATAINICIO is null then
+                    apex_error.add_error(
+                      p_message          => 'Informe a data inicial do período de vencimentos.',
+                      p_display_location => apex_error.c_inline_in_notification);
+                    return;
+                  end if;
+                  roman.pck_santander_pix.prc_casar_dda(
+                    pdesde => to_date(:P700_DATAINICIO,'DD/MM/RRRR')
+                  , pate   => nvl(to_date(:P700_DATA,'DD/MM/RRRR'), trunc(sysdate)) );
+                end;
+                ```
+        }
+        execution {
+            sequence: 5
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000700061
+        }
+        serverSideCondition {
+            whenButtonPressed: @buscar
+        }
+    )
+
+    process envia-pix-ao-santander (
+        name: Envia Pix ao Santander
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vok    number := 0;
+                  verros number := 0;
+                  vmsg   varchar2(32767);
+                begin
+                  if :P700_IDCONTABANC is null then
+                    apex_error.add_error(
+                      p_message          => 'Selecione a conta pagadora antes de enviar.',
+                      p_display_location => apex_error.c_inline_in_notification);
+                    return;
+                  end if;
+                
+                  if apex_application.g_f01.count = 0 then
+                    apex_error.add_error(
+                      p_message          => 'Selecione ao menos uma fatura.',
+                      p_display_location => apex_error.c_inline_in_notification);
+                    return;
+                  end if;
+                
+                  for i in 1 .. apex_application.g_f01.count loop
+                    declare
+                      viddda    number;
+                      vcodforma varchar2(1);
+                      vdescr    varchar2(50);
+                    begin
+                      -- Forma oficial do ERP (fatura, com origem no vencimento)
+                      select nvl(pf.tipopagamento,
+                                 (select v.tipopagamento from roman.vencimentos v
+                                   where v.idvencimento = pf.idvencimento))
+                        into vcodforma
+                        from roman.pagamentosfornecedores pf
+                       where pf.idpgtoforn = apex_application.g_f01(i);
+                
+                      select min(d.iddda) into viddda
+                        from roman.dda_titulos d
+                       where d.idpgtoforn = apex_application.g_f01(i);
+                
+                      update roman.pagamentosfornecedores pf
+                         set pf.pgtoagendado = 'S'
+                       where pf.idpgtoforn = apex_application.g_f01(i)
+                         and nvl(pf.pgtoagendado,'N') = 'N';
+                
+                      -- Roteamento pela forma cadastrada no ERP
+                      if vcodforma in ('B','E') then
+                        if viddda is null then
+                          raise_application_error(-20060, 'Fatura ' || apex_application.g_f01(i) ||
+                            ': forma Boleto/DDA mas o boleto nao foi localizado no DDA. ' ||
+                            'Atualize o DDA na pagina 703 ou vincule manualmente.');
+                        end if;
+                        roman.pck_santander_pix.prc_enviar_boleto(
+                          piddda            => viddda
+                        , pusuario          => :APP_USER
+                        , pidcontapagamento => :P700_IDCONTABANC );
+                
+                      elsif vcodforma in ('H','T','I') then
+                        if viddda is not null then
+                          raise_application_error(-20061, 'Fatura ' || apex_application.g_f01(i) ||
+                            ': cadastrada como Pix/Transferencia/Intermediarios porem existe boleto no DDA ' ||
+                            'para ela. ' ||
+                            'Revise a forma de pagamento antes de enviar.');
+                        end if;
+                        roman.pck_santander_pix.prc_enviar_pagamento(
+                          pidpgtoforn       => apex_application.g_f01(i)
+                        , pusuario          => :APP_USER
+                        , pidcontapagamento => :P700_IDCONTABANC );
+                
+                      elsif vcodforma = 'G' then
+                        roman.pck_santander_pix.prc_enviar_guia(
+                          pidpgtoforn       => apex_application.g_f01(i)
+                        , pusuario          => :APP_USER
+                        , pidcontapagamento => :P700_IDCONTABANC );
+                
+                      else
+                        begin
+                          select f.descricao into vdescr
+                            from roman.formaspagamentos f where f.idformapagamento = vcodforma;
+                        exception when no_data_found then vdescr := vcodforma;
+                        end;
+                        raise_application_error(-20062, 'Fatura ' || apex_application.g_f01(i) ||
+                          ': forma "' || vdescr || '" nao e paga pelo hub. Segue no fluxo manual.');
+                      end if;
+                
+                      vok := vok + 1;
+                    exception
+                      when others then
+                        verros := verros + 1;
+                        vmsg := substr(vmsg || 'Fatura ' || apex_application.g_f01(i) || ': ' ||
+                                       sqlerrm || ' @ ' ||
+                                       regexp_substr(dbms_utility.format_error_backtrace, '"[^"]+", line [0-9]+') ||
+                                       ' | ', 1, 30000);
+                    end;
+                  end loop;
+                
+                  if verros > 0 then
+                    apex_error.add_error(
+                      p_message          => vok || ' enviada(s), ' || verros || ' com erro. ' || vmsg,
+                      p_display_location => apex_error.c_inline_in_notification);
+                  end if;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Faturas enviadas ao Santander. Aguardando autorização da gestora.
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000700060
+        }
+        serverSideCondition {
+            whenButtonPressed: @enviar-banco
+        }
+    )
+
+    branch (
+        name: Go To Page 700
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 700
+                items: {
+                    P700_DATA: &P700_DATA.
+                    P700_IDFORNECEDOR: &P700_IDFORNECEDOR.
+                    P700_SO_CONFERIDAS: &P700_SO_CONFERIDAS.
+                    P700_IDGRUPOFINANCEIRO: &P700_IDGRUPOFINANCEIRO.
+                    P700_DATAINICIO: &P700_DATAINICIO.
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

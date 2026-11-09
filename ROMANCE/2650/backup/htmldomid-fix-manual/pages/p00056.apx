@@ -1,0 +1,897 @@
+page 56 (
+    name: Lista de Acertos Efetuados
+    title: Lista de Acertos Efetuados
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region lista-de-fechamentos-efetuados (
+        name: Lista de Fechamentos Efetuados
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select fr.idfechamentorepres
+                     , pck_romance.fnc_nomerepresentante(fr.idrepresentante) Representante
+                     , pck_romance.fnc_nomefilial(fr.idfilial) Filial
+                     , fr.setor
+                     , ( select rv.descricao from regioesvenda rv where idregiaovenda = fr.idregiaovenda ) "Região"
+                     , fr.semana
+                     , fr.qtdnotasnovas
+                     , fr.qtdnotaslevou
+                     , fr.qtdnotasfechou
+                     , fr.vlralvo
+                     , fr.totalcobranca
+                     , fr.totalgeral
+                     , fr.vlrespecie
+                     , fr.vlrcheque
+                     , fr.idcomissao
+                     , ( select semana from fechamentossemanais ff where ff.idfechamento = fr.idfechamentopontuacao ) "Referente a"
+                     , ((fr.totalgeral/(decode(nvl(fr.vlralvo,0) ,0 ,1 ,fr.vlralvo) *2))*100) "Perc Venda"
+                     --, ( select l.vlracumulado from lucratividade l where l.idfechamentorepres = fr.idfechamentorepres ) "Lucratividade (Acumulado)"
+                     , (select sum(valor) from perdas pp where pp.idfechamentorepres = fr.idfechamentorepres) "Total Resgate"
+                     , fr.totalgeral
+                     - nvl(fr.vlrespecie,0)
+                     - nvl(fr.vlrcheque,0)
+                     - ( select NVL(sum(d.valordeposito),0) valor
+                         from depositosdiarios_orig d
+                         where d.tipo            = 'DD' 
+                           and d.idfechamentorepres = fr.idfechamentorepres) 
+                     - ( select NVL(sum(d.valordeposito),0) valor
+                         from depositosdiarios_orig d
+                         where d.tipo            = 'CC' 
+                           and d.idfechamentorepres = fr.idfechamentorepres) 
+                     - ( select nvl(sum(r.valor),0) valor
+                         from despesas r
+                         where r.idfechamentorepres = fr.idfechamentorepres )
+                     - nvl(fr.vlrcomissao,0)
+                     - nvl(fr.totalcomissoesfavoritarepres,0) Saldoapagar
+                     , fr.saldo "Saldo Atual"
+                from fechamentorepresentantes fr
+                where fr.idfechamento = :P56_IDFECHAMENTO
+                  and exists ( select 1
+                               from dual 
+                               where pck_romance.fnc_verificaacesso('PERM_ALTERAFECHA', v('APP_USER')) = 'S' )
+                   or pck_romance.fnc_filialusuario( v('APP_USER') ) = fr.idfilial
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body-3
+            startNewRow: false
+            newColumn: false
+        }
+        link {
+            linkColumn: customTarget
+            target: {
+                page: 57
+                items: {
+                    P57_IDFECHAMENTOREPRES: #IDFECHAMENTOREPRES#
+                }
+            }
+            linkIcon: <img src="#IMAGE_PREFIX#menu/pencil16x16.gif"  border="0">
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        messages {
+            whenNoDataFound: Nenhum acerto efetuado.
+            whenMoreDataFound: This query returns more than #MAX_ROW_COUNT# rows, please filter your data to ensure complete results.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            rowsPerPage: false
+            pivot: false
+            savePublicReport: true
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 1
+        }
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 16
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: FILIAL
+                endUserAlias: P
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDCOMISSAO (
+            type: hidden
+            heading {
+                heading: Comissão
+            }
+            layout {
+                sequence: 14
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDCOMISSAO
+                endUserAlias: N
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from dual 
+                    where pck_romance.fnc_verificaacesso('PERM_ALTERAFECHA', v('APP_USER')) = 'S'
+                      or exists ( select 1 
+                                  from gerentes g
+                                  where g.idpessoa = ( select u.idpessoa 
+                                                       from usuarios u
+                                                       where u.usuario = v('APP_USER') ) ) 
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDFECHAMENTOREPRES (
+            type: hidden
+            heading {
+                heading: Idfechamentorepres
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDFECHAMENTOREPRES
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Perc Venda" (
+            type: plainText
+            heading {
+                heading: Perc Venda
+                alignment: center
+            }
+            layout {
+                sequence: 21
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Perc Venda
+                endUserAlias: U
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column QTDNOTASFECHOU (
+            type: plainText
+            heading {
+                heading: Qtd Notas Fechou
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: QTDNOTASFECHOU
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column QTDNOTASLEVOU (
+            type: plainText
+            heading {
+                heading: Qtd Notas Levou
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: QTDNOTASLEVOU
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column QTDNOTASNOVAS (
+            type: plainText
+            heading {
+                heading: Qtd Notas Novas
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: QTDNOTASNOVAS
+                endUserAlias: F
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Representante
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: REPRESENTANTE
+                endUserAlias: O
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Referente a" (
+            type: plainText
+            heading {
+                heading: Referente A
+                alignment: center
+            }
+            layout {
+                sequence: 22
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Referente a
+                endUserAlias: V
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Região (
+            type: plainText
+            heading {
+                heading: Região
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Região
+                endUserAlias: T
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SALDOAPAGAR (
+            type: plainText
+            heading {
+                heading: Saldo a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 18
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: SALDOAPAGAR
+                endUserAlias: R
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SEMANA (
+            type: plainText
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: SEMANA
+                endUserAlias: E
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SETOR (
+            type: plainText
+            heading {
+                heading: Setor
+                alignment: center
+            }
+            layout {
+                sequence: 17
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: SETOR
+                endUserAlias: Q
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Saldo Atual" (
+            type: plainText
+            heading {
+                heading: Saldo Atual
+                alignment: center
+            }
+            layout {
+                sequence: 23
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D99
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Saldo Atual
+                endUserAlias: W
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column TOTALCOBRANCA (
+            type: plainText
+            heading {
+                heading: Total Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALCOBRANCA
+                endUserAlias: J
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from dual 
+                    where pck_romance.fnc_verificaacesso('PERM_ALTERAFECHA', v('APP_USER')) = 'S'
+                      or exists ( select 1 
+                                  from gerentes g
+                                  where g.idpessoa = ( select u.idpessoa 
+                                                       from usuarios u
+                                                       where u.usuario = v('APP_USER') ) ) 
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALGERAL (
+            type: plainText
+            heading {
+                heading: Total Geral
+                alignment: center
+            }
+            layout {
+                sequence: 11
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALGERAL
+                endUserAlias: K
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from dual 
+                    where pck_romance.fnc_verificaacesso('PERM_ALTERAFECHA', v('APP_USER')) = 'S'
+                      or exists ( select 1 
+                                  from gerentes g
+                                  where g.idpessoa = ( select u.idpessoa 
+                                                       from usuarios u
+                                                       where u.usuario = v('APP_USER') ) ) 
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Total Resgate" (
+            type: plainText
+            heading {
+                heading: Total Resgate
+                alignment: center
+            }
+            layout {
+                sequence: 19
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Total Resgate
+                endUserAlias: S
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column VLRALVO (
+            type: hidden
+            heading {
+                heading: Vlr Alvo
+            }
+            layout {
+                sequence: 9
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VLRALVO
+                endUserAlias: I
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column VLRCHEQUE (
+            type: plainText
+            heading {
+                heading: Valor Cheque
+                alignment: center
+            }
+            layout {
+                sequence: 13
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VLRCHEQUE
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from dual 
+                    where pck_romance.fnc_verificaacesso('PERM_ALTERAFECHA', v('APP_USER')) = 'S'
+                      or exists ( select 1 
+                                  from gerentes g
+                                  where g.idpessoa = ( select u.idpessoa 
+                                                       from usuarios u
+                                                       where u.usuario = v('APP_USER') ) ) 
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column VLRESPECIE (
+            type: plainText
+            heading {
+                heading: Valor Espécie
+                alignment: center
+            }
+            layout {
+                sequence: 12
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VLRESPECIE
+                endUserAlias: L
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from dual 
+                    where pck_romance.fnc_verificaacesso('PERM_ALTERAFECHA', v('APP_USER')) = 'S'
+                      or exists ( select 1 
+                                  from gerentes g
+                                  where g.idpessoa = ( select u.idpessoa 
+                                                       from usuarios u
+                                                       where u.usuario = v('APP_USER') ) ) 
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        savedReport 15500 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100
+            }
+
+            displayColumn FILIAL (
+                sequence: 1
+            )
+
+            displayColumn "Perc Venda" (
+                sequence: 6
+            )
+
+            displayColumn QTDNOTASNOVAS (
+                sequence: 7
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 2
+            )
+
+            displayColumn "Referente a" (
+                sequence: 4
+            )
+
+            displayColumn "Região" (
+                sequence: 5
+            )
+
+            displayColumn SALDOAPAGAR (
+                sequence: 9
+            )
+
+            displayColumn SEMANA (
+                sequence: 3
+            )
+
+            displayColumn "Saldo Atual" (
+                sequence: 10
+            )
+
+            displayColumn TOTALGERAL (
+                sequence: 8
+            )
+
+            sort (
+                column: REPRESENTANTE
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: TOTALGERAL
+            )
+
+            controlBreak (
+                column: FILIAL
+                layout {
+                    sequence: 1
+                }
+            )
+
+            highlight ir-condition (
+                name: % Baixa
+                condition {
+                    column: "Perc Venda"
+                    operator: <
+                    value: 35
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #FC0000
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: % Boa
+                condition {
+                    column: "Perc Venda"
+                    operator: >=
+                    value: 35
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #006300
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-3 (
+                name: Notas Baixas
+                condition {
+                    column: QTDNOTASNOVAS
+                    operator: <
+                    value: 30
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #FC0000
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-4 (
+                name: Notas Boas
+                condition {
+                    column: QTDNOTASNOVAS
+                    operator: >=
+                    value: 30
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #006300
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P56_IDFECHAMENTO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 20
+            region: @lista-de-fechamentos-efetuados
+            slot: regionBody
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P56_SEMANA (
+        type: hidden
+        layout {
+            sequence: 10
+            region: @lista-de-fechamentos-efetuados
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button create (
+        buttonName: CREATE
+        label: Novo Acerto
+        layout {
+            sequence: 30
+            region: @lista-de-fechamentos-efetuados
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 57
+                items: {
+                    P57_SEMANA: &P56_SEMANA.
+                    P57_IDFECHAMENTO: &P56_IDFECHAMENTO.
+                }
+                clearCache: 57
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from fechamentossemanais f
+                where  ( (pck_romance.fnc_verificaacesso('PERM_ALTERAFECHA', v('APP_USER')) = 'S')
+                       or (nvl(f.concluido,'N') = 'N'
+                  and f.idfechamento = :P56_IDFECHAMENTO))
+                ```
+        }
+    )
+
+    button voltar (
+        buttonName: VOLTAR
+        label: Voltar
+        layout {
+            sequence: 5
+            region: @lista-de-fechamentos-efetuados
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 73
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+)
+

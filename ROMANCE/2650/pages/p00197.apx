@@ -1,0 +1,1565 @@
+page 197 (
+    name: Depositar
+    title: Depositar
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        width: 90%
+        height: 90%
+        resizable: false
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            var htmldb_delete_message='"DELETE_CONFIRM_MSG"';
+            
+            function getMoney( str )
+            {
+                    return parseInt( str.replace(/[\D]+/g,'') );
+            }
+            
+            function fnc_somadepositos()
+            {
+              vvalor = 0;
+              for(i=0;i<document.wwv_flow.length;i++)
+              {
+                if ( isNaN(parseFloat(document.wwv_flow.f05[i].value) ))
+                {
+                  void(0);
+                }
+                else
+                { 
+                   valor = document.wwv_flow.f05[i].value;
+                   valor = valor.replace(".","");
+                   valor = valor.replace(",",".");
+                   valor = parseFloat(valor);
+                   valor = getMoney( document.wwv_flow.f05[i].value)
+                 vvalor = parseFloat(vvalor)+parseFloat(valor);   
+                }
+                document.getElementById('P197_TOTAL').value =formatReal(  vvalor);
+              }
+            } 
+            
+            function formatReal( int )
+            {
+                    var tmp = int+'';
+                    var neg = false;
+                    if(tmp.indexOf("-") == 0)
+                    {
+                        neg = true;
+                        tmp = tmp.replace("-","");
+                    }
+                    
+                    if(tmp.length == 1) tmp = "0"+tmp
+                
+                    tmp = tmp.replace(/([0-9]{2})$/g, ",$1");
+                    if( tmp.length > 6)
+                        tmp = tmp.replace(/([0-9]{3}),([0-9]{2}$)/g, ".$1,$2");
+                    
+                    if( tmp.length > 9)
+                        tmp = tmp.replace(/([0-9]{3}).([0-9]{3}),([0-9]{2}$)/g,".$1.$2,$3");
+                
+                    if( tmp.length > 12)
+                        tmp = tmp.replace(/([0-9]{3}).([0-9]{3}).([0-9]{3}),([0-9]{2}$)/g,".$1.$2.$3,$4");
+                    
+                    if(tmp.indexOf(".") == 0) tmp = tmp.replace(".","");
+                    if(tmp.indexOf(",") == 0) tmp = tmp.replace(",","0,");
+                
+                    return tmp;
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region botões (
+        name: Botões
+        type: staticContent
+        layout {
+            sequence: 40
+            slot: dialogFooter
+        }
+        appearance {
+            template: @/buttons-container
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region contas-para-depositar (
+        name: Contas para Depositar
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefornecedor(e.idfornecedor)||' ['||e.idfornecedor||']' fornecedor
+                    , e.idcontabanc || ' - <b>'||b.nomebanco||'<br> </b>' || c.agencia ||'/'||c.conta ||' <br> '||c.beneficiario    conta
+                    , min(e.dtvencimento) primeirovencimento
+                    , sum(e.valorpago  - e.valorpagar) saldo
+                    , e.idcontabanc
+                    , e.idfornecedor
+                    , round( ( sum(nvl(c.prioridade ,0)
+                              +  case 
+                                       when e.dtvencimento < sysdate then
+                                          round(trunc(sysdate) - trunc(e.dtvencimento)) 
+                                       else
+                                         0 
+                                       end )) /2
+                              +    case 
+                                  when sum(nvl(e.prioridade,0)) > 0 then
+                                    100
+                                  else
+                                    0
+                                    end  )  prioridade
+                    , 'N' identificado
+                    , 'Não' descidentificado
+                    , count( ( select 1
+                                from razoessociaisfornec r
+                                   , notasfiscais        n
+                                where r.idrazaosocialforn = n.idrazaosocialfornemit
+                                  and n.idnotafiscal      = e.idnotafiscal ) ) q
+                    , listagg(e.idnotafiscal) within group (order by 1) notas
+                    --
+                from pagamentosfornecedores  e
+                   , contasbancarias         c
+                   , bancos                  b
+                where c.idbanco         = b.idbanco 
+                  and c.idcontabanc     = e.idcontabanc
+                  and e.valorpagar     > e.valorpago
+                  and e.dtvencimento   <= :P188_DATABASEDEPOSITOS
+                  and extract(year from e.dtvencimento ) >= 2019
+                  and e.idcontabanc     = :P197_IDCONTABANCARIA
+                  and e.idfornecedor    = :P197_IDFORNECEDOR
+                  and e.identificado    = :P197_IDENTIFICADO 
+                  and :P197_IDENTIFICADO  = 'N'
+                  and exists ( select 1
+                               from usuariosformaspagamentos a
+                               where a.idformapagamento = e.tipopagamento 
+                                 and a.idusuario        = :P0_IDUSUARIO)
+                having sum(e.valorpago  - e.valorpagar) != 0
+                group by e.idfornecedor
+                       , e.idcontabanc
+                       , b.nomebanco
+                       , c.agencia
+                       , c.conta
+                       , c.beneficiario
+                union
+                select pck_romance.fnc_nomefornecedor(e.idfornecedor)||' ['||e.idfornecedor||']' fornecedor
+                    , e.idcontabanc || ' - <b>'||b.nomebanco||'<br> </b>' || c.agencia ||'/'||c.conta ||' <br> '||c.beneficiario   conta
+                    , min(e.dtvencimento) primeirovencimento
+                    , sum(e.valorpago  - e.valorpagar) saldo
+                    , e.idcontabanc
+                    , e.idfornecedor
+                    , round( ( sum(nvl(c.prioridade ,0)
+                              +  case 
+                                       when e.dtvencimento < sysdate then
+                                          round(trunc(sysdate) - trunc(e.dtvencimento)) 
+                                       else
+                                         0 
+                                       end ) /2)
+                              +    case 
+                                  when sum(nvl(e.prioridade,0)) > 0 then
+                                    100
+                                  else
+                                    0
+                                    end  )  prioridade
+                    , e.identificado
+                    , decode(e.identificado,'S','Sim', 'N', 'Não') descidentificado
+                    , count( ( select 1
+                                from razoessociaisfornec r
+                                   , notasfiscais        n
+                                where r.idrazaosocialforn = n.idrazaosocialfornemit
+                                  and n.idnotafiscal      = e.idnotafiscal ) ) q
+                    , listagg(e.idnotafiscal) within group (order by 1) notas
+                    --
+                from pagamentosfornecedores  e
+                   , contasbancarias         c
+                   , bancos                  b
+                where c.idbanco         = b.idbanco 
+                  and c.idcontabanc     = e.idcontabanc
+                  and e.valorpagar     > e.valorpago
+                  and e.dtvencimento   <= :P188_DATABASEDEPOSITOS
+                  and extract(year from e.dtvencimento ) >= 2019
+                  and e.idcontabanc     = :P197_IDCONTABANCARIA
+                  and e.idfornecedor    = :P197_IDFORNECEDOR
+                  and e.identificado    = :P197_IDENTIFICADO
+                  and exists ( select 1
+                               from usuariosformaspagamentos a
+                               where a.idformapagamento = e.tipopagamento 
+                                 and a.idusuario        = :P0_IDUSUARIO)
+                  and e.identificado   = 'S'
+                  -- teste para ser CRISDU
+                  and case
+                                  when ( select r.cnpj
+                                         from razoessociaisfornec r
+                                            , notasfiscais        n
+                                         where r.idrazaosocialforn = n.idrazaosocialfornemit
+                                           and n.idnotafiscal      = e.idnotafiscal ) like '07318638%' then
+                                         'Sim'
+                                  when ( select r.cnpj
+                                         from razoessociaisfornec r
+                                            , notasfiscais        n
+                                         where r.idrazaosocialforn = n.idrazaosocialforndest 
+                                           and n.idnotafiscal      = e.idnotafiscal ) like '07318638%' then
+                                         'Sim'
+                                  when ( select cnpj
+                                         from razoessociaisfiliais re
+                                            , notasfiscais        n
+                                         where re.idrazaosocialfilial = n.idrazaosocialfilemit 
+                                           and n.idnotafiscal      = e.idnotafiscal ) like '07318638%' then
+                                         'Sim'
+                                  when ( select  cnpj
+                                         from razoessociaisfiliais re
+                                            , notasfiscais        n
+                                         where re.idrazaosocialfilial = n.idrazaosocialfildestino 
+                                           and n.idnotafiscal      = e.idnotafiscal ) like '07318638%' then
+                                         'Sim'
+                                  else 
+                                    'Não'
+                                 end = 'Sim'
+                having sum(e.valorpago  - e.valorpagar) != 0
+                group by e.idfornecedor
+                       , e.idcontabanc
+                       , b.nomebanco
+                       , c.agencia
+                       , c.conta
+                       , c.beneficiario
+                       , e.identificado 
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--accent1
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 6029246175779261103
+        }
+
+        column CONTA (
+            type: plainText
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DESCIDENTIFICADO (
+            type: plainText
+            heading {
+                heading: Identificado
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column FORNECEDOR (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column IDCONTABANC (
+            type: plainText
+            heading {
+                heading: Idcontabanc
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column IDENTIFICADO (
+            type: plainText
+            heading {
+                heading: Identificado
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column IDFORNECEDOR (
+            type: plainText
+            heading {
+                heading: Idfornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column NOTAS (
+            type: plainText
+            heading {
+                heading: Notas
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column PRIMEIROVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column PRIORIDADE (
+            type: plainText
+            heading {
+                heading: Prioridade
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column Q (
+            type: plainText
+            heading {
+                heading: Q
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        savedReport 15074130 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CONTA (
+                sequence: 3
+            )
+
+            displayColumn DESCIDENTIFICADO (
+                sequence: 6
+            )
+
+            displayColumn FORNECEDOR (
+                sequence: 2
+            )
+
+            displayColumn PRIMEIROVENCIMENTO (
+                sequence: 1
+            )
+
+            displayColumn PRIORIDADE (
+                sequence: 5
+            )
+
+            displayColumn SALDO (
+                sequence: 4
+            )
+
+        )
+
+    )
+
+    region depositar (
+        name: Depositar
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+                t-Form--slimPadding
+                t-Form--stretchInputs
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region depositar-2 (
+        name: Depositar
+        type: tabform
+        source {
+            sqlQuery:
+                ```sql
+                select 
+                "IDDEPOSITODIARIOS",
+                "DATA",
+                "IDREPRESENTANTE",
+                "IDCONTABANC",
+                "VALORDEPOSITO",
+                "COMPROVADO",
+                "NROCOMPROVANTE",
+                "OBSERVACAO",
+                "TIPO",
+                "IDENTIFICACAO",
+                "IDFORNECEDOR",
+                "FATURAIDENTIFICADA",
+                "IDCONTROLELIGACAO"
+                from "#OWNER#"."DEPOSITOSDIARIOS"
+                where 1 = 2
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P197_IDFILIAL
+        }
+        reportLayout {
+            numberOfRows: 10
+        }
+        componentAppearance {
+            template: @/standard
+            showNullValuesAs: (null)
+        }
+        pagination {
+            type: setPaginationSelectList
+            partialPageRefresh: false
+        }
+        performance {
+            maxRowsToProcess: 500
+        }
+        messages {
+            whenNoDataFound: No data found.
+        }
+        componentAdvanced {
+            stripHtml: true
+        }
+
+        column COMPROVADO (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            type: selectList
+            heading {
+                heading: Comprovado
+                alignment: center
+            }
+            lov {
+                type: staticValues
+                staticValues: STATIC:Sem Comprovante;S,Cópia;C,Em Mãos;M,Com Gerente;G
+                displayExtraValues: false
+                displayNullValue: false
+            }
+            layout {
+                sequence: 9
+            }
+        )
+
+        column DATA (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 2
+            }
+        )
+
+        column FATURAIDENTIFICADA (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 12
+            }
+            default {
+                type: item
+                item: P197_IDENTIFICADO
+            }
+        )
+
+        column IDCONTABANC (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 4
+            }
+            default {
+                type: item
+                item: P197_IDCONTABANCARIA
+            }
+        )
+
+        column IDCONTROLELIGACAO (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 13
+            }
+            default {
+                type: item
+                item: P0_IDCONTROLELIGACAO
+            }
+        )
+
+        column IDDEPOSITODIARIOS (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 1
+            }
+            primaryKeySource {
+                type: existingSequence
+                name: SEQ_IDDEPOSITODIARIOS
+            }
+        )
+
+        column IDENTIFICACAO (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            type: selectList
+            heading {
+                heading: Ident. Interna
+                alignment: center
+            }
+            lov {
+                type: staticValues
+                staticValues: STATIC:Boca do Caixa;BC,Cheque Sem Fundo;CH,Carro;CA,Catálogo;CT,Empréstimo;EE,Outros;OT,Transferência;TF
+                displayExtraValues: false
+                nullDisplayValue: "- Selecione - "
+            }
+            layout {
+                sequence: 7
+            }
+        )
+
+        column IDFORNECEDOR (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 11
+            }
+            default {
+                type: item
+                item: P197_IDFORNECEDOR
+            }
+        )
+
+        column IDREPRESENTANTE (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            type: selectList
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            lov {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select pck_romance.fnc_nomerepresentante(r.idrepresentante)||' '||decode(r.ativo,'S',' ','N',' - Inativo')||'  ['|| r.idrepresentante ||']' display_value     , r.idrepresentante return_value 
+                    from representantes r
+                    where pck_romance.fnc_filialrepresentante(idrepresentante) = :P197_IDFILIAL 
+                      and r.ativo = 'S'
+                    order by 1
+                    ```
+                displayExtraValues: false
+                nullDisplayValue: - Selecione o Distribuidor -
+            }
+            layout {
+                sequence: 3
+            }
+        )
+
+        column NROCOMPROVANTE (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            type: textField
+            heading {
+                heading: Nr de Identificação
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            appearance {
+                width: 16
+            }
+        )
+
+        column OBSERVACAO (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            type: textField
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            appearance {
+                width: 16
+            }
+        )
+
+        column TIPO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            type: selectList
+            heading {
+                heading: Tipo
+                alignment: center
+            }
+            lov {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select descricao display_value
+                    , codigo return_value
+                    from tipospagamentos
+                    where codigo != 'M'
+                    order by 1
+                    ```
+                displayExtraValues: false
+                nullDisplayValue: - Selecione o Tipo -
+            }
+            layout {
+                sequence: 10
+            }
+        )
+
+        column VALORDEPOSITO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            type: textField
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            appearance {
+                width: 16
+            }
+            advanced {
+                customAttributes: " style=\"text-align: right;\" onblur=\"fnc_somadepositos()\""
+            }
+        )
+
+    )
+
+    region últimos-depósitos (
+        name: Últimos Depósitos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(idrepresentante)||' [ '||pck_romance.fnc_nomefilial(pck_romance.fnc_filialrepresentante(idrepresentante))||' ]' 
+                     ||'<br>'|| ( select initcap(cb.beneficiario)||'<br>( '||b.nomebanco||' - '||cb.agencia ||', '||cb.conta||' )' detalhe
+                         from contasbancarias cb
+                            , bancos b
+                         where cb.idbanco         = b.idbanco
+                           and cb.idcontabanc = d.idcontabanc ) "Conta Bancária"
+                     , trim(to_char(valordeposito,'999G999G999G999G990D00'))
+                                     ||'<BR>' ||d.nrocomprovante
+                                     ||'<BR>'|| decode(comprovado,'S','Sem Comprovante'
+                                                                 ,'C','Cópia'
+                                                                 ,'M','Em Mãos'
+                                                                 ,'G', 'Com Gerente')   DETALHE2
+                     , ( select t.descricao
+                         from tipospagamentos t
+                         where t.codigo = d.tipo) Tipo
+                     , usuario
+                     , datacriacao
+                from DEPOSITOSDIARIOS_ORIG d
+                where d.datacriacao >= sysdate -0.05
+                  and d.idcontabanc = :P197_IDCONTABANCARIA
+                order by d.datacriacao desc
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 5049392070501280458
+        }
+
+        column "Conta Bancária" (
+            type: plainText
+            heading {
+                heading: "Conta "
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DATACRIACAO (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DETALHE2 (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TIPO (
+            type: plainText
+            heading {
+                heading: Tipo
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column USUARIO (
+            type: plainText
+            heading {
+                heading: Usuario
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 27148600 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Conta Bancária" (
+                sequence: 1
+            )
+
+            displayColumn DATACRIACAO (
+                sequence: 5
+            )
+
+            displayColumn DETALHE2 (
+                sequence: 2
+            )
+
+            displayColumn TIPO (
+                sequence: 3
+            )
+
+            displayColumn USUARIO (
+                sequence: 4
+            )
+
+        )
+
+    )
+
+    pageItem P197_CRISDU (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 50
+            region: @contas-para-depositar
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P197_IDCONTABANCARIA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 20
+            region: @contas-para-depositar
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P197_IDENTIFICADO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 40
+            region: @contas-para-depositar
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P197_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        settings {
+            pageActionOnSelection: redirectSetValue
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefilial(idfilial) display_value
+                     , f.idfilial
+                from filiais f
+                where f.tipofilial in ('D','R')
+                  and ativo = 'S'
+                order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Selecione a Empresa -
+        }
+        layout {
+            sequence: 10
+            region: @depositar
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P197_IDFORNECEDOR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 30
+            region: @contas-para-depositar
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P197_TOTAL (
+        type: textField
+        label {
+            label: Total
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @depositar
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 20
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button add (
+        buttonName: ADD
+        label: Adicionar Linha
+        layout {
+            sequence: 40
+            region: @depositar-2
+            slot: bottom
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:apex.widget.tabular.addRow();
+            executeValidations: false
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button close (
+        buttonName: CLOSE
+        label: Fechar
+        layout {
+            sequence: 20
+            region: @contas-para-depositar
+            slot: copy
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button enviarsms (
+        buttonName: ENVIARSMS
+        label: Enviar SMS
+        layout {
+            sequence: 10
+            region: @contas-para-depositar
+            slot: belowBox
+            horizontalAlignment: left
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    button submit (
+        buttonName: SUBMIT
+        label: Salvar
+        layout {
+            sequence: 20
+            region: @botões
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--success
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction addrows (
+        name: AddRows
+        execution {
+            sequence: 10
+        }
+        when {
+            event: ready
+        }
+        clientSideCondition {
+            type: itemIsNotNull
+            item: P197_IDFILIAL
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    apex.widget.tabular.addRow();
+                    apex.widget.tabular.addRow();
+                    apex.widget.tabular.addRow();
+                    apex.widget.tabular.addRow();
+                    apex.widget.tabular.addRow();
+                    apex.widget.tabular.addRow();
+                    apex.widget.tabular.addRow();
+                    apex.widget.tabular.addRow();
+                    ```
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction limpa-depósitos-sem-valores (
+        name: "Limpa Depósitos Sem Valores "
+        execution {
+            sequence: 30
+        }
+        when {
+            event: ready
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select *
+                from depositosdiarios d
+                where d.idrepresentante is null
+                  and d.valordeposito is null
+                  and d.idcontabanc = :P197_IDCONTABANCARIA
+                  and d.idfornecedor = :P197_IDFORNECEDOR;
+                ```
+        }
+
+        action native-execute-plsql-code (
+            action: executeServerSideCode
+            settings {
+                plsqlCode:
+                    ```plsql
+                    begin
+                      --
+                      delete depositosdiarios d
+                      where d.idrepresentante is null
+                        and d.valordeposito is null
+                        and d.idcontabanc = :P197_IDCONTABANCARIA
+                        and d.idfornecedor = :P197_IDFORNECEDOR;
+                      --
+                      commit;
+                      --
+                    end;
+                    ```
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction submit (
+        name: Submit
+        execution {
+            sequence: 20
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @submit
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: SUBMIT
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    validation idcontabanc-must-be-numeric (
+        name: IDCONTABANC must be numeric
+        execution {
+            sequence: 50
+        }
+        validation {
+            editableRegion: @depositar-2
+            type: columnIsNumeric
+            column: IDCONTABANC
+        }
+        error {
+            errorMessage: #COLUMN_HEADER# must be numeric.
+            associatedColumn: IDCONTABANC
+        }
+        serverSideCondition {
+            whenButtonPressed: @submit
+        }
+    )
+
+    validation idrepresentante-must-be-numeric (
+        name: IDREPRESENTANTE must be numeric
+        execution {
+            sequence: 30
+        }
+        validation {
+            editableRegion: @depositar-2
+            type: columnIsNumeric
+            column: IDREPRESENTANTE
+        }
+        error {
+            errorMessage: #COLUMN_HEADER# must be numeric.
+            associatedColumn: IDREPRESENTANTE
+        }
+        serverSideCondition {
+            whenButtonPressed: @submit
+        }
+    )
+
+    validation nrocomprovante-must-be-numeric (
+        name: NROCOMPROVANTE must be numeric
+        execution {
+            sequence: 90
+        }
+        validation {
+            editableRegion: @depositar-2
+            type: columnIsNumeric
+            column: NROCOMPROVANTE
+        }
+        error {
+            errorMessage: #COLUMN_HEADER# must be numeric.
+            associatedColumn: NROCOMPROVANTE
+        }
+        serverSideCondition {
+            whenButtonPressed: @submit
+        }
+    )
+
+    validation nroenvelope-must-be-numeric (
+        name: NROENVELOPE must be numeric
+        execution {
+            sequence: 210
+        }
+        validation {
+            editableRegion: @depositar-2
+            type: columnIsNumeric
+            column: NROENVELOPE
+        }
+        error {
+            errorMessage: #COLUMN_HEADER# must be numeric.
+            associatedColumn: NROENVELOPE
+        }
+        serverSideCondition {
+            whenButtonPressed: @submit
+        }
+    )
+
+    validation valordeposito-must-be-numeric (
+        name: VALORDEPOSITO must be numeric
+        execution {
+            sequence: 70
+        }
+        validation {
+            editableRegion: @depositar-2
+            type: columnIsNumeric
+            column: VALORDEPOSITO
+        }
+        error {
+            errorMessage: #COLUMN_HEADER# must be numeric.
+            associatedColumn: VALORDEPOSITO
+        }
+        serverSideCondition {
+            whenButtonPressed: @submit
+        }
+    )
+
+    process applymru (
+        name: ApplyMRU
+        type: tabformUpdate
+        editableRegion: @depositar-2
+        target {
+            tableName: DEPOSITOSDIARIOS
+            pkColumn: IDDEPOSITODIARIOS
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: #MRI_COUNT# depósito(s) incluído(s).
+        }
+        advanced {
+            executionMappingIdentifier: 1507398159189450865
+        }
+        serverSideCondition {
+            whenButtonPressed: @submit
+        }
+    )
+
+    process enviar-sms (
+        name: ENVIAR SMS
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  -- Call the procedure
+                  pck_financeiro_rmc.prc_enviasms_deposito( pusuario         => v('APP_USER')
+                                                          , pidpgtoforn      => null
+                                                          , pidcontabancaria => :P197_IDCONTABANCARIA);
+                end;
+                
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        successMessage {
+            successMessage: SMS enviado com sucesso!
+        }
+        error {
+            errorMessage: Erro ao enviar SMS!
+        }
+        advanced {
+            executionMappingIdentifier: 2634457780303189546
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ENVIARSMS
+        }
+    )
+
+    process processa-saldos-das-faturas (
+        name: Processa saldos das Faturas
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vv number := 0;
+                begin
+                  --
+                  for v in ( select p.idpgtoforn
+                             from pagamentosfornecedores p
+                             where p.tipopagamento = 'D'
+                               and p.idcontabanc  = :P197_IDCONTABANCARIA
+                               and p.idfornecedor = :P197_IDFORNECEDOR
+                               and extract( year from p.dtvencimento ) >= 2019
+                               and exists ( select 1
+                                            from depositosdiarios d
+                                            where d.idpgtoforn = p.idpgtoforn 
+                                              and d.contabilizou is null )
+                             order by 1 desc )
+                  loop
+                    --
+                    vv := vv+1;
+                    --
+                    pck_financeiro_rmc.prc_atualiza_parcelas( v.idpgtoforn , null );
+                    --
+                    pck_financeiro_rmc.prc_atualiza_pagtoforn ( v.idpgtoforn );
+                    --
+                    pck_financeiro_rmc.prc_deleta_saldo_sem_pai;
+                    --
+                  end loop;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 40
+        }
+        advanced {
+            executionMappingIdentifier: 1507508110974266514
+        }
+    )
+
+    branch (
+        name: Go To Page 188
+        execution {
+            sequence: 11
+        }
+        behavior {
+            target: {
+                page: 188
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @close
+        }
+    )
+
+    branch (
+        name: Go To Page 197 - Empresa
+        execution {
+            sequence: 21
+        }
+        behavior {
+            target: {
+                page: 197
+                items: {
+                    P197_IDFILIAL: &P197_IDFILIAL.
+                    P197_IDCONTABANCARIA: &P197_IDCONTABANCARIA.
+                    P197_IDFORNECEDOR: &P197_IDFORNECEDOR.
+                    P197_IDENTIFICADO: &P197_IDENTIFICADO.
+                }
+            }
+        }
+    )
+
+)
+

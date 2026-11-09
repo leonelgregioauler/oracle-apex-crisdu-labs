@@ -1,0 +1,1455 @@
+page 704 (
+    name: Pix Santander - Relatórios
+    title: Pix Santander - Relatorios
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        authorizationScheme: @autoriza-pix-operador
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region conciliação-pendências (
+        name: Conciliação — pendências
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select px.idpix
+                     , px.idpgtoforn
+                     , pck_romance.fnc_nomefornecedor(pf.idfornecedor) fornecedor
+                     , px.valor
+                     , case px.status
+                         when 'PAYED'                then 'Pago no banco, sem baixa no ERP'
+                         when 'PENDING_CONFIRMATION' then 'Pendente no banco há mais de 1 dia'
+                         when 'AUTHORIZED'           then 'Autorizado, sem retorno do banco'
+                         when 'AUTORIZANDO'          then 'Autorizando há mais de 1 dia'
+                         when 'JA_PAGO_BANCO'        then 'Banco recusou: título já pago'
+                         when 'READY_TO_PAY'         then '(!) Fatura baixada e pagamento vivo no banco - risco de duplicidade'
+                         else px.status
+                       end situacao
+                     , to_char(coalesce(px.dt_retorno, px.dt_patch, px.dt_post),'DD/MM/RRRR HH24:MI') desde
+                     , substr(sc.beneficiario,1,25) conta_pagadora
+                  from pix_pagamentos px
+                       join pagamentosfornecedores pf on pf.idpgtoforn = px.idpgtoforn
+                       left join santander_contas sc on sc.idcontabanc = px.idcontapagamento
+                 where ( ( px.status = 'PAYED' and nvl(px.baixado,'N') = 'N' )
+                         or ( px.status in ('PENDING_CONFIRMATION','AUTHORIZED','AUTORIZANDO')
+                              and coalesce(px.dt_retorno, px.dt_patch, px.dt_post) < sysdate - 1 )
+                         or px.status = 'JA_PAGO_BANCO'
+                           -- fatura liquidada por outro canal com o pagamento ainda vivo no
+                           -- Santander: basta alguem autorizar para pagar duas vezes
+                         or ( px.status = 'READY_TO_PAY' and px.pix_payment_id is not null
+                              and pf.databaixa is not null ) )
+                   and ( :P704_DE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) >= to_date(:P704_DE,'DD/MM/RRRR') )
+                   and ( :P704_ATE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) <= to_date(:P704_ATE,'DD/MM/RRRR') )
+                   and ( :P704_CONTA  is null or px.idcontapagamento = :P704_CONTA )
+                   and ( :P704_FORMA  is null or px.forma = :P704_FORMA )
+                   and ( :P704_STATUS is null or :P704_STATUS = 'TODOS' or px.status = :P704_STATUS )
+                 order by px.valor desc
+                ```
+        }
+        layout {
+            sequence: 70
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--danger
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 50
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+
+        column CONTA_PAGADORA (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Conta pagadora
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DESDE (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Desde
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FORNECEDOR (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPGTOFORN (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Fatura
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPIX (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Pgto
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SITUACAO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+    )
+
+    region detalhamento (
+        name: Detalhamento
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select px.idpix
+                     , px.idpgtoforn
+                     , to_char(coalesce(px.dt_retorno, px.dt_patch, px.dt_post),'DD/MM/RRRR') data
+                     , pck_romance.fnc_nomefornecedor(pf.idfornecedor) fornecedor
+                     , (select nf.documento from notasfiscais nf
+                         where nf.idnotafiscal = pf.idnotafiscal) nrnf
+                     , nvl(fp.descricao, '(' || px.forma || ')') forma
+                     , px.valor
+                     , case px.status
+                         when 'PAYED'                then 'Pago'
+                         when 'PENDING_CONFIRMATION' then 'Pendente no banco'
+                         when 'READY_TO_PAY'         then 'Aguardando autorização'
+                         when 'AUTORIZANDO'          then 'Autorizando'
+                         when 'AUTHORIZED'           then 'Autorizado'
+                         when 'REJECTED'             then 'Rejeitado'
+                         when 'ERRO'                 then 'Erro'
+                         else px.status
+                       end status
+                     , decode(px.baixado,'S','Sim','Não') baixado
+                     , substr(sc.beneficiario,1,25) conta_pagadora
+                     , px.usuario_post enviou
+                     , px.usuario_patch autorizou
+                  from pix_pagamentos px
+                       join pagamentosfornecedores pf on pf.idpgtoforn = px.idpgtoforn
+                       left join formaspagamentos fp
+                              on fp.idformapagamento = nvl( pf.tipopagamento
+                                                          , (select v.tipopagamento from vencimentos v
+                                                              where v.idvencimento = pf.idvencimento) )
+                       left join santander_contas sc on sc.idcontabanc = px.idcontapagamento
+                 where 1 = 1
+                   and ( :P704_DE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) >= to_date(:P704_DE,'DD/MM/RRRR') )
+                   and ( :P704_ATE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) <= to_date(:P704_ATE,'DD/MM/RRRR') )
+                   and ( :P704_CONTA  is null or px.idcontapagamento = :P704_CONTA )
+                   and ( :P704_FORMA  is null or px.forma = :P704_FORMA )
+                   and ( :P704_STATUS is null or :P704_STATUS = 'TODOS' or px.status = :P704_STATUS )
+                 order by coalesce(px.dt_retorno, px.dt_patch, px.dt_post) desc, px.idpix desc
+                ```
+        }
+        layout {
+            sequence: 80
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent15
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 100
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        download {
+            csvExportEnabled: true
+        }
+
+        column AUTORIZOU (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Autorizou
+                alignment: center
+            }
+            layout {
+                sequence: 12
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column BAIXADO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Baixado
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CONTA_PAGADORA (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Conta pagadora
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DATA (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column ENVIOU (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Enviou
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FORMA (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Forma
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FORNECEDOR (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPGTOFORN (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Fatura
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPIX (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Pgto
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column NRNF (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Nota Fiscal
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column STATUS (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Status
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+            renderComponents: belowContent
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            outputAs: text
+        }
+    )
+
+    region maiores-fornecedores-no-período (
+        name: Maiores fornecedores no período
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefornecedor(pf.idfornecedor) fornecedor
+                     , count(*) qtd
+                     , sum(px.valor) valor
+                     , round(100 * ratio_to_report(sum(px.valor)) over (), 1) pct
+                  from pix_pagamentos px
+                       join pagamentosfornecedores pf on pf.idpgtoforn = px.idpgtoforn
+                 where px.status = 'PAYED'
+                   and ( :P704_DE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) >= to_date(:P704_DE,'DD/MM/RRRR') )
+                   and ( :P704_ATE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) <= to_date(:P704_ATE,'DD/MM/RRRR') )
+                   and ( :P704_CONTA  is null or px.idcontapagamento = :P704_CONTA )
+                   and ( :P704_FORMA  is null or px.forma = :P704_FORMA )
+                   and ( :P704_STATUS is null or :P704_STATUS = 'TODOS' or px.status = :P704_STATUS )
+                 group by pck_romance.fnc_nomefornecedor(pf.idfornecedor)
+                 order by 3 desc
+                 fetch first 20 rows only
+                ```
+        }
+        layout {
+            sequence: 60
+            slot: body
+            columnSpan: 12
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 20
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+
+        column FORNECEDOR (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column PCT (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: % do total
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G990D0
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column QTD (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Qtd
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 3
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+    )
+
+    region por-conta-pagadora (
+        name: Por conta pagadora
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select substr(sc.beneficiario,1,40) empresa
+                     , count(*) qtd
+                     , sum(px.valor) valor
+                     , round(100 * ratio_to_report(sum(px.valor)) over (), 1) pct
+                  from pix_pagamentos px
+                       left join santander_contas sc on sc.idcontabanc = px.idcontapagamento
+                 where px.status = 'PAYED'
+                   and ( :P704_DE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) >= to_date(:P704_DE,'DD/MM/RRRR') )
+                   and ( :P704_ATE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) <= to_date(:P704_ATE,'DD/MM/RRRR') )
+                   and ( :P704_CONTA  is null or px.idcontapagamento = :P704_CONTA )
+                   and ( :P704_FORMA  is null or px.forma = :P704_FORMA )
+                   and ( :P704_STATUS is null or :P704_STATUS = 'TODOS' or px.status = :P704_STATUS )
+                 group by substr(sc.beneficiario,1,40)
+                 order by 3 desc
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+            columnSpan: 6
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 50
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+
+        column EMPRESA (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column PCT (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: % do total
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G990D0
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column QTD (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Qtd
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 3
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+    )
+
+    region por-forma-de-pagamento (
+        name: Por forma de pagamento
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nvl(fp.descricao, '(' || px.forma || ')') forma
+                     , count(*) qtd
+                     , sum(px.valor) valor
+                     , round(100 * ratio_to_report(sum(px.valor)) over (), 1) pct
+                  from pix_pagamentos px
+                       join pagamentosfornecedores pf on pf.idpgtoforn = px.idpgtoforn
+                       left join formaspagamentos fp
+                              on fp.idformapagamento = nvl( pf.tipopagamento
+                                                          , (select v.tipopagamento from vencimentos v
+                                                              where v.idvencimento = pf.idvencimento) )
+                 where px.status = 'PAYED'
+                   and ( :P704_DE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) >= to_date(:P704_DE,'DD/MM/RRRR') )
+                   and ( :P704_ATE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) <= to_date(:P704_ATE,'DD/MM/RRRR') )
+                   and ( :P704_CONTA  is null or px.idcontapagamento = :P704_CONTA )
+                   and ( :P704_FORMA  is null or px.forma = :P704_FORMA )
+                   and ( :P704_STATUS is null or :P704_STATUS = 'TODOS' or px.status = :P704_STATUS )
+                 group by nvl(fp.descricao, '(' || px.forma || ')')
+                 order by 3 desc
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: body
+            startNewRow: false
+            columnSpan: 6
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 50
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+
+        column FORMA (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Forma
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column PCT (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: % do total
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G990D0
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column QTD (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Qtd
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 3
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+    )
+
+    region resumo-do-período (
+        name: Resumo do período
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vqtd    number;  vvalor number;  vmaior number;  vmedio number;
+                  verro   number;  vpend  number;  vpendv number;  vtotal number;  vpct number;
+                
+                  procedure cartao ( ptitulo in varchar2, pvalor in varchar2, psub in varchar2 ) is
+                  begin
+                    htp.p('<div style="background:#f7f7f7;border-radius:8px;padding:14px 16px">');
+                    htp.p('<div style="font-size:13px;color:#707070">' || ptitulo || '</div>');
+                    htp.p('<div style="font-size:24px;font-weight:500;margin-top:2px">' || pvalor || '</div>');
+                    htp.p('<div style="font-size:11px;color:#909090;margin-top:2px">' || psub || '</div>');
+                    htp.p('</div>');
+                  end cartao;
+                begin
+                  select count(case when px.status = 'PAYED' then 1 end)
+                       , nvl(sum(case when px.status = 'PAYED' then px.valor end), 0)
+                       , nvl(max(case when px.status = 'PAYED' then px.valor end), 0)
+                       , count(case when px.status in ('ERRO','REJECTED') then 1 end)
+                       , count(case when px.status in ('READY_TO_PAY','AUTORIZANDO','AUTHORIZED','PENDING_CONFIRMATION') then 1 end)
+                       , nvl(sum(case when px.status in ('READY_TO_PAY','AUTORIZANDO','AUTHORIZED','PENDING_CONFIRMATION')
+                                      then px.valor end), 0)
+                       , count(*)
+                    into vqtd, vvalor, vmaior, verro, vpend, vpendv, vtotal
+                    from pix_pagamentos px
+                   where 1 = 1
+                   and ( :P704_DE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) >= to_date(:P704_DE,'DD/MM/RRRR') )
+                   and ( :P704_ATE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) <= to_date(:P704_ATE,'DD/MM/RRRR') )
+                   and ( :P704_CONTA  is null or px.idcontapagamento = :P704_CONTA )
+                   and ( :P704_FORMA  is null or px.forma = :P704_FORMA )
+                   and ( :P704_STATUS is null or :P704_STATUS = 'TODOS' or px.status = :P704_STATUS );
+                
+                  vmedio := case when vqtd > 0 then vvalor / vqtd end;
+                  vpct   := case when vtotal > 0 then round(100 * vqtd / vtotal, 1) end;
+                
+                  htp.p('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;padding:12px">');
+                  cartao('Pago no período',
+                         'R$ ' || to_char(vvalor, 'FM999G999G999G990D00'),
+                         vqtd || ' pagamento(s)');
+                  cartao('Ticket médio',
+                         case when vmedio is null then '-' else 'R$ ' || to_char(vmedio, 'FM999G999G990D00') end,
+                         'maior: R$ ' || to_char(vmaior, 'FM999G999G990D00'));
+                  cartao('Taxa de sucesso',
+                         case when vpct is null then '-' else to_char(vpct, 'FM990D0') || '%' end,
+                         verro || ' com erro ou rejeitado');
+                  cartao('Aguardando',
+                         'R$ ' || to_char(vpendv, 'FM999G999G999G990D00'),
+                         vpend || ' em aberto');
+                  htp.p('</div>');
+                end;
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--noBorder
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region tempo-economizado-com-a-api (
+        name: Tempo economizado com a API
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  -- Premissas: minutos por pagamento em cada etapa. Manual: 1 minuto por
+                  -- operacao (agendar no sistema, pagar no banco, liquidar no sistema), medido
+                  -- pelo financeiro em 10/2026. API: estimativa (lote na 700 e na 701).
+                  c_conf     constant number := 2;      -- conferencia da despesa (igual nos dois fluxos)
+                  c_agd_man  constant number := 1;      -- agendar o pagamento no sistema
+                  c_agd_api  constant number := 10/60;  -- envio em lote na pagina 700 (10 s)
+                  c_ib_man   constant number := 1;      -- pagar o boleto no Internet Banking
+                  c_ib_api   constant number := 5/60;   -- autorizacao em lote na pagina 701 (5 s)
+                  c_bx_man   constant number := 1;      -- voltar ao sistema e liquidar a fatura
+                  c_bx_api   constant number := 0;     -- baixa automatica no retorno do banco
+                
+                  vman_pg  number := c_conf + c_agd_man + c_ib_man + c_bx_man;
+                  vapi_pg  number := c_conf + c_agd_api + c_ib_api + c_bx_api;
+                  veco_pg  number := vman_pg - vapi_pg;
+                  vapi     number := 0;
+                  vman     number := 0;
+                  vtot     number;
+                  vpct     number;
+                  vsem     number;
+                  vcom     number;
+                  vmeses   number := 0;
+                  vlinhas  varchar2(32767);
+                
+                  function fh ( pmin in number ) return varchar2 is
+                    vm number := round(nvl(pmin, 0));
+                  begin
+                    if vm < 60 then
+                      return vm || ' min';
+                    end if;
+                    return trunc(vm / 60) || 'h'
+                        || case when mod(vm, 60) > 0 then ' ' || lpad(mod(vm, 60), 2, '0') || 'min' end;
+                  end fh;
+                
+                  function fm ( pmin in number ) return varchar2 is
+                    vs number := round(nvl(pmin, 0) * 60);
+                  begin
+                    if vs < 60 then
+                      return vs || ' s';
+                    end if;
+                    return trunc(vs / 60) || ' min'
+                        || case when mod(vs, 60) > 0 then ' ' || mod(vs, 60) || ' s' end;
+                  end fm;
+                
+                  procedure cartao ( ptitulo in varchar2, pvalor in varchar2, psub in varchar2 ) is
+                  begin
+                    htp.p('<div style="background:#f7f7f7;border-radius:8px;padding:14px 16px">');
+                    htp.p('<div style="font-size:13px;color:#707070">' || ptitulo || '</div>');
+                    htp.p('<div style="font-size:24px;font-weight:500;margin-top:2px">' || pvalor || '</div>');
+                    htp.p('<div style="font-size:11px;color:#909090;margin-top:2px">' || psub || '</div>');
+                    htp.p('</div>');
+                  end cartao;
+                
+                  procedure etapa ( pnome in varchar2, pman in number, pdman in varchar2
+                                  , papi in number, pdapi in varchar2 ) is
+                  begin
+                    htp.p('<tr style="border-top:1px solid #e6e6e6">'
+                       || '<td style="padding:8px 6px">' || pnome || '</td>'
+                       || '<td style="padding:8px 6px;text-align:right;white-space:nowrap">' || fm(pman)
+                       || '<div style="font-size:11px;color:#909090;white-space:normal">' || pdman || '</div></td>'
+                       || '<td style="padding:8px 6px;text-align:right;white-space:nowrap">' || fm(papi)
+                       || '<div style="font-size:11px;color:#909090;white-space:normal">' || pdapi || '</div></td>'
+                       || '<td style="padding:8px 6px;text-align:right;white-space:nowrap;color:#2e7d32;font-weight:600">'
+                       || case when pman > papi then '-' || fm(pman - papi) else '-' end || '</td></tr>');
+                  end etapa;
+                
+                  procedure barra ( prot in varchar2, pmin in number, pmax in number, pcor in varchar2 ) is
+                  begin
+                    htp.p('<div style="margin-bottom:10px">'
+                       || '<div style="display:flex;justify-content:space-between;font-size:12px;color:#606060">'
+                       || '<span>' || prot || '</span><span style="font-weight:600;color:#2f2f2f">' || fh(pmin) || '</span></div>'
+                       || '<div style="background:#eee;border-radius:3px;height:14px;margin-top:3px">'
+                       || '<div style="background:' || pcor || ';border-radius:3px;height:14px;width:'
+                       || case when nvl(pmax, 0) = 0 then 0 else greatest(round(100 * pmin / pmax), 1) end
+                       || '%"></div></div></div>');
+                  end barra;
+                begin
+                  -- API: pagamentos liquidados pelo hub. Manual: faturas de boleto, Pix ou
+                  -- transferencia baixadas sem pagamento liquidado pela API (pagas no
+                  -- Internet Banking e confirmadas a mao).
+                  for r in ( select mes, sum(api) api, sum(man) man
+                               from ( select trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post), 'MM') mes
+                                           , 1 api, 0 man
+                                        from pix_pagamentos px
+                                       where px.status = 'PAYED'
+                                         and ( :P704_DE is null
+                                               or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) >= to_date(:P704_DE,'DD/MM/RRRR') )
+                                         and ( :P704_ATE is null
+                                               or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) <= to_date(:P704_ATE,'DD/MM/RRRR') )
+                                         and ( :P704_CONTA is null or px.idcontapagamento = :P704_CONTA )
+                                         and ( :P704_FORMA is null or px.forma = :P704_FORMA )
+                                      union all
+                                      select trunc(m.databaixa, 'MM'), 0, 1
+                                        from ( select pf.databaixa, pf.idcontapagamento
+                                                    , nvl(pf.tipopagamento,
+                                                          (select v.tipopagamento from vencimentos v
+                                                            where v.idvencimento = pf.idvencimento)) codforma
+                                                 from pagamentosfornecedores pf
+                                                where pf.databaixa is not null
+                                                  and pf.idcheque is null
+                                                  and ( :P704_DE is null or pf.databaixa >= to_date(:P704_DE,'DD/MM/RRRR') )
+                                                  and ( :P704_ATE is null or pf.databaixa < to_date(:P704_ATE,'DD/MM/RRRR') + 1 )
+                                                  and not exists ( select 1 from pix_pagamentos px
+                                                                    where px.idpgtoforn = pf.idpgtoforn
+                                                                      and px.status = 'PAYED' ) ) m
+                                       where m.codforma in ('B','E','H','T','I')
+                                         and ( :P704_CONTA is null or m.idcontapagamento = :P704_CONTA )
+                                         and ( :P704_FORMA is null
+                                               or ( :P704_FORMA = 'BOLETO' and m.codforma in ('B','E') )
+                                               or ( :P704_FORMA in ('DICT','BENEFICIARIO') and m.codforma in ('H','T','I') ) ) )
+                              group by mes
+                              order by mes desc )
+                  loop
+                    vapi   := vapi + r.api;
+                    vman   := vman + r.man;
+                    vmeses := vmeses + 1;
+                    if vmeses <= 12 then
+                      vlinhas := vlinhas
+                        || '<tr style="border-top:1px solid #e6e6e6">'
+                        || '<td style="padding:6px">' || to_char(r.mes, 'MM/YYYY') || '</td>'
+                        || '<td style="padding:6px;text-align:right">' || r.api || '</td>'
+                        || '<td style="padding:6px;text-align:right">' || r.man || '</td>'
+                        || '<td style="padding:6px;min-width:90px"><div style="background:#eee;border-radius:3px;height:10px">'
+                        || '<div style="background:#0572ce;border-radius:3px;height:10px;width:'
+                        || round(100 * r.api / greatest(r.api + r.man, 1)) || '%"></div></div>'
+                        || '<div style="font-size:11px;color:#707070">' || round(100 * r.api / greatest(r.api + r.man, 1)) || '%</div></td>'
+                        || '<td style="padding:6px;text-align:right;color:#2e7d32;font-weight:600">' || fh(r.api * veco_pg) || '</td>'
+                        || '</tr>';
+                    end if;
+                  end loop;
+                
+                  vtot := vapi + vman;
+                  vpct := case when vtot > 0 then round(100 * vapi / vtot) end;
+                  vsem := vtot * vman_pg;
+                  vcom := vapi * vapi_pg + vman * vman_pg;
+                
+                  htp.p('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;padding:12px">');
+                  cartao('Tempo economizado', fh(vapi * veco_pg),
+                         vapi || ' pagamento(s) pela API x ' || fm(veco_pg));
+                  cartao('Equivale a', to_char(vapi * veco_pg / 480, 'FM999G990D0') || ' dia(s)',
+                         'de trabalho (jornada de 8h)');
+                  cartao('Uso da API', case when vpct is null then '-' else vpct || '%' end,
+                         vapi || ' pela API e ' || vman || ' manual(is)');
+                  cartao('Ainda dá para economizar', fh(vman * veco_pg),
+                         'se os ' || vman || ' manuais fossem pela API');
+                  htp.p('</div>');
+                
+                  htp.p('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;padding:0 12px 12px">');
+                
+                  -- Etapas: manual x API
+                  htp.p('<div>');
+                  htp.p('<div style="font-size:13px;font-weight:600;margin-bottom:6px">Tempo por pagamento, etapa a etapa</div>');
+                  htp.p('<table style="width:100%;border-collapse:collapse;font-size:13px">'
+                     || '<tr style="color:#707070;font-size:12px"><th style="padding:6px;text-align:left">Etapa</th>'
+                     || '<th style="padding:6px;text-align:right">Manual</th>'
+                     || '<th style="padding:6px;text-align:right">Com a API</th>'
+                     || '<th style="padding:6px;text-align:right">Economia</th></tr>');
+                  etapa('1. Conferência da despesa', c_conf, 'igual nos dois fluxos', c_conf, 'igual nos dois fluxos');
+                  etapa('2. Agendamento do pagamento', c_agd_man, 'lançar e agendar a fatura',
+                        c_agd_api, 'envio em lote na página 700');
+                  etapa('3. Pagamento no banco', c_ib_man, 'digitar boleto ou chave no Internet Banking e assinar',
+                        c_ib_api, 'autorização em lote na página 701');
+                  etapa('4. Liquidação no sistema', c_bx_man, 'voltar ao sistema e liquidar a fatura',
+                        c_bx_api, 'baixa automática no retorno do banco');
+                  htp.p('<tr style="border-top:2px solid #c8c8c8;font-weight:600">'
+                     || '<td style="padding:8px 6px">Total por pagamento</td>'
+                     || '<td style="padding:8px 6px;text-align:right">' || fm(vman_pg) || '</td>'
+                     || '<td style="padding:8px 6px;text-align:right">' || fm(vapi_pg) || '</td>'
+                     || '<td style="padding:8px 6px;text-align:right;color:#2e7d32">-' || fm(veco_pg)
+                     || ' (' || round(100 * veco_pg / vman_pg) || '%)</td></tr>');
+                  htp.p('</table>');
+                  htp.p('<div style="font-size:11px;color:#909090;margin-top:6px">Premissas em minutos por pagamento. '
+                     || 'Manual = fatura de boleto, Pix ou transferência baixada sem pagamento pela API.</div>');
+                  htp.p('</div>');
+                
+                  -- Total do periodo + mes a mes
+                  htp.p('<div>');
+                  htp.p('<div style="font-size:13px;font-weight:600;margin-bottom:8px">Tempo gasto no período</div>');
+                  barra('Sem a API (tudo manual)', vsem, vsem, '#b0b0b0');
+                  barra('Com a API (realizado)', vcom, vsem, '#0572ce');
+                  if vmeses > 0 then
+                    htp.p('<div style="font-size:13px;font-weight:600;margin:14px 0 4px">Mês a mês'
+                       || case when vmeses > 12 then ' (últimos 12)' end || '</div>');
+                    htp.p('<table style="width:100%;border-collapse:collapse;font-size:13px">'
+                       || '<tr style="color:#707070;font-size:12px"><th style="padding:6px;text-align:left">Mês</th>'
+                       || '<th style="padding:6px;text-align:right">API</th>'
+                       || '<th style="padding:6px;text-align:right">Manual</th>'
+                       || '<th style="padding:6px;text-align:left">% API</th>'
+                       || '<th style="padding:6px;text-align:right">Economizado</th></tr>');
+                    htp.p(vlinhas);
+                    htp.p('</table>');
+                  else
+                    htp.p('<div style="color:#909090;font-size:13px">Nenhum pagamento no período.</div>');
+                  end if;
+                  htp.p('</div>');
+                
+                  htp.p('</div>');
+                end;
+                ```
+        }
+        layout {
+            sequence: 25
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region valor-pago-por-dia (
+        name: Valor pago por dia
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vmax number;
+                  vtem number := 0;
+                begin
+                  select nvl(max(t.v), 0) into vmax
+                    from ( select trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) d
+                                , sum(px.valor) v
+                             from pix_pagamentos px
+                            where px.status = 'PAYED'
+                   and ( :P704_DE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) >= to_date(:P704_DE,'DD/MM/RRRR') )
+                   and ( :P704_ATE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) <= to_date(:P704_ATE,'DD/MM/RRRR') )
+                   and ( :P704_CONTA  is null or px.idcontapagamento = :P704_CONTA )
+                   and ( :P704_FORMA  is null or px.forma = :P704_FORMA )
+                   and ( :P704_STATUS is null or :P704_STATUS = 'TODOS' or px.status = :P704_STATUS )
+                            group by trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) ) t;
+                
+                  htp.p('<div style="padding:16px 12px 12px">');
+                  if nvl(vmax, 0) = 0 then
+                    htp.p('<div style="color:#909090;font-size:13px">Nenhum pagamento liquidado no período.</div>');
+                  else
+                    -- Altura da barra em PIXEIS, nao em porcentagem: com align-items:flex-end as
+                    -- colunas nao esticam, e a porcentagem resolveria contra altura automatica
+                    -- (barra invisivel).
+                    htp.p('<div style="display:flex;align-items:flex-end;gap:8px">');
+                    for r in ( select trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) d
+                                    , sum(px.valor) v
+                                 from pix_pagamentos px
+                                where px.status = 'PAYED'
+                   and ( :P704_DE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) >= to_date(:P704_DE,'DD/MM/RRRR') )
+                   and ( :P704_ATE is null
+                         or trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post)) <= to_date(:P704_ATE,'DD/MM/RRRR') )
+                   and ( :P704_CONTA  is null or px.idcontapagamento = :P704_CONTA )
+                   and ( :P704_FORMA  is null or px.forma = :P704_FORMA )
+                   and ( :P704_STATUS is null or :P704_STATUS = 'TODOS' or px.status = :P704_STATUS )
+                                group by trunc(coalesce(px.dt_retorno, px.dt_patch, px.dt_post))
+                                order by 1 )
+                    loop
+                      vtem := vtem + 1;
+                      htp.p('<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;'
+                         || 'align-items:center;gap:5px" title="' || to_char(r.d,'DD/MM/RRRR') || ': R$ '
+                         || to_char(r.v,'FM999G999G990D00') || '">');
+                      htp.p('<span style="font-size:13px;font-weight:600;color:#2f2f2f;white-space:nowrap">'
+                         || case when r.v >= 1000000 then to_char(r.v/1000000, 'FM990D0') || ' mi'
+                                 when r.v >= 1000    then to_char(round(r.v/1000), 'FM999G990') || ' mil'
+                                 else to_char(round(r.v), 'FM990') end || '</span>');
+                      htp.p('<div style="width:100%;background:#0572ce;border-radius:3px 3px 0 0;height:'
+                         || greatest(round(150 * r.v / vmax), 6) || 'px"></div>');
+                      htp.p('<span style="font-size:12px;color:#606060">' || to_char(r.d,'DD/MM') || '</span>');
+                      htp.p('</div>');
+                    end loop;
+                    htp.p('</div>');
+                  end if;
+                  htp.p('</div>');
+                end;
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P704_ATE (
+        type: datePicker
+        label {
+            label: até
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 14
+        }
+    )
+
+    pageItem P704_CONTA (
+        type: selectList
+        label {
+            label: Conta pagadora
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select substr(sc.beneficiario,1,40) d, sc.idcontabanc r
+                  from santander_contas sc
+                 where sc.ativo = 'S'
+                 order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Todas -"
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P704_DE (
+        type: datePicker
+        label {
+            label: Período de
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 14
+        }
+    )
+
+    pageItem P704_FORMA (
+        type: selectList
+        label {
+            label: Meio
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Pix - chave;DICT,Pix - agência/conta;BENEFICIARIO,Boleto / DDA;BOLETO
+            displayExtraValues: false
+            nullDisplayValue: " - Todos -"
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P704_STATUS (
+        type: selectList
+        label {
+            label: Status
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Todos;TODOS,Pago;PAYED,Pendente no banco;PENDING_CONFIRMATION,Aguardando autorização;READY_TO_PAY,Rejeitado;REJECTED,Erro;ERRO
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: TODOS
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Filtrar
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        name: Go To Page 704
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 704
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

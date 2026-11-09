@@ -1,0 +1,2551 @@
+page 453 (
+    name: Consulta Documento
+    title: Consulta Documento
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region cliente (
+        name: Cliente
+        type: staticContent
+        layout {
+            sequence: 10
+            parentRegion: @dados-da-consulta
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+    )
+
+    region consulta-documento (
+        name: Consulta Documento
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region consulta-spc (
+        name: Consulta SPC
+        type: staticContent
+        layout {
+            sequence: 20
+            parentRegion: @dados-da-consulta
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+    )
+
+    region dados-da-consulta (
+        name: Dados da Consulta
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region dívida-ativa (
+        name: Dívida Ativa
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(idrepresentante) distribuidor
+                     , r.totalcheques
+                     , r.totalchequespago
+                     , r.totalcheques - r.totalchequespago saldocheques
+                     , r.cheques
+                     , r.pgtoscheques
+                     , r.cheques - pgtoscheques saldochequesdev
+                     , r.totalemprestimos
+                     , r.totalemprestimospago
+                     , r.totalemprestimos - r.totalemprestimospago saldoemprestimos
+                     , r.debitosromance
+                     , r.debitosfavorita
+                     , r.saldoacerto
+                     , r.saldodefeitos
+                     , case
+                         when r.saldoacerto >= 0 then
+                           ((r.totalcheques - r.totalchequespago)
+                           +(r.totalemprestimos - r.totalemprestimospago)
+                           +(r.cheques - pgtoscheques)
+                           + r.debitosromance
+                           + r.debitosfavorita
+                           + r.saldoacerto
+                           + r.saldodefeitos)
+                         when r.saldoacerto < 0 then
+                           ( (r.totalcheques - r.totalchequespago)
+                           + (r.totalemprestimos - r.totalemprestimospago)
+                           + (r.cheques - pgtoscheques)
+                           + r.debitosromance
+                           + r.debitosfavorita
+                           + r.saldodefeitos) 
+                       end dividatotal
+                     , case
+                         when r.saldoacerto < 0 then
+                           0
+                         else
+                           r.saldoacerto
+                       end saldoacertopositivo
+                     , r.saldobalanco
+                from ( 
+                       select idrepresentante
+                            , nvl(( select sum(c.VALOR) saldo
+                                    from CHEQUES2 c --------------------------------------------------------------------------------------------############################################
+                                    where c.semfundo = 'S'
+                                      and nvl(c.emprestimo,'N') = 'N'
+                                      and c.idrepresentante = r.idrepresentante ),0) totalcheques
+                            , nvl(( select sum(cp.valor)
+                                    from cheques2pgto cp --------------------------------------------------------------------------------------------############################################
+                                    where exists ( select 1
+                                                   from cheques2 c
+                                                   where c.idrepresentante = r.idrepresentante
+                                                     and c.semfundo        = 'S'
+                                                     and nvl(c.emprestimo,'N') = 'N'
+                                                     and c.idcheque        = cp.idcheque )),0) totalchequespago
+                            , nvl(( select sum(cc.valor)
+                                    from cheques2 cc --------------------------------------------------------------------------------------------############################################
+                                    where nvl(cc.semfundo,'N') = 'S'
+                                      and cc.emprestimo = 'S'
+                                      and cc.idrepresentante = r.idrepresentante),0) cheques
+                            , nvl(( select sum(pgc.valor)
+                                    from cheques2pgto pgc --------------------------------------------------------------------------------------------############################################
+                                    where exists ( select 1
+                                                   from cheques2 cc
+                                                   where nvl(cc.semfundo,'N') = 'S'
+                                                     and cc.emprestimo = 'S'
+                                                     and cc.idrepresentante = r.idrepresentante
+                                                     and cc.idcheque = pgc.idcheque )),0) pgtoscheques
+                            , nvl(( select sum(nvl(valor,0)+nvl(valorjuros,0))
+                                    from emprestimos e --------------------------------------------------------------------------------------------############################################
+                                    where e.idrepresentante = r.idrepresentante),0) totalemprestimos
+                            , nvl(( select sum(pe.valorpago)
+                                    from pagamentosemprestimos pe --------------------------------------------------------------------------------------------############################################
+                                    where exists ( select 1
+                                                   from emprestimos e
+                                                   where e.idrepresentante = r.idrepresentante
+                                                     and e.idemprestimo    = pe.idemprestimo )
+                                      and pe.data <= trunc(sysdate)),0) totalemprestimospago
+                            , nvl(( select sum(nv.saldo)
+                                    from notasvendas nv --------------------------------------------------------------------------------------------############################################
+                                    where nv.saldo > 0
+                                      --and nv.idsituacaocobranca = 70 -- Distribuidor Recebeu/Responsabilizou
+                                      and nv.idsituacaonotavenda in (4,5) -- 4 acerto efetuado / 5 cancelado
+                                      and nv.idvendedora = (select idvendedora 
+                                                              from vendedoras 
+                                                             where idpessoa = :P453_IDPESSOA )),0) debitosromance
+                            , nvl(( select f.saldo
+                                    from fechamentorepresentantes f --------------------------------------------------------------------------------------------############################################
+                                    where f.idfechamentorepres = ( select max(idfechamentorepres)
+                                                                   from fechamentorepresentantes ff
+                                                                   where ff.idrepresentante = r.idrepresentante
+                                                                     and exists ( select 1
+                                                                                  from fechamentossemanais fs
+                                                                                  where fs.idfechamento = ff.idfechamento
+                                                                                    and fs.concluido    = 'S' ))),0) saldoacerto
+                            , nvl(( select sum( ((( nvl(ii.qtd_pp,0)
+                                                  + nvl(ii.qtd_p,0)
+                                                  + nvl(ii.qtd_m,0)
+                                                  + nvl(ii.qtd_g,0)
+                                                  + nvl(ii.qtd_gg,0)
+                                                  + nvl(ii.qtd_egg,0)
+                                                  + nvl(ii.qtd_exgg,0)
+                                                  + nvl(ii.qtd_u,0) ) * ii.valorproduto )*decode(ii.comissao,'S',0.6,1))
+                                               - 
+                                               ((( nvl(ii.qtd_pp,0) 
+                                                  + nvl(ii.qtd_p,0)
+                                                  + nvl(ii.qtd_m,0)
+                                                  + nvl(ii.qtd_g,0)
+                                                  + nvl(ii.qtd_gg,0)
+                                                  + nvl(ii.qtd_egg,0)
+                                                  + nvl(ii.qtd_exgg,0)
+                                                  + nvl(ii.qtd_u,0) ) * ii.valorproduto )*decode(ii.comissao,'S',0.6,1))*nvl((select c.percpromotor
+                                                                                                                             from comissoesfiliais c
+                                                                                                                                , fechamentorepresentantes fe
+                                                                                                                             where fe.idrepresentante = d.idrepresentante
+                                                                                                                               and fe.semana          = d.semana
+                                                                                                                               and c.idcomissaofilial = fe.idcomissao
+                                                                                                                               and rownum = 1)/100,0.2))
+                                    from itensdevolucaorepres ii
+                                       , devolucoesrepresentantes d
+                                    where ii.origemdefeito = 'R'
+                                      and ii.iddefeito         is not null
+                                      and ii.idfechamentoreprespago is null
+                                      and ii.situacaodefeito is null
+                                      and d.iddevolucaorepres = ii.iddevolucaorepres
+                                      and d.idrepresentante   = r.idrepresentante 
+                                      and d.idsemana         >= 668 ),0) saldodefeitos
+                            , nvl((select b.valororiginal valor
+                                     from catal.boletos b
+                                    where b.situacao in ('V','G','S','M','K','E')
+                                      and b.idvendedora = (select idvendedora 
+                                                             from vendedoras 
+                                                            where idpessoa        = :P453_IDPESSOA 
+                                                              and idrepresentante = r.idrepresentante)),0)
+                             + nvl((select sum(p.valorapagar - p.valorpago)
+                                      from favorita.vw_pedidos_fav p
+                                     where p.idvendedora = (select idvendedora 
+                                                              from vendedoras 
+                                                             where idpessoa        = :p453_idpessoa
+                                                               and idrepresentante = r.idrepresentante)
+                                       and exists ( select 1
+                                                      from favorita.vencimentospedidos v
+                                                     where v.idpedido           = p.idpedido
+                                                       and v.datavencimento     < sysdate
+                                                       and v.valorpago          < v.valorpagar
+                                                       and v.situacaovencimento = 'V')
+                                       and p.datacancelamento is null
+                                       and not exists ( select 1 
+                                                          from favorita.classificacoespedidos c
+                                                         where c.idpedido = p.idpedido
+                                                           and c.idcaracteristicapedido = 46 ) -- Incobrável
+                                       and p.ididioma = 1),0) debitosfavorita
+                            , nvl((select sum(n.saldo)
+                                   from vw_negociacoes_rmc n
+                                   where n.idtiponegociacao = 3 -- Balanço 
+                                   and n.idrepresentante = r.idrepresentante),0) saldobalanco 
+                       from representantes r
+                       where r.idrepresentante = :P453_IDREPRESENTANTE
+                         and r.idgerente = ( select idgerente
+                                             from gerentes g
+                                             where g.idfilial = :P453_IDFILIAL ) )  r;
+                ```
+        }
+        layout {
+            sequence: 40
+            parentRegion: @dados-da-consulta
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        messages {
+            whenNoDataFound: Nenhum débito encontrado.
+        }
+
+        column CHEQUES (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Cheques
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column DEBITOSFAVORITA (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Débitos Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 12
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column DEBITOSROMANCE (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Débitos Romance
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column DISTRIBUIDOR (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+        )
+
+        column DIVIDATOTAL (
+            reportColumnQueryId: 15
+            derivedColumn: N
+            heading {
+                heading: Divida Total
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column PGTOSCHEQUES (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Pgtos Cheques
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column SALDOACERTO (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            heading {
+                heading: Saldo Acerto
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column SALDOACERTOPOSITIVO (
+            reportColumnQueryId: 16
+            derivedColumn: N
+            heading {
+                heading: Saldo Acerto Positivo
+                alignment: center
+            }
+            layout {
+                sequence: 16
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column SALDOBALANCO (
+            reportColumnQueryId: 17
+            derivedColumn: N
+            heading {
+                heading: Saldo Balanço
+                alignment: center
+            }
+            layout {
+                sequence: 17
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column SALDOCHEQUES (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Saldo Cheques
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column SALDOCHEQUESDEV (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Saldo Cheques Devolvidos
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column SALDODEFEITOS (
+            reportColumnQueryId: 14
+            derivedColumn: N
+            heading {
+                heading: Saldo Defeitos
+                alignment: center
+            }
+            layout {
+                sequence: 14
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column SALDOEMPRESTIMOS (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Saldo Empréstimos
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column TOTALCHEQUES (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Total Cheques
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column TOTALCHEQUESPAGO (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Total Cheques Pago
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column TOTALEMPRESTIMOS (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Total Empréstimos
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column TOTALEMPRESTIMOSPAGO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Total Empréstimos Pago
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+    )
+
+    region histórico-aprovações (
+        name: Histórico Aprovações
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ha.idhistoricosaprovacoes
+                     , ha.idpessoa
+                     , ha.documento
+                     , ha.datahistorico
+                     , decode(ha.situacao,'A','Aprovado','Reprovado') situacao
+                     , ha.observacao
+                     , cpf
+                  from historicosaprovacoes ha
+                 where ha.cpf = replace(replace(:P453_CPF,'.',''),'-','')
+                 order by 1 desc
+                ```
+        }
+        layout {
+            sequence: 40
+            parentRegion: @consulta-spc
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--accent2
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from historicosaprovacoes ha
+                 where ha.cpf = replace(replace(:P453_CPF,'.',''),'-','')
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 1507247305037384921
+        }
+
+        column CPF (
+            type: hidden
+            heading {
+                heading: Cpf
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DATAHISTORICO (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DOCUMENTO (
+            type: hidden
+            heading {
+                heading: Documento
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDHISTORICOSAPROVACOES (
+            type: hidden
+            heading {
+                heading: Idhistoricosaprovacoes
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDPESSOA (
+            type: hidden
+            heading {
+                heading: Idpessoa
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column SITUACAO (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        savedReport 15073697 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CPF (
+                sequence: 7
+            )
+
+            displayColumn DATAHISTORICO (
+                sequence: 4
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 3
+            )
+
+            displayColumn IDHISTORICOSAPROVACOES (
+                sequence: 1
+            )
+
+            displayColumn IDPESSOA (
+                sequence: 2
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 6
+            )
+
+            displayColumn SITUACAO (
+                sequence: 5
+            )
+
+        )
+
+    )
+
+    region informações-da-consulta-ao-spc (
+        name: Informações da Consulta ao SPC
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select c.dataconsulta
+                     , c.protocolo
+                     , c.regiaocpf
+                     , c.situacaocpf
+                     , c.nome
+                     , c.nomemae
+                     , case
+                         when spc_quantidade > 0 then
+                           '<font color="red"><b>'||spc_quantidade||'</b></font>'
+                         else
+                           '<font color="blue"><b>'||spc_quantidade||'</b></font>'
+                       end spc_quantidade
+                     , case
+                         when spc_quantidade > 0 then
+                           '<font color="red"><b>'||spc_quantidade||'</b></font>'
+                         else
+                           '<font color="blue"><b>'||spc_quantidade||'</b></font>'
+                       end spc_quantidade_franquias
+                     , c.spc_valortotal
+                     , decode(c.restricao,'S','Possui Restrição','Sem Restrição') restricao
+                     , idconsultaspc
+                     , datanascimento
+                     , case
+                         when ccf > 0 then
+                           '<font color="red"><b>'||ccf||'</b></font>'
+                         else
+                           '<font color="blue"><b>'||ccf||'</b></font>'
+                       end ccf
+                from consultaspc c
+                where c.cpf = replace(replace(:P453_CPF,'.',''),'-','')
+                order by 1 desc
+                ```
+            pageItemsToSubmit: P453_CPF
+        }
+        layout {
+            sequence: 20
+            parentRegion: @consulta-spc
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--accent2
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from consultaspc c
+                where c.cpf = replace(replace(:P453_CPF,'.',''),'-','')
+                ```
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--stretch
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        messages {
+            whenNoDataFound: Nenhuma consulta encontrada.
+        }
+
+        column CCF (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            type: link
+            heading {
+                heading: CCF
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            link {
+                target: {
+                    page: 463
+                    items: {
+                        P463_IDCONSULTASPC: #IDCONSULTASPC#
+                    }
+                    action: resetPagination
+                }
+                linkText: #CCF#
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DATACONSULTA (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Data Consulta
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DATANASCIMENTO (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Data Nascimento
+                alignment: center
+            }
+            layout {
+                sequence: 12
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDCONSULTASPC (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 11
+            }
+        )
+
+        column NOME (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Nome
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column NOMEMAE (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Nome Mãe
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column PROTOCOLO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Protocolo
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column REGIAOCPF (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Região CPF
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column RESTRICAO (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Restrição
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SITUACAOCPF (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Situação CPF
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SPC_QUANTIDADE (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            type: link
+            heading {
+                heading: SPC Quantidade
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            link {
+                target: {
+                    page: 458
+                    items: {
+                        P458_IDCONSULTASPC: #IDCONSULTASPC#
+                    }
+                    action: resetPagination
+                }
+                linkText: #SPC_QUANTIDADE#
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SPC_QUANTIDADE_FRANQUIAS (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: SPC Quantidade Franquias
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SPC_VALORTOTAL (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: SPC Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region negociações (
+        name: Negociações
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select w.data
+                     , w.valortotal valor
+                     , w.valorjuros
+                     , w.valortotal
+                     , w.valorpago
+                     , w.saldo
+                     , w.parcelas
+                     , w.observacao
+                     , w.idfilial
+                     , w.idrepresentante
+                     , w.idnegociacao
+                from vw_negociacoes_rmc w
+                where w.idpessoa = :P453_IDPESSOA
+                  and w.idtiponegociacao = 1 -- carro
+                order by 6 desc
+                ```
+        }
+        layout {
+            sequence: 10
+            parentRegion: @negociações-realizadas
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from negociacoes n
+                 where n.idpessoa = :P453_IDPESSOA
+                ```
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        messages {
+            whenNoDataFound: Nenhuma negociação encontrada.
+        }
+
+        column DATA (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            appearance {
+                formatMask: dd/mm/yyyy
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDFILIAL (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 9
+            }
+        )
+
+        column IDNEGOCIACAO (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 11
+            }
+        )
+
+        column IDREPRESENTANTE (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 10
+            }
+        )
+
+        column OBSERVACAO (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column PARCELAS (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Parcelas
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SALDO (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALORJUROS (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Valor Juros
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALORPAGO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALORTOTAL (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region negociações-balanço (
+        name: Negociações Balanço
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nb.data
+                     , nb.valor
+                     , nb.valorjuros
+                     , nb.valordescontonegociacao
+                     , nb.observacao descricao
+                     , nb.idfilial
+                     , nb.idrepresentante
+                  from negociacoesbalanco nb
+                 where nb.idrepresentante = :P453_IDREPRESENTANTE
+                   and nb.cancelado = 'N'
+                ```
+        }
+        layout {
+            sequence: 30
+            parentRegion: @negociações-realizadas
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from negociacoesbalanco nb
+                 where nb.idrepresentante = :P453_IDREPRESENTANTE
+                ```
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        messages {
+            whenNoDataFound: Nenhuma negociação encontrada.
+        }
+
+        column DATA (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            appearance {
+                formatMask: dd/mm/yyyy
+            }
+        )
+
+        column DESCRICAO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Descrição
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+        )
+
+        column IDFILIAL (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 6
+            }
+        )
+
+        column IDREPRESENTANTE (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 7
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column VALORDESCONTONEGOCIACAO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Valor Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column VALORJUROS (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Valor Juros
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+    )
+
+    region negociações-parceiros (
+        name: Negociações Parceiros
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select np.datanegociacao
+                     , np.valornegociacao
+                     , np.valorabatido
+                     , np.valorjuros
+                     , np.valororiginal
+                     , np.valoratualizado
+                     , np.valordesconto
+                     , np.valorpago
+                     , np.qtdparcelas
+                     , np.observacao
+                     , np.idfilial
+                     , np.idrepresentante
+                     , np.idnegociacaoparceiro
+                  from negociacoesparceiros np
+                     , vendedoras ve
+                 where np.idvendedora     = ve.idvendedora
+                   and np.idrepresentante = ve.idrepresentante
+                   and ve.idpessoa        = :P453_IDPESSOA
+                ```
+        }
+        layout {
+            sequence: 20
+            parentRegion: @negociações-realizadas
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from negociacoesparceiros np
+                     , vendedoras ve
+                 where np.idvendedora     = ve.idvendedora
+                   and np.idrepresentante = ve.idrepresentante
+                   and ve.idpessoa        = :P453_IDPESSOA
+                ```
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        messages {
+            whenNoDataFound: Nenhuma negociação encontrada.
+        }
+
+        column DATANEGOCIACAO (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            appearance {
+                formatMask: dd/mm/yyyy
+            }
+        )
+
+        column IDFILIAL (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 11
+            }
+        )
+
+        column IDNEGOCIACAOPARCEIRO (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 13
+            }
+            serverSideCondition {
+                type: pageRegionIsReadOnly
+            }
+        )
+
+        column IDREPRESENTANTE (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 12
+            }
+        )
+
+        column OBSERVACAO (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+        )
+
+        column QTDPARCELAS (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Parcelas
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+        )
+
+        column VALORABATIDO (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Valor Abatido
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column VALORATUALIZADO (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Valor Atualizado
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column VALORDESCONTO (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Valor Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column VALORJUROS (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Valor Juros
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column VALORNEGOCIACAO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column VALORORIGINAL (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Valor Original
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column VALORPAGO (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+    )
+
+    region negociações-realizadas (
+        name: Negociações Realizadas
+        type: staticContent
+        layout {
+            sequence: 50
+            parentRegion: @dados-da-consulta
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+    )
+
+    region rejeição-de-cpf (
+        name: Rejeição de CPF
+        type: staticContent
+        layout {
+            sequence: 30
+            parentRegion: @consulta-spc
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    pageItem P453_CPF (
+        type: textField
+        label {
+            label: CPF
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @consulta-documento
+            slot: regionBody
+            alignment: left
+            columnSpan: 2
+            labelColumnSpan: 1
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 11
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P453_CPFPESSOA (
+        type: hidden
+        layout {
+            sequence: 50
+            region: @cliente
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P453_CPF_MD5 (
+        type: hidden
+        layout {
+            sequence: 120
+            region: @cliente
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P453_DATANASCIMENTO (
+        type: displayOnly
+        label {
+            label: Nascimento
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P453_FRANQUIA (
+        type: displayOnly
+        label {
+            label: Franquia
+            alignment: left
+        }
+        layout {
+            sequence: 60
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P453_IDFILIAL (
+        type: hidden
+        layout {
+            sequence: 20
+            region: @consulta-documento
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: 1104
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P453_IDFUNCIONARIO (
+        type: hidden
+        layout {
+            sequence: 80
+            region: @cliente
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P453_IDPESSOA (
+        type: displayOnly
+        label {
+            label: Cód. Pessoa
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P453_IDREPRESENTANTE (
+        type: hidden
+        layout {
+            sequence: 90
+            region: @cliente
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P453_NOMEPESSOA (
+        type: displayOnly
+        label {
+            label: Cliente
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P453_OBSERVACAO_CPF (
+        type: textarea
+        label {
+            label: Observação CPF
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @rejeição-de-cpf
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--xlarge
+            ]
+            width: 30
+            height: 5
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P453_TELEFONES (
+        type: displayOnly
+        label {
+            label: Telefones
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button aprovar (
+        buttonName: APROVAR
+        label: Aprovar
+        layout {
+            sequence: 30
+            region: @consulta-spc
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 457
+                items: {
+                    P457_CPF: &P453_CPF.
+                    P457_IDPESSOA: &P453_IDPESSOA.
+                    P457_APROVA_REPROVA: A
+                    P457_TITULO: APROVAR
+                }
+                clearCache: 457
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from consultaspc c
+                where c.cpf = replace(replace(:P453_CPF,'.',''),'-','')
+                ```
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Pesquisar
+        layout {
+            sequence: 60
+            region: @consulta-documento
+            slot: regionBody
+            startNewRow: false
+            columnSpan: 3
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button reprovar (
+        buttonName: REPROVAR
+        label: Reprovar
+        layout {
+            sequence: 20
+            region: @consulta-spc
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--danger
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 457
+                items: {
+                    P457_IDPESSOA: &P453_IDPESSOA.
+                    P457_CPF: &P453_CPF.
+                    P457_APROVA_REPROVA: R
+                    P457_TITULO: REPROVAR
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from consultaspc c
+                where c.cpf = replace(replace(:P453_CPF,'.',''),'-','')
+                ```
+        }
+    )
+
+    button spc (
+        buttonName: SPC
+        label: Consultar ao SPC
+        layout {
+            sequence: 10
+            region: @cliente
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P453_CPF
+        }
+    )
+
+    dynamicAction botão-spc (
+        name: Botão SPC
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P453_IDPESSOA
+        }
+        clientSideCondition {
+            type: itemIsNotNull
+            item: P453_IDPESSOA
+        }
+    )
+
+    dynamicAction consulta-spc (
+        name: Consulta SPC
+        execution {
+            sequence: 50
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @spc
+        }
+
+        action native-execute-plsql-code (
+            action: executeServerSideCode
+            settings {
+                plsqlCode:
+                    ```plsql
+                    declare
+                    vretorno varchar2(2000);
+                    begin
+                    select sys.utl_http.request('http://192.168.201.59:15084/'||:P453_CPF||'/'||:P453_CPF_MD5||'/'||:P0_IDFILIAL||'/'||v('APP_USER')||'/?prod=true')
+                      into vretorno
+                      from dual
+                     where :P453_CPF is not null;
+                    end;
+                    -- Nao tem suporte para homolog
+                    -- Para banco desenv usar:   sys.utl_http.request('http://192.168.201.59:15084/'||:P453_CPF||'/'||:P453_CPF_MD5||'/'||:P0_IDFILIAL||'/'||v('APP_USER')||'/?prod=true')
+                    -- Para banco Produção usar: sys.utl_http.request('http://192.168.201.59:15084/'||:P453_CPF||'/'||:P453_CPF_MD5||'/'||:P0_IDFILIAL||'/'||v('APP_USER')||'/?dev=true')
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction seleciona-cpf (
+        name: Seleciona CPF
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P453_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P453_TIPO
+            value: C
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P453_CPF
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P453_CPF
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction seleciona-doc-estrangeiro (
+        name: Seleciona Doc Estrangeiro
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P453_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P453_TIPO
+            value: D
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P453_DOCUMENTOESTRANGEIRO
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P453_DOCUMENTOESTRANGEIRO
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    validation aprova-cpf (
+        name: Aprova CPF
+        execution {
+            sequence: 20
+        }
+        validation {
+            plsqlExpression: :P453_OBSERVACAO_CPF is not null
+        }
+        error {
+            errorMessage: Observação é obrigatória!
+            associatedItem: @P453_OBSERVACAO_CPF
+        }
+        serverSideCondition {
+            whenButtonPressed: @aprovar
+        }
+    )
+
+    validation falta-numeros-cpf (
+        name: Falta numeros CPF
+        execution {
+            sequence: 40
+        }
+        validation {
+            type: noRowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from dual
+                  where length(:P453_CPF) < 11;
+                ```
+        }
+        error {
+            errorMessage: CPF incorreto, falta número.
+            associatedItem: @P453_CPF
+        }
+    )
+
+    validation muitos-numeros-cpf (
+        name: Muitos Numeros CPF
+        execution {
+            sequence: 50
+        }
+        validation {
+            type: noRowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from dual
+                  where length(:P453_CPF) > 11;
+                ```
+        }
+        error {
+            errorMessage: CPF incorreto, muitos números.
+            associatedItem: @P453_CPF
+        }
+    )
+
+    validation rejeita-cpf (
+        name: Rejeita CPF
+        execution {
+            sequence: 30
+        }
+        validation {
+            plsqlExpression: :P453_OBSERVACAO_CPF is not null
+        }
+        error {
+            errorMessage: Observação é obrigatória!
+            associatedItem: @P453_OBSERVACAO_CPF
+        }
+        serverSideCondition {
+            whenButtonPressed: @reprovar
+        }
+    )
+
+    validation valida-vazio (
+        name: Valida Vazio
+        execution {
+            sequence: 10
+        }
+        validation {
+            plsqlExpression: :P453_CPF is not null
+        }
+        error {
+            errorMessage: CPF deve ser informado.
+            associatedItem: @P453_CPF
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+    process carrega-informações-da-pagina (
+        name: Carrega Informações da Pagina
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  cursor c_pessoa is
+                    select p.idpessoa
+                         , p.nomepessoa
+                         , p.datanascimento
+                         , (select listagg(translate(t.telefone,'0123456789AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvXxYyWwZz_-,.  !@#$%?&*()/??','0123456789'),' ') within group (order by 1)
+                              from telefonespessoas t
+                             where t.idpessoa = p.idpessoa) telefones
+                         , p.cpf
+                         , (SELECT md5(p.cpf) FROM dual)md5_cpf
+                      from pessoas p
+                    where (p.cpf = :P453_CPF);
+                  r_pessoa c_pessoa%rowtype;
+                  --
+                  v_franquia varchar2(200);
+                  --
+                begin
+                  --
+                  :P453_idpessoa        := null;
+                  :P453_nomepessoa      := null;
+                  :P453_datanascimento  := null;
+                  :P453_telefones       := null;
+                  :P453_cpfpessoa       := null;
+                  :P453_cpf_md5         := null;
+                  :P453_FRANQUIA        := null;
+                  :P453_IDREPRESENTANTE := null;
+                  --
+                  open c_pessoa;
+                  fetch c_pessoa into r_pessoa;
+                  --
+                  :P453_idpessoa       := r_pessoa.idpessoa;
+                  :P453_nomepessoa     := nvl(r_pessoa.nomepessoa,'Não Encontrado');
+                  :P453_datanascimento := r_pessoa.datanascimento;
+                  :P453_telefones      := r_pessoa.telefones;
+                  :P453_cpfpessoa      := r_pessoa.cpf;
+                  :P453_cpf_md5        := r_pessoa.md5_cpf;
+                  :P453_FRANQUIA       := v_franquia;
+                  --
+                  close c_pessoa;
+                  --
+                  if :P453_idpessoa is not null then
+                    --
+                    -- ##### BUSCA VENDEDORA  #####
+                    begin
+                      --
+                      select ve.idrepresentante
+                        into :P453_IDREPRESENTANTE
+                        from vendedoras ve
+                       where ve.idpessoa = :P453_idpessoa;
+                      --
+                    end;
+                    --
+                    if :P453_IDREPRESENTANTE is not null then
+                        --
+                        v_franquia := null;
+                        --
+                          select p.nomepessoa
+                               , g.idfilial
+                            into v_franquia
+                               , :P453_IDFILIAL
+                            from representantes r
+                               , gerentes g
+                               , filiais f
+                               , pessoas p
+                           where r.idgerente = g.idgerente
+                             and g.idfilial  = f.idfilial
+                             and f.idpessoa  = p.idpessoa
+                             and r.idrepresentante = :P453_IDREPRESENTANTE;
+                        --
+                    end if;
+                    --
+                    -- ##### BUSCA FUNCIONARIO #####
+                    if v_franquia is null then
+                      --
+                        begin
+                        --
+                        select f.idfuncionario
+                            into :P453_idfuncionario
+                            from funcionarios f
+                        where f.idpessoa = :P453_idpessoa
+                            and f.ativo    = 'S';
+                        --
+                        exception when no_data_found then
+                        --
+                        :P453_idfuncionario := null;
+                        --
+                        end;
+                        --
+                        begin
+                        --
+                        if :P453_idfuncionario is not null then
+                            --
+                            v_franquia := null;
+                            --
+                            select p.nomepessoa
+                                , g.idfilial
+                            into v_franquia
+                                , :P453_IDFILIAL
+                            from funcionarios ff
+                                , gerentes g
+                                , filiais f
+                                , pessoas p
+                            where ff.idgerente = g.idgerente
+                            and g.idfilial  = f.idfilial
+                            and f.idpessoa  = p.idpessoa
+                            and ff.idfuncionario = :P453_idfuncionario;
+                            --
+                        end if;
+                        --
+                        exception when no_data_found then
+                        --
+                        :P453_FRANQUIA := null;
+                        end;
+                      --
+                    end if;
+                    -- ##### BUSCA REPRESENTANTE #####
+                    if v_franquia is null then
+                      --
+                        begin
+                        --
+                        select r.idrepresentante
+                            into :P453_IDREPRESENTANTE
+                            from representantes r
+                        where r.idpessoa = :P453_idpessoa
+                            and r.ativo    = 'S';
+                        --
+                        exception when no_data_found then
+                        --
+                        :P453_IDREPRESENTANTE := null;
+                        --
+                        end;
+                        --
+                        begin
+                        --
+                        if :P453_IDREPRESENTANTE is not null then
+                            --
+                            v_franquia := null;
+                            --
+                            select p.nomepessoa
+                                , g.idfilial
+                                into v_franquia
+                                , :P453_IDFILIAL
+                                from representantes r
+                                , gerentes g
+                                , filiais f
+                                , pessoas p
+                            where r.idgerente = g.idgerente
+                                and g.idfilial  = f.idfilial
+                                and f.idpessoa  = p.idpessoa
+                                and r.idrepresentante = :P453_IDREPRESENTANTE;
+                            --
+                        end if;
+                        --
+                        exception when no_data_found then
+                        --
+                        :P453_FRANQUIA := null;
+                        :P453_IDREPRESENTANTE := null;
+                        end;
+                      --
+                    end if;
+                    --
+                    :P453_FRANQUIA := v_franquia;
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 1505223979675061618
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+    process insere-histórico-aprovações (
+        name: Insere Histórico Aprovações
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidhistoricosaprovacoes historicosaprovacoes.idhistoricosaprovacoes%type;
+                  vidpessoa               historicosaprovacoes.idpessoa%type;
+                  vdocumento              historicosaprovacoes.documento%type;
+                  vdatahistorico          historicosaprovacoes.datahistorico%type;
+                  vsituacao               historicosaprovacoes.situacao%type;
+                  vobservacao             historicosaprovacoes.observacao%type;
+                  vmd5                    varchar2(1000);
+                  voperacao_dml           varchar2(1) := 'I';
+                  --
+                begin
+                  --
+                  if v('REQUEST') = 'APROVAR' then
+                    vsituacao     := 'A';
+                    elsif v('REQUEST') = 'REPROVAR' then
+                    vsituacao      := 'R';
+                  end if;
+                  --
+                  if :P453_OBSERVACAO_CPF is null then
+                    --
+                    raise_application_error(-20000,'Informe uma observação');
+                    --
+                  end if;
+                  --
+                  vidpessoa      := :P453_idpessoa;
+                  vdocumento     := :P453_CPF;
+                  vdatahistorico := sysdate;
+                  vobservacao    := :P453_OBSERVACAO_CPF;
+                  --
+                  if voperacao_dml = 'I' then
+                    --
+                    pck_cadastros_rmc.prc_historicosaprovacoes ( pidhistoricosaprovacoes => vidhistoricosaprovacoes
+                                                               , pidpessoa               => vidpessoa
+                                                               , pdocumento              => vdocumento
+                                                               , pdatahistorico          => vdatahistorico
+                                                               , psituacao               => vsituacao
+                                                               , pobservacao             => vobservacao
+                                                               , pmd5                    => vmd5
+                                                               , poperacao_dml           => voperacao_dml );
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 1505669871182836501
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where v('REQUEST') in ('APROVAR','REPROVAR')
+                ```
+        }
+    )
+
+)
+

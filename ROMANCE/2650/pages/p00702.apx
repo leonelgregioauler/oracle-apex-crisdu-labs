@@ -1,0 +1,922 @@
+page 702 (
+    name: Pix Santander - Acompanhamento
+    title: Pix Santander - Acompanhamento
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        authorizationScheme: @autoriza-pix-operador
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+            renderComponents: belowContent
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            outputAs: text
+        }
+    )
+
+    region pagamentos-pix-santander (
+        name: Pagamentos Pix Santander
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select apex_item.checkbox2(1, px.idpix
+                                          , p_attributes => decode(:P702_MARCARTODOS,'S','CHECKED',null) ) sel
+                     , px.idpix
+                     , px.idpgtoforn
+                     , pck_romance.fnc_nomefornecedor(pf.idfornecedor) fornecedor
+                     , to_char(px.valor,'FM999G999G999G990D00') valor
+                     , case px.status
+                         when 'READY_TO_PAY'         then 'Aguardando autorização'
+                         when 'AUTORIZANDO'          then 'Autorizando (em segundo plano)'
+                         when 'JA_PAGO_BANCO'       then '(!) Banco: titulo ja pago - conferir extrato'
+                         when 'AUTHORIZED'           then 'Autorizado, processando'
+                         when 'PENDING_CONFIRMATION' then 'Pendente no banco'
+                         when 'PAYED'                then 'Pago'
+                         when 'REJECTED'             then 'Rejeitado'
+                         when 'ERRO'                 then 'Erro de comunicação'
+                         else px.status
+                       end situacao
+                     , substr(px.reject_reason,1,100) motivo_rejeicao
+                     , decode(px.baixado,'S','Sim','Não') baixado
+                     , to_char(px.dt_post,'DD/MM HH24:MI')    enviado
+                     , to_char(px.dt_patch,'DD/MM HH24:MI')   autorizado
+                     , to_char(px.dt_retorno,'DD/MM HH24:MI') retorno
+                     , px.usuario_post
+                     , px.usuario_patch
+                     , (select substr(cbp.beneficiario,1,30) from contasbancarias cbp
+                         where cbp.idcontabanc = px.idcontapagamento) conta_pagadora
+                     , case px.forma
+                         when 'DICT'         then 'Pix (chave)'
+                         when 'BENEFICIARIO' then 'Transferência (ag/conta)'
+                         when 'BOLETO'       then 'Boleto'
+                         else px.forma
+                       end forma_pagamento
+                  from pix_pagamentos px
+                       join pagamentosfornecedores pf on pf.idpgtoforn = px.idpgtoforn
+                 where ( :P702_DATAINICIO is null
+                         or trunc(px.dt_post) between to_date(:P702_DATAINICIO,'DD/MM/RRRR')
+                                                  and nvl(to_date(:P702_DATAFIM,'DD/MM/RRRR'),sysdate) )
+                   and ( :P702_STATUS is null or :P702_STATUS = 'TODOS' or px.status = :P702_STATUS )
+                   and ( :P702_CONTA is null or px.idcontapagamento = :P702_CONTA )
+                   and ( :P702_IDFORNECEDOR is null or pf.idfornecedor = :P702_IDFORNECEDOR )
+                   -- Valor digitado como 1.234,56 ou 1234,56. Aproximado = ate 5% para mais ou para menos.
+                   and ( :P702_VALOR is null
+                         or ( nvl(:P702_VALOR_TIPO,'A') = 'I'
+                              and px.valor = to_number(replace(:P702_VALOR,'.',''), '999999999990D99', 'NLS_NUMERIC_CHARACTERS='',.''') )
+                         or ( nvl(:P702_VALOR_TIPO,'A') = 'A'
+                              and px.valor between to_number(replace(:P702_VALOR,'.',''), '999999999990D99', 'NLS_NUMERIC_CHARACTERS='',.''') * 0.95
+                                               and to_number(replace(:P702_VALOR,'.',''), '999999999990D99', 'NLS_NUMERIC_CHARACTERS='',.''') * 1.05 ) )
+                 order by px.idpix desc
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 100
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        download {
+            csvExportEnabled: true
+        }
+
+        column AUTORIZADO (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Autorizado
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column BAIXADO (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Baixado
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CONTA_PAGADORA (
+            reportColumnQueryId: 14
+            derivedColumn: N
+            heading {
+                heading: Conta pagadora
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column ENVIADO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Enviado
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FORMA_PAGAMENTO (
+            reportColumnQueryId: 15
+            derivedColumn: N
+            heading {
+                heading: Forma
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column FORNECEDOR (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPGTOFORN (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Fatura
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPIX (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Id Pix
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column MOTIVO_REJEICAO (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Motivo
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column RETORNO (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 12
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SEL (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Consultar
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SITUACAO (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column USUARIO_PATCH (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            heading {
+                heading: Autorizou
+                alignment: center
+            }
+            layout {
+                sequence: 14
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column USUARIO_POST (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Enviou
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region últimos-eventos-log-de-comunicação (
+        name: Últimos eventos (log de comunicação)
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select to_char(l.momento,'DD/MM/RRRR HH24:MI:SS') momento
+                     , l.idpix
+                     , l.operacao
+                     , l.http_status
+                     , cast( substr( nvl(l.erro, dbms_lob.substr(l.payload_resp,200,1)), 1, 200)
+                            as varchar2(200) ) detalhe
+                  from pix_log l
+                 order by l.idlog desc
+                 fetch first 50 rows only
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent15
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 50
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+
+        column DETALHE (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Detalhe
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column HTTP_STATUS (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: HTTP
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPIX (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Id Pix
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column MOMENTO (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Quando
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column OPERACAO (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Operação
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    pageItem P702_CIENTE_BANCO (
+        type: radioGroup
+        label {
+            label: Desfazer mesmo com pagamento vivo no banco
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Não - recusar se o pagamento ainda existir no Santander;N,Sim - assumo o risco de duplicidade;S
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        help {
+            helpText: Um pagamento que ainda existe no Santander pode ser efetivado por lá mesmo depois de cancelado aqui. Marque Sim apenas quando o título NÃO for pago por outro canal - por exemplo, quando a conta pagadora foi escolhida errada e a fatura será reenviada pelo hub. O id do pagamento órfão fica registrado no motivo do cancelamento, para pedir o cancelamento ao banco depois.
+        }
+    )
+
+    pageItem P702_CONTA (
+        type: selectList
+        label {
+            label: Conta pagadora
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select substr(sc.beneficiario,1,40) d, sc.idcontabanc r
+                  from santander_contas sc
+                 where sc.ativo = 'S'
+                 order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Todas -"
+        }
+        layout {
+            sequence: 25
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P702_DATAFIM (
+        type: datePicker
+        label {
+            label: até
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+    )
+
+    pageItem P702_DATAINICIO (
+        type: datePicker
+        label {
+            label: Enviados de
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+    )
+
+    pageItem P702_IDFORNECEDOR (
+        type: popupLov
+        label {
+            label: Fornecedor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefornecedor(f.idfornecedor) || '  ID:' || f.idfornecedor d
+                     , f.idfornecedor r
+                  from ( select distinct pf.idfornecedor
+                           from pix_pagamentos px
+                           join pagamentosfornecedores pf on pf.idpgtoforn = px.idpgtoforn ) f
+                 order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Todos -"
+        }
+        layout {
+            sequence: 26
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 50
+        }
+    )
+
+    pageItem P702_MARCARTODOS (
+        type: radioGroup
+        label {
+            label: Marcar todos ao buscar
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayNullValue: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+    )
+
+    pageItem P702_STATUS (
+        type: selectList
+        label {
+            label: Status
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Todos;TODOS,Aguardando autorização;READY_TO_PAY,Pendente no banco;PENDING_CONFIRMATION,Pago;PAYED,Rejeitado;REJECTED,Erro;ERRO
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: TODOS
+        }
+    )
+
+    pageItem P702_VALOR (
+        type: textField
+        label {
+            label: Valor
+            alignment: left
+        }
+        layout {
+            sequence: 27
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+            valuePlaceholder: ex.: 1.234,56
+        }
+    )
+
+    pageItem P702_VALOR_TIPO (
+        type: radioGroup
+        label {
+            label: Comparar valor
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Aproximado (até 5% para mais ou menos);A,Igual;I
+            displayNullValue: false
+        }
+        layout {
+            sequence: 28
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Buscar
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button consultar (
+        buttonName: CONSULTAR
+        label: Reconsultar no Santander
+        layout {
+            sequence: 10
+            region: @pagamentos-pix-santander
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button desfazer (
+        buttonName: DESFAZER
+        label: Desfazer Pagamento
+        layout {
+            sequence: 20
+            region: @pagamentos-pix-santander
+            slot: regionBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--danger
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+            requiresConfirmation: true
+        }
+        confirmation {
+            message: Desfazer os pagamentos selecionados? A fatura volta a ficar disponível para novo envio. Pagamentos JÁ PAGOS em produção não podem ser desfeitos.
+            style: danger
+        }
+    )
+
+    process desfaz-pagamentos-selecionados (
+        name: Desfaz pagamentos selecionados
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vok    number := 0;
+                  verros number := 0;
+                  vmsg   varchar2(32767);
+                begin
+                  if apex_application.g_f01.count = 0 then
+                    apex_error.add_error(
+                      p_message          => 'Selecione ao menos um pagamento.',
+                      p_display_location => apex_error.c_inline_in_notification);
+                    return;
+                  end if;
+                
+                  for i in 1 .. apex_application.g_f01.count loop
+                    declare
+                      vpayid varchar2(36);
+                    begin
+                      select px.pix_payment_id into vpayid
+                        from roman.pix_pagamentos px
+                       where px.idpix = to_number(apex_application.g_f01(i));
+                
+                      roman.pck_santander_pix.prc_desfazer_pagamento(
+                        pidpix   => to_number(apex_application.g_f01(i)),
+                        pmotivo  => 'Desfeito pela página 702' ||
+                                    case when vpayid is not null and :P702_CIENTE_BANCO = 'S'
+                                         then ' - pagamento segue no Santander (id ' || vpayid ||
+                                              '), pendente de cancelamento pelo banco' end,
+                        pusuario => :APP_USER,
+                        pciente_banco => nvl(:P702_CIENTE_BANCO,'N') );
+                      vok := vok + 1;
+                    exception
+                      when others then
+                        verros := verros + 1;
+                        vmsg := substr(vmsg || 'Pagamento ' || apex_application.g_f01(i) || ': ' ||
+                                       sqlerrm || ' | ', 1, 30000);
+                    end;
+                  end loop;
+                
+                  if verros > 0 then
+                    apex_error.add_error(
+                      p_message          => vok || ' desfeito(s), ' || verros || ' com erro. ' || vmsg,
+                      p_display_location => apex_error.c_inline_in_notification);
+                  end if;
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: Pagamentos desfeitos. As faturas voltaram a ficar disponiveis na pagina 700.
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000702081
+        }
+        serverSideCondition {
+            whenButtonPressed: @desfazer
+        }
+    )
+
+    process reconsulta-status-no-santander (
+        name: Reconsulta status no Santander
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  if apex_application.g_f01.count = 0 then
+                    apex_error.add_error(
+                      p_message          => 'Selecione ao menos um pagamento.',
+                      p_display_location => apex_error.c_inline_in_notification);
+                    return;
+                  end if;
+                
+                  for i in 1 .. apex_application.g_f01.count loop
+                    begin
+                      roman.pck_santander_pix.prc_consultar_status(to_number(apex_application.g_f01(i)));
+                    exception
+                      when others then null;  -- erro individual fica registrado em pix_log
+                    end;
+                  end loop;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Consulta executada. Status atualizados.
+        }
+        advanced {
+            executionMappingIdentifier: 971000000000702080
+        }
+        serverSideCondition {
+            whenButtonPressed: @consultar
+        }
+    )
+
+    branch (
+        name: Go To Page 702
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 702
+                items: {
+                    P702_DATAINICIO: &P702_DATAINICIO.
+                    P702_DATAFIM: &P702_DATAFIM.
+                    P702_STATUS: &P702_STATUS.
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

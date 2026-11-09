@@ -1,0 +1,1146 @@
+page 335 (
+    name: Acompanhamento de Produtos
+    title: Acompanhamento de Produtos
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    css {
+        inline:
+            ```css
+            
+            
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region acompanhamento-de-produtos (
+        name: Acompanhamento de Produtos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ( select pck_romance.fnc_nomeproduto(e.idproduto)
+                         from estoquefilial e
+                         where e.idestoquefilial = mv.idestoquefil ) "Produto"
+                     , sum(mv.distribuido) "Distribuido"
+                     , sum(NVL(mv.vendido,0)) "Vendido"
+                     , round(( (  sum(mv.vendido) * 100 ) /  sum(mv.distribuido) ),2) "Perc Venda"
+                     , ( select listagg(pck_romance.fnc_nomefornecedor(fp.idfornecedor)) within group (order by 1)
+                         from fornecedoresprodutos fp
+                            , estoquefilial e
+                         where fp.idproduto       = e.idproduto 
+                           and e.idestoquefilial  = mv.idestoquefil 
+                         group by fp.idproduto ) fornecedores
+                     , pck_romance.fnc_nomefilial(mv.idfilial) "Empresa"
+                     , nvl(( select sum(nvl(inf.qtd_pp_chegou,0)
+                                       +nvl(inf.qtd_p_chegou,0)
+                                       +nvl(inf.qtd_m_chegou,0)
+                                       +nvl(inf.qtd_g_chegou,0)
+                                       +nvl(inf.qtd_gg_chegou,0)
+                                       +nvl(inf.qtd_egg_chegou,0)
+                                       +nvl(inf.qtd_exgg_chegou,0)
+                                       +nvl(inf.qtd_u_chegou,0))
+                             from itemnf inf
+                             where inf.idproduto = mv.idproduto 
+                               and exists ( select 1
+                                            from notasfiscais nf
+                                            where nf.idnotafiscal = inf.idnotafiscal
+                                              and nf.idfilialdestino = mv.idfilial 
+                                              and nf.situacaofilial  = 'R'
+                                              and ( ( :P335_FILTRAR = 'S' and nf.idsemananota = :P335_SEMANA )
+                                                  or ( :P335_FILTRAR = 'P' and  nf.idsemananota between :P335_SEMANAINI and :P335_SEMANAFIM ) ) ) ),0) recebidonf
+                     , pck_estoque.fnc_estoquetotalfilial(mv.idestoquefil) fisico
+                     , nvl(( select sum(nvl(inf.qtd_pp,0)
+                                       +nvl(inf.qtd_p,0)
+                                       +nvl(inf.qtd_m,0)
+                                       +nvl(inf.qtd_g,0)
+                                       +nvl(inf.qtd_gg,0)
+                                       +nvl(inf.qtd_egg,0)
+                                       +nvl(inf.qtd_exgg,0)
+                                       +nvl(inf.qtd_u,0))
+                             from itemnf inf
+                             where inf.idproduto = mv.idproduto 
+                               and exists ( select 1
+                                            from notasfiscais nf
+                                            where nf.idnotafiscal = inf.idnotafiscal
+                                              and nf.idfilialdestino = mv.idfilial 
+                                              and nf.situacaofilial  = 'A'
+                                              and nf.situacao = 'A') ),0) parareceber
+                     , nvl(( select sum(nvl(ic.qtd_dist_pp,0)
+                                   +nvl(ic.qtd_dist_p,0)
+                                   +nvl(ic.qtd_dist_m,0)
+                                   +nvl(ic.qtd_dist_g,0)
+                                   +nvl(ic.qtd_dist_gg,0)
+                                   +nvl(ic.qtd_dist_egg,0)
+                                   +nvl(ic.qtd_dist_exgg,0)
+                                   +nvl(ic.qtd_dist_u,0))
+                         from itenscargarepresentante ic
+                         where ic.idestoquefil = mv.idestoquefil
+                           and exists ( select 1 
+                                        from cargasrepresentantes c
+                                        where c.idcargarepresentante = ic.idcargarepresentante
+                                          and c.situacao             = 3
+                                          and c.idfilial             = mv.idfilial
+                                          and ( ( :P335_FILTRAR = 'S' and c.idsemana = :P335_SEMANA )
+                                              or ( :P335_FILTRAR = 'P' and  c.idsemana between :P335_SEMANAINI and :P335_SEMANAFIM ) ) ) ),0) carga
+                from roman.vw_percentualvenda_mv mv
+                   , roman.produtos pr
+                where pr.idproduto = mv.idproduto
+                  and ( :P335_FILIALGRUPO is null 
+                        or ( :P335_FILIALGRUPO = 'E' and :P335_IDFILIAL is null or mv.idfilial = :P335_IDFILIAL )
+                        or ( :P335_FILIALGRUPO = 'G' and exists ( select 1
+                                                                  from filiais f
+                                                                  where f.idfilial = mv.idfilial
+                                                                    and f.idgrupo  = :P335_IDGRUPO ) ) )
+                  and ( ( :P335_FILTRAR = 'S' and mv.idsemanacobranca = :P335_SEMANA )
+                     or ( :P335_FILTRAR = 'P' and  mv.idsemanacobranca between :P335_SEMANAINI and :P335_SEMANAFIM  ))  
+                  and (:P335_IDPRODUTO is null or ( exists ( select 1 
+                                                             from estoquefilial i
+                                                             where i.idestoquefilial = mv.idestoquefil 
+                                                               and i.idproduto = :P335_IDPRODUTO)))
+                  and ( :P335_IDFORNECEDOR is null or exists ( select 1
+                                                               from fornecedoresprodutos f
+                                                                  , estoquefilial        e
+                                                               where f.idfornecedor = :P335_IDFORNECEDOR 
+                                                                 and f.idproduto    = e.idproduto
+                                                                 and e.idestoquefilial = mv.idestoquefil ) )
+                  and ( :P335_IDFILIAL is not null 
+                      or :P335_SEMANA is not null 
+                      or :P335_SEMANAINI is not null 
+                      or :P335_IDFORNECEDOR is not null )
+                  and ( :P335_CATEGORIA is null or pr.idcategoria = :P335_CATEGORIA ) 
+                group by mv.idestoquefil , mv.idfilial , mv.idproduto
+                
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Selecione um filtro.
+        }
+        advanced {
+            savedReportMappingIdentifier: 3069058420535678588
+        }
+
+        column CARGA (
+            type: plainText
+            heading {
+                heading: Foi em Cargas
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column Distribuido (
+            type: plainText
+            heading {
+                heading: Deixado nas Sacolas
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column Empresa (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column FISICO (
+            type: plainText
+            heading {
+                heading: Saldo Atual
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column FORNECEDORES (
+            type: plainText
+            heading {
+                heading: Fornecedores
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column PARARECEBER (
+            type: plainText
+            heading {
+                heading: Para Receber
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "Perc Venda" (
+            type: plainText
+            heading {
+                heading: Perc venda
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column Produto (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column RECEBIDONF (
+            type: plainText
+            heading {
+                heading: Recebido em NF
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column Vendido (
+            type: plainText
+            heading {
+                heading: Vendido
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15342963 (
+            visibility: primaryDefault
+            view {
+                groupBy: true
+                default: groupBy
+                rowsPerPage: 100000
+            }
+
+            displayColumn APXWS_CC_001 (
+                sequence: 8
+            )
+
+            displayColumn CARGA (
+                sequence: 5
+            )
+
+            displayColumn "Distribuido" (
+                sequence: 6
+            )
+
+            displayColumn "Empresa" (
+                sequence: 2
+            )
+
+            displayColumn FISICO (
+                sequence: 4
+            )
+
+            displayColumn PARARECEBER (
+                sequence: 10
+            )
+
+            displayColumn "Perc Venda" (
+                sequence: 9
+            )
+
+            displayColumn "Produto" (
+                sequence: 1
+            )
+
+            displayColumn RECEBIDONF (
+                sequence: 3
+            )
+
+            displayColumn "Vendido" (
+                sequence: 7
+            )
+
+            groupByColumn (
+                column: "Produto"
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByColumn (
+                column: "Empresa"
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByAggregate (
+                heading: Recebido em NF
+                aggregate {
+                    column: RECEBIDONF
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G999G999G990
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: Para Receber
+                aggregate {
+                    column: PARARECEBER
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G999G999G990
+                }
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByAggregate (
+                heading: Saldo Atual
+                aggregate {
+                    column: FISICO
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G999G999G990
+                }
+                layout {
+                    sequence: 3
+                }
+            )
+
+            groupByAggregate (
+                heading: Foi em Cargas
+                aggregate {
+                    column: CARGA
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G999G999G990
+                }
+                layout {
+                    sequence: 4
+                }
+            )
+
+            groupByAggregate (
+                heading: Deixado nas Sacolas
+                aggregate {
+                    column: "Distribuido"
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G999G999G990
+                }
+                layout {
+                    sequence: 5
+                }
+            )
+
+            groupByAggregate (
+                heading: Vendido
+                aggregate {
+                    column: "Vendido"
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G999G999G990
+                }
+                layout {
+                    sequence: 6
+                }
+            )
+
+            groupByAggregate (
+                heading: % Venda
+                aggregate {
+                    column: "Perc Venda"
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 7
+                }
+            )
+
+            groupBySort (
+                column: "Produto"
+                sort {
+                    sequence: 1
+                }
+            )
+
+            groupBySort (
+                column: "Empresa"
+                sort {
+                    sequence: 2
+                }
+            )
+
+        )
+
+    )
+
+    region filtro (
+        name: Filtro
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+    )
+
+    region produtos-mais-vendidos (
+        name: Produtos mais Vendidos
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  if :P335_IDFILIAL is not null 
+                      or :P335_SEMANA is not null 
+                      or :P335_SEMANAINI is not null 
+                      or :P335_IDFORNECEDOR is not null then
+                    --
+                    pck_imprime.prc_imprimepercentualvenda( pfiliagrupo => :P335_FILIALGRUPO
+                                                          , pidfilial => :P335_IDFILIAL
+                                                          , pidgrupo => :P335_IDGRUPO
+                                                          , pidfornecedor => :P335_IDFORNECEDOR
+                                                          , pidproduto => :P335_IDPRODUTO
+                                                          , ptipopesquisa => :P335_FILTRAR
+                                                          , psemana => :P335_SEMANA
+                                                          , psemanaini => :P335_SEMANAINI
+                                                          , psemanafim => :P335_SEMANAFIM );
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    pageItem P335_CATEGORIA (
+        type: selectList
+        label {
+            label: Categoria
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select c.nome
+                     , c.idcategoria 
+                from roman.categorias c
+                order by 1
+                ```
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 60
+            region: @filtro
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+    )
+
+    pageItem P335_FILIALGRUPO (
+        type: radioGroup
+        label {
+            label: Filtrar
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Empresa;E,Grupo;G
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: E
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P335_FILTRAR (
+        type: radioGroup
+        label {
+            label: Filtrar
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Semana;S,Periodo;P
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 70
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: S
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P335_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefilial(idfilial) display_value
+                     , idfilial
+                from filiais f
+                where f.tipofilial = 'D'
+                  and f.ativo = 'S'
+                  and exists ( select 1
+                               from usuariosfiliais u
+                               where u.idfilial = f.idfilial
+                                 and u.usuario  = v('APP_USER') ) 
+                  and exists ( select 1
+                               from representantes r
+                               where pck_romance.fnc_filialgerente(idgerente) = f.idfilial
+                                 and r.usanetbook = 'S' )
+                order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 20
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P335_IDFORNECEDOR (
+        type: popupLov
+        label {
+            label: Fornecedor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nomefornecedor display_value
+                     , idfornecedor   return_value
+                from vw_fornecedores_rmc
+                order by 1
+                ```
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 40
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 60
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P335_IDGRUPO (
+        type: radioGroup
+        label {
+            label: Grupo
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select descricao display_value
+                     , idgrupo  return_value
+                from gruposromance
+                order by 1
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P335_IDPRODUTO (
+        type: popupLov
+        label {
+            label: Produto
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distinct initcap(p.nomeproduto) display_value
+                    , p.idproduto 
+                from produtos p
+                   , fornecedoresprodutos f
+                where p.idproduto = f.idproduto
+                  and (:P335_IDFORNECEDOR  is null or f.idfornecedor = :P335_IDFORNECEDOR )
+                order by 1
+                ```
+            nullDisplayValue: - Todos -
+        }
+        cascadingLov {
+            parentItems: P335_IDFORNECEDOR
+        }
+        layout {
+            sequence: 50
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P335_SEMANA (
+        type: selectList
+        label {
+            label: Semana
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select semana display_value
+                     , idsemana RETURN_VALUE
+                from ( select distinct semana, idsemana
+                       from fechamentossemanais
+                       order by idsemana desc )
+                where rownum < 30
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Semana Cobrança -
+        }
+        layout {
+            sequence: 80
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P335_SEMANAFIM (
+        type: selectList
+        label {
+            label: Até
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select trim(to_char(s.semana,'00')||'/'||s.ano) display_value
+                     , s.idsemana RETURN_VALUE
+                from roman.semana_dias s
+                where s.idsemana >= :P335_SEMANAINI    
+                  and s.idsemana >= 534
+                order by idsemana 
+                ```
+        }
+        cascadingLov {
+            parentItems: P335_SEMANAINI
+        }
+        layout {
+            sequence: 100
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P335_SEMANAINI (
+        type: selectList
+        label {
+            label: De
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select trim(to_char(semana,'00')||'/'||ano) display_value
+                     , idsemana RETURN_VALUE
+                from semana_dias
+                where idsemana >=534
+                order by idsemana 
+                ```
+        }
+        layout {
+            sequence: 90
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button p335-filtrar (
+        buttonName: P335_FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 120
+            region: @filtro
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+        advanced {
+            htmlDomId: P219_FILTRAR
+        }
+    )
+
+    dynamicAction empresa-ou-grupo (
+        name: Empresa ou Grupo
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P335_FILIALGRUPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P335_FILIALGRUPO
+            value: E
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P335_IDFILIAL
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P335_IDGRUPO
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P335_IDFILIAL
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P335_IDGRUPO
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    dynamicAction semana (
+        name: = Semana
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P335_FILTRAR
+        }
+        clientSideCondition {
+            type: item=value
+            item: P335_FILTRAR
+            value: S
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P335_SEMANA
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P335_SEMANAINI
+                    P335_SEMANAFIM
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P335_SEMANA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P335_SEMANAINI
+                    P335_SEMANAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    branch (
+        name: FILTRO
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 335
+                items: {
+                    P335_IDFILIAL: &P335_IDFILIAL.
+                    P335_SEMANA: &P335_SEMANA.
+                    P335_SEMANAINI: &P335_SEMANAINI.
+                    P335_SEMANAFIM: &P335_SEMANAFIM.
+                    P335_IDFORNECEDOR: &P335_IDFORNECEDOR.
+                    P335_FILIALGRUPO: &P335_FILIALGRUPO.
+                    P335_FILTRAR: &P335_FILTRAR.
+                    P335_IDGRUPO: &P335_IDGRUPO.
+                    P335_IDPRODUTO: &P335_IDPRODUTO.
+                }
+                successMessage: false
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @p335-filtrar
+        }
+    )
+
+)
+

@@ -1,0 +1,1669 @@
+page 421 (
+    name: Investimento Top Bojo
+    title: Investimento Top Bojo
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    css {
+        inline: ".t-Region-body { background-color: Beige !important;}"
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: Não há ajuda disponível para esta página.
+    }
+
+    region acompanhamento-anual-da-top-bojos (
+        name: Acompanhamento Anual da Top Bojos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select t.filial
+                     , t.ano
+                     , t.abatimentos          "Abatimentos"
+                     , t.credito              "Crédito"
+                     , t.pagamentos           "Pagamentos"
+                     , t.saidasdiversas       "Saídas Diversas"
+                     , t.entradasbancos       "Entradas Banco"
+                     , t.rateiogrupos         "Rateio Grupo"
+                     , t.resultado            Resultado
+                     , t.resultado_com_rateio Resultado_com_rateio
+                from resultado_topbojos t
+                union
+                select filial
+                     , ano
+                     , sum(abatimentos)     abatimentos
+                     , sum(credito)         credito
+                     , sum(dhrecebido)      pagamentos
+                     , sum(saidasdiversas)  saidasdiversas
+                     , sum(entradasbanco)   entradasbancos
+                     , sum(rateios)         rateiogrupos
+                     ,  sum(abatimentos
+                      + credito
+                      + dhrecebido --está com *-1
+                      + entradasbanco)     Resultado
+                     ,  sum(abatimentos
+                      + credito
+                      + dhrecebido --está com *-1
+                      + entradasbanco 
+                      + rateios)    Resultado_com_rateio
+                from (  select pck_romance.fnc_nomefilial(1061) filial
+                             , a.ano
+                             -- pega todos abatimentos recebidos
+                             ,  nvl( ( select sum(vr.valor)
+                                       from notasfiscais nv 
+                                          , vencimentosreceber vr
+                                          , depositosdiarios_orig dd
+                                       where nv.tiponota         = 'V'
+                                         and nv.idnotafiscal     = vr.idnotafiscal
+                                         and vr.idvencimento     = dd.idvencimentoabatimento
+                                         and to_char(dd.data,'MM/RRRR') = trim(m.numero||'/'||a.ano)
+                                         and exists ( select 1
+                                                      from notasfiscais nc
+                                                      where nc.idnotafiscal = nv.idnotafiscalcompra 
+                                                        and nc.idfornemitente = pck_romance.fnc_fornecedorfilial( 1061 ))),0) 
+                             + nvl( ( select sum(v.valor)
+                                      from notasfiscais nf
+                                         , vencimentos v
+                                      where nf.idfornemitente = 2099
+                                        and nf.idfilialdestino = 1075
+                                        and v.idnotafiscal = nf.idnotafiscal
+                                        and to_char(v.datavencimento,'MM/RRRR') = trim(m.numero||'/'||:P421_ANO) ),0) abatimentos
+                             -- abatimentos que faltam ser feitos
+                             , nvl( ( select sum(vr.valor) valor
+                                      from notasfiscais nv 
+                                         , vencimentosreceber vr
+                                      where nv.tiponota = 'V'
+                                        and nv.idnotafiscal     = vr.idnotafiscal
+                                        and not exists ( select 1
+                                                         from depositosdiarios_orig  d
+                                                         where d.idvencimentoabatimento = vr.idvencimento )
+                                        and to_char(vr.datavencimento,'MM/RRRR') = trim(m.numero||'/'||a.ano)
+                                        and not exists ( select 1
+                                                         from notasfiscais nc2 
+                                                         where nc2.idnotafiscalcompra = nv.idnotafiscal )
+                                         and exists ( select 1
+                                                       from notasfiscais nc
+                                                       where nc.idnotafiscal = nv.idnotafiscalcompra 
+                                                         and nc.idfornemitente = pck_romance.fnc_fornecedorfilial( 1061 ) )  ),0) credito
+                             --entradas diversas
+                             , ( nvl( ( select sum(d.valor)
+                                        from vw_despesascentroscustos_m d
+                                        where d.idunidadedenegocio = 56
+                                          and d.ano = a.ano
+                                          and d.mes = m.numero
+                                          and not exists ( select 1
+                                                           from rateioscentroscustos rr
+                                                           where rr.idcentrodecusto = d.idcentrodecusto
+                                                             and rr.percentual is not null ) ),0) )*-1  dhrecebido
+                             -- saidas diversas
+                             , nvl(( select sum(nvl(s.valortotal,0))
+                                     from saidasdiversas s
+                                     where to_char( s.data,'MM/RRRR') = trim(m.numero||'/'||a.ano) 
+                                       and s.idfilial = 1061),0) saidasdiversas
+                             -- valor no banco          
+                             , nvl(( select sum(f.valornobanco)
+                                     from fechamentossemanais f
+                                     where f.idfilial = 1061
+                                       and trim(f.mesvalornobanco) = trim(m.numero||'/'||a.ano)),0) 
+                                 + nvl(( select sum(valor) valor
+                                        from registroscontasbancarias r
+                                           , filiais                  f
+                                        where r.idunidadedenegocio   = f.idunidadedenegocio  
+                                          and f.idfilial             = 1061 
+                                          and r.ano                  = a.ano
+                                          and r.idmes                = m.numero ),0)      entradasbanco
+                             -- rateios
+                             , nvl( pck_centrodecustos_rmc.fnc_valoresrateios( pidunidadedenegocio => 56,
+                                                                               pmesinicial => m.numero,
+                                                                               pmesfinal => m.numero,
+                                                                               pano => a.ano),0 )*-1  rateios
+                        from meses m
+                           , anos a
+                        where a.ano = 2022 )
+                group by ano
+                        , filial
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 262800429393852204
+        }
+
+        column ANO (
+            type: plainText
+            heading {
+                heading: Ano
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column Abatimentos (
+            type: plainText
+            heading {
+                heading: Abatimentos
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column Crédito (
+            type: plainText
+            heading {
+                heading: Crédito
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Entradas Banco" (
+            type: plainText
+            heading {
+                heading: Entradas Banco
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column Pagamentos (
+            type: plainText
+            heading {
+                heading: Pagamentos
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column RESULTADO (
+            type: plainText
+            heading {
+                heading: Resultado sem Rateio
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column RESULTADO_COM_RATEIO (
+            type: plainText
+            heading {
+                heading: Resultado Líquido
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "Rateio Grupo" (
+            type: plainText
+            heading {
+                heading: Rateio Grupo
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column "Saídas Diversas" (
+            type: plainText
+            heading {
+                heading: Saídas Diversas
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 2647710 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ANO (
+                sequence: 2
+            )
+
+            displayColumn "Abatimentos" (
+                sequence: 3
+            )
+
+            displayColumn "Crédito" (
+                sequence: 7
+            )
+
+            displayColumn "Entradas Banco" (
+                sequence: 6
+            )
+
+            displayColumn FILIAL (
+                sequence: 1
+            )
+
+            displayColumn "Pagamentos" (
+                sequence: 4
+            )
+
+            displayColumn RESULTADO (
+                sequence: 8
+            )
+
+            displayColumn RESULTADO_COM_RATEIO (
+                sequence: 10
+            )
+
+            displayColumn "Rateio Grupo" (
+                sequence: 9
+            )
+
+            displayColumn "Saídas Diversas" (
+                sequence: 5
+            )
+
+        )
+
+    )
+
+    region top-bojos (
+        name: Top Bojos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select filial
+                     , mes
+                     , numero
+                     , ano
+                     , mesano
+                     , abatimentos     "Abatimentos"
+                     , credito         "Crédito"
+                     , dhrecebido      "Dinheiro recebido"
+                     , saidasdiversas  "Saídas Diversas"
+                     , entradasbanco   "Entradas Banco"
+                     , rateios         "Rateio Grupo"
+                     , case
+                         when ano <= 2020 then
+                            abatimentos
+                            + credito
+                            + dhrecebido --está com *-1
+                            + saidasdiversas
+                            + entradasbanco    
+                         else
+                           abatimentos
+                           + credito
+                           + dhrecebido --está com *-1
+                           + entradasbanco    
+                       end Resultado
+                     , case
+                         when ano <= 2020 then 
+                           abatimentos
+                           + credito
+                           + dhrecebido --está com *-1
+                           + saidasdiversas
+                           + entradasbanco 
+                           + rateios   
+                         else
+                           abatimentos
+                           + credito
+                           + dhrecebido --está com *-1
+                           + entradasbanco 
+                           + rateios  
+                       end Resultado_com_rateio
+                from (  select pck_romance.fnc_nomefilial(1061) filial
+                             , m.mes
+                             , m.numero
+                             , to_number(:P421_ANO) ano
+                             , m.numero||:P421_ANO mesano
+                             -- pega todos abatimentos recebidos
+                             ,  nvl( ( select sum(vr.valor)
+                                        from notasfiscais nv 
+                                           , vencimentosreceber vr
+                                           , depositosdiarios_orig dd
+                                        where nv.tiponota         = 'V'
+                                          and nv.idnotafiscal     = vr.idnotafiscal
+                                          and vr.idvencimento     = dd.idvencimentoabatimento
+                                          and to_char(dd.data,'MM/RRRR') = trim(m.numero||'/'||:P421_ANO)
+                                          and exists ( select 1
+                                                         from notasfiscais nc
+                                                         where nc.idnotafiscal = nv.idnotafiscalcompra 
+                                                           and nc.idfornemitente = pck_romance.fnc_fornecedorfilial( 1061 ))),0)  
+                             + nvl( ( select sum(v.valor)
+                                      from notasfiscais nf
+                                         , vencimentos v
+                                      where nf.idfornemitente = 2099
+                                        and nf.idfilialdestino = 1075
+                                        and v.idnotafiscal = nf.idnotafiscal
+                                        and to_char(v.datavencimento,'MM/RRRR') = trim(m.numero||'/'||:P421_ANO) ),0) abatimentos 
+                             -- abatimentos que faltam ser feitos
+                             , nvl( ( select sum(vr.valor) valor
+                                      from notasfiscais nv 
+                                         , vencimentosreceber vr
+                                      where nv.tiponota = 'V'
+                                        and nv.idnotafiscal     = vr.idnotafiscal
+                                        and not exists ( select 1
+                                                         from depositosdiarios_orig  d
+                                                         where d.idvencimentoabatimento = vr.idvencimento )
+                                        and to_char(vr.datavencimento,'MM/RRRR') = trim(m.numero||'/'||:P421_ANO)
+                                        and not exists ( select 1
+                                                         from notasfiscais nc2 
+                                                         where nc2.idnotafiscalcompra = nv.idnotafiscal )
+                                        and exists ( select 1
+                                                     from notasfiscais nc
+                                                     where nc.idnotafiscal = nv.idnotafiscalcompra 
+                                                       and nc.idfornemitente = pck_romance.fnc_fornecedorfilial( 1061 ) )  ),0) credito
+                             --entradas diversas
+                             , ( nvl( ( select sum(d.valor)
+                                        from vw_despesascentroscustos_m d
+                                        where d.idunidadedenegocio = 56
+                                          and d.ano = :P421_ANO
+                                          and d.mes = m.numero
+                                          and not exists ( select 1
+                                                           from rateioscentroscustos rr
+                                                           where rr.idcentrodecusto = d.idcentrodecusto
+                                                             and rr.percentual is not null ) ),0)
+                               + nvl( (pck_centrodecustos_rmc.fnc_valoresrateios_despesas(56,m.numero,m.numero,:P421_ANO)),0) )*-1  dhrecebido
+                             -- saidas diversas
+                             , nvl(( select sum(nvl(s.valortotal,0))
+                                     from saidasdiversas s
+                                     where to_char( s.data,'MM/RRRR') = trim(m.numero||'/'||:P421_ANO) 
+                                       and s.idfilial = 1061),0) saidasdiversas
+                             -- valor no banco          
+                             , nvl(( select sum(f.valornobanco)
+                                     from fechamentossemanais f
+                                     where f.idfilial = 1061
+                                       and trim(f.mesvalornobanco) = trim(m.numero||'/'||:P421_ANO)),0) 
+                             + nvl(( select sum(valor) valor
+                                     from registroscontasbancarias r
+                                        , filiais                  f
+                                     where r.idunidadedenegocio   = f.idunidadedenegocio  
+                                       and f.idfilial             = 1061 
+                                       and r.ano                  = :P421_ANO
+                                       and r.idmes                = m.numero ),0)      entradasbanco
+                             -- rateios
+                             , nvl( pck_centrodecustos_rmc.fnc_valoresrateios( pidunidadedenegocio => 56,
+                                                                               pmesinicial => m.numero,
+                                                                               pmesfinal => m.numero,
+                                                                               pano => :P421_ANO),0 )*-1  rateios
+                        from meses m )
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            pivot: false
+            subscription: false
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 493372423064968250
+        }
+
+        column ANO (
+            type: plainText
+            heading {
+                heading: Ano
+                alignment: center
+            }
+            layout {
+                sequence: 19
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column Abatimentos (
+            type: link
+            heading {
+                heading: Abatimentos
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            link {
+                target: {
+                    page: 291
+                    items: {
+                        P291_IDFORNECEDOR: 2099
+                        P291_MESANO: #MESANO#
+                    }
+                    clearCache: 291
+                    action: resetPagination
+                }
+                linkText: #Abatimentos#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Abatimentos
+                endUserAlias: D
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Crédito (
+            type: link
+            heading {
+                heading: Crédito
+                alignment: center
+            }
+            layout {
+                sequence: 29
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            link {
+                target: {
+                    page: 5
+                    items: {
+                        P5_SEMANANO: #MESANO#
+                    }
+                    clearCache: 5
+                    action: resetPagination
+                }
+                linkText: #Crédito#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column "Dinheiro recebido" (
+            type: link
+            heading {
+                heading: Pagamentos
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            link {
+                target: {
+                    page: 422
+                    items: {
+                        P422_IDFILIAL: 1061
+                        P422_MESANO: #MESANO#
+                        P422_MES: #NUMERO#
+                        P422_ANO: #ANO#
+                        P422_TIPO: P
+                    }
+                    clearCache: 294
+                    action: resetPagination
+                }
+                linkText: #Dinheiro recebido#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Dinheiro recebido
+                endUserAlias: E
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Entradas Banco" (
+            type: plainText
+            heading {
+                heading: Entradas Banco
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Entradas Banco
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: FILIAL
+                endUserAlias: A
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column MES (
+            type: plainText
+            heading {
+                heading: Mes
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: MES
+                endUserAlias: B
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column MESANO (
+            type: plainText
+            heading {
+                heading: Mesano
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: MESANO
+                endUserAlias: I
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column NUMERO (
+            type: plainText
+            heading {
+                heading: Numero
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: NUMERO
+                endUserAlias: C
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column RESULTADO (
+            type: plainText
+            heading {
+                heading: Resultado Sem Rateio
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: RESULTADO
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column RESULTADO_COM_RATEIO (
+            type: plainText
+            heading {
+                heading: Resultado Líquido
+                alignment: center
+            }
+            layout {
+                sequence: 39
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column "Rateio Grupo" (
+            type: link
+            heading {
+                heading: Rateio Grupo
+                alignment: center
+            }
+            layout {
+                sequence: 49
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            link {
+                target: {
+                    page: 422
+                    items: {
+                        P422_ANO: #ANO#
+                        P422_MES: #NUMERO#
+                        P422_TIPO: R
+                    }
+                    action: resetPagination
+                }
+                linkText: #Rateio Grupo#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "Saídas Diversas" (
+            type: link
+            heading {
+                heading: Saídas Diversas
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            link {
+                target: {
+                    page: 293
+                    items: {
+                        P293_IDFILIAL: 1061
+                        P293_MESANO: #MESANO#
+                    }
+                    clearCache: 293
+                    action: resetPagination
+                }
+                linkText: #Saídas Diversas#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Saídas Diversas
+                endUserAlias: F
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        savedReport 2624731 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 15
+            }
+
+            displayColumn ANO (
+                sequence: 1
+            )
+
+            displayColumn "Abatimentos" (
+                sequence: 5
+            )
+
+            displayColumn "Crédito" (
+                sequence: 9
+            )
+
+            displayColumn "Dinheiro recebido" (
+                sequence: 6
+            )
+
+            displayColumn "Entradas Banco" (
+                sequence: 8
+            )
+
+            displayColumn FILIAL (
+                sequence: 2
+            )
+
+            displayColumn MES (
+                sequence: 3
+            )
+
+            displayColumn NUMERO (
+                sequence: 4
+            )
+
+            displayColumn RESULTADO (
+                sequence: 10
+            )
+
+            displayColumn RESULTADO_COM_RATEIO (
+                sequence: 12
+            )
+
+            displayColumn "Rateio Grupo" (
+                sequence: 11
+            )
+
+            displayColumn "Saídas Diversas" (
+                sequence: 7
+            )
+
+            sort (
+                column: NUMERO
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: "Abatimentos"
+            )
+
+            aggregate (
+                column: "Dinheiro recebido"
+            )
+
+            aggregate (
+                column: "Saídas Diversas"
+            )
+
+            aggregate (
+                column: "Entradas Banco"
+            )
+
+            aggregate (
+                column: RESULTADO
+            )
+
+            aggregate (
+                column: "Crédito"
+            )
+
+            aggregate (
+                column: "Rateio Grupo"
+            )
+
+            aggregate (
+                column: RESULTADO_COM_RATEIO
+            )
+
+            controlBreak (
+                column: ANO
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region top-bojos-2 (
+        name: Top Bojos - 2018
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                 select pck_romance.fnc_nomefilial(1061) filial
+                               , '-' mes 
+                               , '0' numero
+                               , 2018 ano
+                               , null mesano
+                               , ( nvl(( select sum(valordeposito)
+                                      from depositosdiarios d
+                                         , pagamentosfornecedores pf
+                                      where d.tipo = 'AB'
+                                        and d.idfilialfornecedor = 1061
+                                        and d.idpgtoforn = pf.idpgtoforn
+                                        and to_number(to_char(d.data,'RRRR')) <= 2018 ),0)
+                                +  nvl( ( select sum(vr.valor)
+                                      from notasfiscais nv 
+                                         , vencimentosreceber vr
+                                         , depositosdiarios dd
+                                         , pagamentosfornecedores pf
+                                      where nv.tiponota = 'V'
+                                        and nv.idnotafiscal     = vr.idnotafiscal
+                                        and vr.idvencimento     = dd.idvencimentoabatimento
+                                        and dd.idpgtoforn       = pf.idpgtoforn
+                                        and to_number(to_char(dd.data,'RRRR')) <= 2018
+                                          and exists ( select 1
+                                                       from notasfiscais nc
+                                                       where nc.idnotafiscal = nv.idnotafiscalcompra 
+                                                         and nc.idfornemitente = pck_romance.fnc_fornecedorfilial( 1061 ))),0) )   "Abatimentos"
+                               , nvl( ( select sum(vr.valor) valor
+                                    from notasfiscais nv 
+                                       , vencimentosreceber vr
+                                       , depositosdiarios dd
+                                       , pagamentosfornecedores pf
+                                    where nv.tiponota = 'V'
+                                      and nv.idnotafiscal     = vr.idnotafiscal
+                                      and vr.idvencimento     = dd.idvencimentoabatimento(+) 
+                                      and dd.idpgtoforn       = pf.idpgtoforn(+)
+                                      and to_number(to_char(vr.datavencimento,'RRRR')) <= 2018
+                                      and not exists ( select 1
+                                                       from notasfiscais nc2 
+                                                       where nc2.idnotafiscal = pf.idnotafiscal )
+                                       and exists ( select 1
+                                                     from notasfiscais nc
+                                                     where nc.idnotafiscal = nv.idnotafiscalcompra 
+                                                       and nc.idfornemitente = pck_romance.fnc_fornecedorfilial( 1061 ) )  ),0) "Crédito"
+                               , (nvl(( select sum(nvl(e.valortotal,0))
+                                       from entradasdiversas e
+                                       where to_number(to_char( e.data,'RRRR')) <= 2018
+                                         and e.idfilial = 1061),0)
+                                 + nvl( ( select sum(dd.valordeposito)
+                                        from depositosdiarios dd
+                                        where dd.valordeposito > 0
+                                          and exists ( select 1--sum(nvl(pgf.valorpagar,0))
+                                                       from pagamentosfornecedores pgf
+                                                       where pgf.idfilial        = 1061
+                                                         and pgf.idpgtoforn = dd.idpgtoforn )
+                                          and to_number(to_char( dd.data,'RRRR')) <= 2018 ),0) 
+                                  + 18691635.19 -- por causa da limpeza 29/2016
+                                  )*-1 "Dinheiro recebido"
+                               , nvl(( select sum(nvl(s.valortotal,0))
+                                       from saidasdiversas s
+                                       where to_number(to_char( s.data,'RRRR')) <= 2018
+                                         and s.idfilial = 1061),0) 
+                                  + 977878.53
+                                     "Saídas Diversas"
+                               , nvl(( select sum(f.valornobanco)
+                                   from fechamentossemanais f
+                                   where f.idfilial = 1061
+                                     and to_number(substr(trim(f.mesvalornobanco),4,4)) <= 2018 ),0)
+                                  + 7901529.93-- por causa da limpeza 29/2016  
+                                  "Entradas Banco"
+                               , ( nvl(( select sum(valordeposito)
+                                      from depositosdiarios d
+                                         , pagamentosfornecedores pf
+                                      where d.tipo = 'AB'
+                                        and d.idfilialfornecedor = 1061
+                                        and d.idpgtoforn = pf.idpgtoforn
+                                        and to_number(to_char(d.data,'RRRR')) <= 2018 ),0)
+                                +  nvl( ( select sum(vr.valor)
+                                      from notasfiscais nv 
+                                         , vencimentosreceber vr
+                                         , depositosdiarios dd
+                                         , pagamentosfornecedores pf
+                                      where nv.tiponota = 'V'
+                                        and nv.idnotafiscal     = vr.idnotafiscal
+                                        and vr.idvencimento     = dd.idvencimentoabatimento
+                                        and dd.idpgtoforn       = pf.idpgtoforn
+                                        and to_number(to_char(dd.data,'RRRR')) <=2018
+                                          and exists ( select 1
+                                                       from notasfiscais nc
+                                                       where nc.idnotafiscal = nv.idnotafiscalcompra 
+                                                         and nc.idfornemitente = pck_romance.fnc_fornecedorfilial( 1061 ))),0) )  ---"Abatimentos"
+                               - (nvl(( select sum(nvl(e.valortotal,0))
+                                       from entradasdiversas e
+                                       where to_number(to_char( e.data,'RRRR')) <= 2018
+                                         and e.idfilial = 1061),0)
+                                 + nvl( ( select sum(dd.valordeposito)
+                                        from depositosdiarios dd
+                                        where dd.valordeposito > 0
+                                          and exists ( select 1--sum(nvl(pgf.valorpagar,0))
+                                                       from pagamentosfornecedores pgf
+                                                       where pgf.idfilial        = 1061
+                                                         and pgf.idpgtoforn = dd.idpgtoforn )
+                                          and to_number(to_char( dd.data,'RRRR')) <= 2018 ) ,0) 
+                                  + 18691635.19 -- por causa da limpeza 29/2016
+                                  )--*-1 "Dinheiro recebido"
+                               + nvl(( select sum(nvl(s.valortotal,0))
+                                       from saidasdiversas s
+                                       where to_number(to_char( s.data,'RRRR')) <= 2018 
+                                         and s.idfilial = 1061),0) 
+                                  + 977878.53 -- por causa da limpeza 29/2016  "Saidas Diversas"
+                               + nvl(( select sum(f.valornobanco)
+                                   from fechamentossemanais f
+                                   where f.idfilial = 1061
+                                     and to_number(substr(trim(f.mesvalornobanco),4,4)) <= 2018 ) ,0)
+                                     + 7901529.93-- por causa da limpeza 29/2016    "Entradas Banco"
+                               +nvl( ( select sum(vr.valor) valor
+                                        from notasfiscais nv 
+                                           , vencimentosreceber vr
+                                           , depositosdiarios dd
+                                           , pagamentosfornecedores pf
+                                        where nv.tiponota = 'V'
+                                          and nv.idnotafiscal     = vr.idnotafiscal
+                                          and vr.idvencimento     = dd.idvencimentoabatimento(+) 
+                                          and dd.idpgtoforn       = pf.idpgtoforn(+)
+                                          and to_number(to_char(vr.datavencimento,'RRRR')) <= 2018
+                                          and not exists ( select 1
+                                                           from notasfiscais nc2 
+                                                           where nc2.idnotafiscal = pf.idnotafiscal )
+                                           and exists ( select 1
+                                                         from notasfiscais nc
+                                                         where nc.idnotafiscal = nv.idnotafiscalcompra 
+                                                           and nc.idfornemitente = pck_romance.fnc_fornecedorfilial( 1061 ) )  ),0) Resultado
+                from dual 
+                where 1 = 2
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            pivot: false
+            subscription: false
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 1754914006265463421
+        }
+
+        column ANO (
+            type: plainText
+            heading {
+                heading: Ano
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column Abatimentos (
+            type: link
+            heading {
+                heading: Abatimentos
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            link {
+                target: {
+                    page: 291
+                    items: {
+                        P291_IDFORNECEDOR: 2099
+                        P291_MESANO: #MESANO#
+                    }
+                    clearCache: 291
+                    action: resetPagination
+                }
+                linkText: #Abatimentos#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Abatimentos
+                endUserAlias: D
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Crédito (
+            type: link
+            heading {
+                heading: Crédito
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            link {
+                target: {
+                    page: 5
+                    items: {
+                        P5_SEMANANO: #MESANO#
+                    }
+                    clearCache: 5
+                    action: resetPagination
+                }
+                linkText: #Crédito#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column "Dinheiro recebido" (
+            type: link
+            heading {
+                heading: Dinheiro Recebido
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            link {
+                target: {
+                    page: 294
+                    items: {
+                        P294_IDFILIAL: 1061
+                        P294_MESANO: #MESANO#
+                    }
+                    clearCache: 294
+                    action: resetPagination
+                }
+                linkText: #Dinheiro recebido#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Dinheiro recebido
+                endUserAlias: E
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Entradas Banco" (
+            type: plainText
+            heading {
+                heading: Entradas Banco
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Entradas Banco
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: FILIAL
+                endUserAlias: A
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column MES (
+            type: plainText
+            heading {
+                heading: Mes
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: MES
+                endUserAlias: B
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column MESANO (
+            type: plainText
+            heading {
+                heading: Mesano
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: MESANO
+                endUserAlias: I
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column NUMERO (
+            type: plainText
+            heading {
+                heading: Numero
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: NUMERO
+                endUserAlias: C
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column RESULTADO (
+            type: plainText
+            heading {
+                heading: Resultado
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: RESULTADO
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Saídas Diversas" (
+            type: link
+            heading {
+                heading: Saídas Diversas
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            link {
+                target: {
+                    page: 293
+                    items: {
+                        P293_IDFILIAL: 1061
+                        P293_MESANO: #MESANO#
+                    }
+                    clearCache: 293
+                    action: resetPagination
+                }
+                linkText: #Saídas Diversas#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Saídas Diversas
+                endUserAlias: F
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        savedReport 2624794 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ANO (
+                sequence: 2
+            )
+
+            displayColumn "Abatimentos" (
+                sequence: 3
+            )
+
+            displayColumn "Crédito" (
+                sequence: 7
+            )
+
+            displayColumn "Dinheiro recebido" (
+                sequence: 4
+            )
+
+            displayColumn "Entradas Banco" (
+                sequence: 6
+            )
+
+            displayColumn FILIAL (
+                sequence: 1
+            )
+
+            displayColumn RESULTADO (
+                sequence: 8
+            )
+
+            displayColumn "Saídas Diversas" (
+                sequence: 5
+            )
+
+        )
+
+    )
+
+    pageItem P421_ANO (
+        type: selectList
+        label {
+            label: Ano
+            alignment: left
+        }
+        settings {
+            pageActionOnSelection: redirectSetValue
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distinct ano display_value
+                    , ano return_value
+                from semana_dias s
+                order by 1 desc
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @top-bojos
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                begin
+                return to_char(sysdate,'RRRR');
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button dinheiro-recebido-anual (
+        buttonName: Dinheiro_Recebido_Anual
+        label: Dinheiro recebido anual
+        layout {
+            sequence: 20
+            region: @top-bojos
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 92
+                items: {
+                    P92_ANO: &P421_ANO.
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+)
+

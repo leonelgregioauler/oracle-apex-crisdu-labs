@@ -1,0 +1,720 @@
+page 35 (
+    name: Atualizar comprovantes
+    title: Atualizar comprovantes
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration: var htmldb_delete_message='"DELETE_CONFIRM_MSG"';
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region atualizar-comprov-de-depositos (
+        name: Atualizar Comprov. de Depositos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select depdia.iddepositodiarios
+                     , initcap(pfil.apelido) Filial
+                     , initcap(prepres.apelido) Representante
+                --contas pagas com depositos
+                     , depdia.data  Data_deposito
+                     , pgf.dtvencimento Data_vencimento
+                     , contbanc.apelidofornecedor Depositado_para
+                     , contbanc.nomebanco Banco
+                     , contbanc.agencia_conta
+                     , contbanc.beneficiario
+                     , depdia.valordeposito Valor_depositado
+                     , decode (depdia.tipo, 'DD','Depósito Dinheiro'
+                                          , 'CR','Cheque Resgate'
+                                          , 'CD','Cheque Cobrir'
+                                          , 'CC','Depósito Cheque'
+                                          , 'AS','Abate Saldo Fornecedor') tipo
+                     , decode(depdia.comprovado,'S','Sem Comprovante'
+                                               ,'C','Cópia'
+                                               ,'M','Em Mãos') Comprovado
+                     , depdia.nrocomprovante
+                     , depdia.observacao
+                     , 'Nota Fiscal nº '||nvl(notafiscal.documento,notafiscal.nrnf) referente_a_doc
+                     , notafiscal.dtnf data_doc
+                     , notafiscal.valortotal valor_doc
+                from depositosdiarios depdia
+                   , representantes   repres
+                   , pessoas          prepres
+                   , filiais          fil
+                   , pessoas          pfil
+                   , pagamentosfornecedores pgf
+                   , ( select cb.idcontabanc
+                            , initcap(pf.apelido) ApelidoFornecedor
+                            , initcap(pf.nomepessoa) Fornecedor
+                            , initcap(bb.nomebanco) nomebanco
+                            , cb.agencia ||', '||cb.conta Agencia_Conta
+                            , initcap(cb.beneficiario) beneficiario
+                       from contasbancarias cb
+                          , fornecedores    ff
+                          , pessoas         pf
+                          , bancos          bb
+                       where cb.idfornecedor = ff.idfornecedor
+                         and ff.idpessoa     = pf.idpessoa
+                         and cb.idbanco      = bb.idbanco ) contbanc
+                  , ( select pagforn.idpgtoforn
+                           , nf.nrnf
+                           , nf.dtnf
+                           , sum(v.valor) valortotal
+                           , pagforn.dtvencimento
+                           , nf.documento
+                      from pagamentosfornecedores pagforn
+                         , notasfiscais           nf
+                         , vencimentos            v
+                      where pagforn.idnotafiscal = nf.idnotafiscal
+                        and nf.idnotafiscal      = v.idnotafiscal
+                        group by pagforn.idpgtoforn
+                               , nf.nrnf
+                               , nf.dtnf
+                               , pagforn.dtvencimento 
+                               , nf.documento ) notafiscal          
+                where depdia.idrepresentante = repres.idrepresentante(+)
+                  and repres.idpessoa        = prepres.idpessoa(+)
+                  and repres.idfilial        = fil.idfilial(+)
+                  and fil.idpessoa           = pfil.idpessoa(+)
+                  and contbanc.idcontabanc   = depdia.idcontabanc
+                  and depdia.idpgtoforn      = notafiscal.idpgtoforn
+                  and depdia.idpgtoforn      = pgf.idpgtoforn
+                  and depdia.idpgtoforn_orig is null
+                union -- contas pagas com cheques
+                select depdia.iddepositodiarios
+                     , contbanc.ApelidoFilial
+                     , '' Representante
+                     , depdia.data  Data_deposito
+                     , pgf.dtvencimento Data_vencimento
+                     , contbanc.ApelidoFilial
+                     , contbanc.nomebanco
+                     , contbanc.agencia_conta
+                     , contbanc.beneficiario
+                     , depdia.valordeposito Valor_depositado
+                     , decode (depdia.tipo, 'DD','Depósito Dinheiro'
+                                          , 'CR','Cheque Resgate'
+                                          , 'CD','Cheque Cobrir'
+                                          , 'CC','Depósito Cheque'
+                                          , 'AS','Abate Saldo Fornecedor') tipo
+                     , decode(depdia.comprovado,'S','Sim','N','Não') Comprovado
+                     , depdia.nrocomprovante
+                     , depdia.observacao
+                     , 'Nota Fiscal nº '||nvl(notafiscal.documento,notafiscal.nrnf) 
+                     , notafiscal.dtnf
+                     , notafiscal.valortotal
+                from depositosdiarios depdia
+                   , pagamentosfornecedores pgf
+                   , ( select cbl.idcontabanc
+                            , initcap(pf.apelido) ApelidoFilial
+                            , initcap(pf.nomepessoa) Filial
+                            , initcap(bb.nomebanco) nomebanco
+                            , cbl.agencia ||', '||cbl.conta Agencia_Conta
+                            , initcap(cbl.beneficiario) beneficiario
+                       from contasbancariasfiliais cbl
+                          , filiais                ff
+                          , pessoas                pf
+                          , bancos                 bb
+                       where cbl.idfilial = ff.idfilial
+                         and ff.idpessoa  = pf.idpessoa
+                         and cbl.idbanco  = bb.idbanco ) contbanc
+                  , ( select pagforn.idpgtoforn
+                           , nf.nrnf
+                           , nf.dtnf
+                           , sum(v.valor) valortotal
+                           , pagforn.dtvencimento
+                           , nf.documento 
+                      from pagamentosfornecedores pagforn
+                         , notasfiscais           nf
+                         , vencimentos            v
+                      where pagforn.idnotafiscal = nf.idnotafiscal
+                        and nf.idnotafiscal      = v.idnotafiscal
+                        group by pagforn.idpgtoforn
+                               , nf.nrnf
+                               , nf.dtnf
+                               , pagforn.dtvencimento 
+                               , nf.documento ) notafiscal    
+                where depdia.idpgtoforn      = notafiscal.idpgtoforn
+                  and contbanc.idcontabanc   = depdia.idcontabanc(+)
+                  and depdia.idpgtoforn      = pgf.idpgtoforn
+                  and depdia.idpgtoforn_orig is null
+                union -- cheques cobertos
+                select depdia.iddepositodiarios
+                     , initcap(pfil.apelido) Filial
+                     , initcap(prepres.apelido) Representante
+                     , depdia.data  Data_deposito
+                     , pgf.dtvencimento Data_vencimento
+                     , contbanc.ApelidoFilial
+                     , contbanc.nomebanco
+                     , contbanc.agencia_conta
+                     , contbanc.beneficiario
+                     , depdia.valordeposito Valor_depositado
+                     , decode (depdia.tipo, 'DD','Depósito Dinheiro'
+                                          , 'CR','Cheque Resgate'
+                                          , 'CD','Cheque Cobrir'
+                                          , 'CC','Depósito Cheque'
+                                          , 'AS','Abate Saldo Fornecedor') tipo
+                     , decode(depdia.comprovado,'S','Sim','N','Não') Comprovado
+                     , depdia.nrocomprovante
+                     , depdia.observacao
+                     , 'Cheque nº '||cheque.numero
+                     , cheque.datacheque
+                     , cheque.valor
+                from depositosdiarios depdia
+                   , representantes   repres
+                   , pessoas          prepres
+                   , filiais          fil
+                   , pessoas          pfil
+                   , pagamentosfornecedores pgf
+                   , ( select cbl.idcontabanc
+                            , initcap(pf.apelido) ApelidoFilial
+                            , initcap(pf.nomepessoa) Filial
+                            , initcap(bb.nomebanco) nomebanco
+                            , cbl.agencia ||', '||cbl.conta Agencia_Conta
+                            , initcap(cbl.beneficiario) beneficiario
+                       from contasbancariasfiliais cbl
+                          , filiais                ff
+                          , pessoas                pf
+                          , bancos                 bb
+                       where cbl.idfilial = ff.idfilial
+                         and ff.idpessoa  = pf.idpessoa
+                         and cbl.idbanco  = bb.idbanco ) contbanc
+                  , ( select pg.idpgtoforn
+                           , chq.numero
+                           , chq.datacheque
+                           , chq.dataenvio
+                           , chq.valor
+                      from pagto_forn_cheque pg
+                         , cheques           chq  
+                      where pg.idcheque    = chq.idcheque ) cheque         
+                where depdia.idrepresentante = repres.idrepresentante(+)
+                  and repres.idpessoa        = prepres.idpessoa(+)
+                  and repres.idfilial        = fil.idfilial
+                  and fil.idpessoa           = pfil.idpessoa(+)
+                  and depdia.idpgtoforn      = cheque.idpgtoforn
+                  and contbanc.idcontabanc   = depdia.idcontabanc(+)
+                  and depdia.idpgtoforn      = pgf.idpgtoforn
+                  and depdia.idpgtoforn_orig is null
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body-3
+        }
+        link {
+            linkColumn: customTarget
+            target: {
+                type: url
+                url: javascript:window.open('f?p=&APP_ID.:36:&SESSION.::NO:36:P36_IDDEPOSITODIARIOS:#IDDEPOSITODIARIOS#','popup','toolbar=no,location=no,status=no,menubar=no,scrollbars=no,resizable=no,width=375,height=155,screenX=100,screenY =200'); void(0);
+            }
+            linkIcon: <img src="#IMAGE_PREFIX#menu/pencil16x16.gif" alt="" />
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: This query returns more than 10,000 rows, please filter your data to ensure complete results.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            rowsPerPage: false
+            pivot: false
+            savePublicReport: true
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 1
+        }
+
+        column AGENCIA_CONTA (
+            type: plainText
+            heading {
+                heading: Agência/Conta
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: AGENCIA_CONTA
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column BANCO (
+            type: plainText
+            heading {
+                heading: Banco
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: BANCO
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column BENEFICIARIO (
+            type: plainText
+            heading {
+                heading: Beneficiario
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: BENEFICIARIO
+                endUserAlias: I
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column COMPROVADO (
+            type: plainText
+            heading {
+                heading: Comprovado
+                alignment: center
+            }
+            layout {
+                sequence: 12
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: COMPROVADO
+                endUserAlias: L
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DATA_DEPOSITO (
+            type: plainText
+            heading {
+                heading: Data Deposito
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                htmlDomId: DATA_DEPOSITO
+                endUserAlias: D
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DATA_DOC (
+            type: plainText
+            heading {
+                heading: Data Doc
+                alignment: center
+            }
+            layout {
+                sequence: 16
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                htmlDomId: DATA_DOC
+                endUserAlias: P
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DATA_VENCIMENTO (
+            type: plainText
+            heading {
+                heading: Data Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                htmlDomId: DATA_VENCIMENTO
+                endUserAlias: E
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DEPOSITADO_PARA (
+            type: plainText
+            heading {
+                heading: Depositado Para
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: DEPOSITADO_PARA
+                endUserAlias: F
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: FILIAL
+                endUserAlias: B
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDDEPOSITODIARIOS (
+            type: hidden
+            heading {
+                heading: Iddepositodiarios
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDDEPOSITODIARIOS
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NROCOMPROVANTE (
+            type: plainText
+            heading {
+                heading: Nrocomprovante
+                alignment: center
+            }
+            layout {
+                sequence: 13
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: NROCOMPROVANTE
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Comprovante
+                alignment: center
+            }
+            layout {
+                sequence: 14
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: OBSERVACAO
+                endUserAlias: N
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column REFERENTE_A_DOC (
+            type: plainText
+            heading {
+                heading: Referente A Doc
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: REFERENTE_A_DOC
+                endUserAlias: O
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Representante
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: REPRESENTANTE
+                endUserAlias: C
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column TIPO (
+            type: plainText
+            heading {
+                heading: Tipo
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: TIPO
+                endUserAlias: K
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column VALOR_DEPOSITADO (
+            type: plainText
+            heading {
+                heading: Valor Depositado
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VALOR_DEPOSITADO
+                endUserAlias: J
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column VALOR_DOC (
+            type: plainText
+            heading {
+                heading: Valor Doc
+                alignment: center
+            }
+            layout {
+                sequence: 17
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VALOR_DOC
+                endUserAlias: Q
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        savedReport 15584 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 15
+            }
+
+            displayColumn AGENCIA_CONTA (
+                sequence: 7
+            )
+
+            displayColumn BANCO (
+                sequence: 6
+            )
+
+            displayColumn BENEFICIARIO (
+                sequence: 8
+            )
+
+            displayColumn DATA_DEPOSITO (
+                sequence: 3
+            )
+
+            displayColumn DATA_VENCIMENTO (
+                sequence: 10
+            )
+
+            displayColumn DEPOSITADO_PARA (
+                sequence: 5
+            )
+
+            displayColumn FILIAL (
+                sequence: 1
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 2
+            )
+
+            displayColumn TIPO (
+                sequence: 9
+            )
+
+            displayColumn VALOR_DEPOSITADO (
+                sequence: 4
+            )
+
+            displayColumn VALOR_DOC (
+                sequence: 11
+            )
+
+        )
+
+    )
+
+    branch (
+        execution {
+            sequence: 1
+        }
+        behavior {
+            target: {
+                page: 35
+            }
+            saveStateBeforeBranching: true
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 1
+        }
+        behavior {
+            target: {
+                page: 35
+            }
+            saveStateBeforeBranching: true
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 1
+        }
+        behavior {
+            target: {
+                page: 35
+            }
+            saveStateBeforeBranching: true
+        }
+    )
+
+)
+

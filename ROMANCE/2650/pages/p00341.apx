@@ -1,0 +1,278 @@
+page 341 (
+    name: Indicadores de Fornecedores
+    title: Indicadores de Fornecedores
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtro-fornecedores (
+        name: Filtro Fornecedores
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: breadcrumbBar
+        }
+        appearance {
+            template: @/blank-with-attributes
+            templateOptions: [
+                #DEFAULT#
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region mensal (
+        name: Mensal
+        type: chart
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        performance {
+            lazyLoading: true
+        }
+        dataCursor {
+            dimOnHover: false
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series mensal (
+            name: Mensal
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select null link
+                         , to_number(to_char(d.data,'MM')) mes
+                         , sum(d.valordeposito) "2019"
+                    from roman.depositosdiarios_orig d
+                    where extract( year from d.data) = 2019
+                      and exists ( select 1
+                                   from contasbancarias cb
+                                   where cb.idcontabanc = d.idcontabanc
+                                     and cb.idpessoa    = :P341_IDPESSOAFORNECEDOR )
+                    group by to_number(to_char(data,'RRRR')) 
+                           , to_number(to_char(data,'MM'))
+                    order by to_number(to_char(data,'RRRR')) 
+                           , to_number(to_char(data,'MM'))
+                    ```
+            }
+            columnMapping {
+                seriesName: LINK
+                label: MES
+                value: 2019
+            }
+        )
+
+        axis x (
+            name: x
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    region semanal (
+        name: Semanal
+        type: chart
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        chartAppearance {
+            stack: true
+        }
+        performance {
+            lazyLoading: true
+        }
+        dataCursor {
+            dimOnHover: false
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            show: false
+        }
+
+        series valores-semanais (
+            name: Valores Semanais
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select 'Semana: '||pck_util.fnc_semanaid(d.idsemana)||' Total '||count(d.iddepositodiarios)||' - R$ '||trim(to_char(sum(d.valordeposito),'999G999G999G999G999G990D00')) link
+                         , pck_util.fnc_semanaid(d.idsemana) semana
+                         , sum(d.valordeposito) valor
+                    from roman.depositosdiarios_orig d
+                    where exists ( select 1
+                                   from contasbancarias cb
+                                   where cb.idcontabanc = d.idcontabanc
+                                     and cb.idpessoa    = :P341_IDPESSOAFORNECEDOR )
+                    group by d.idsemana
+                    order by d.idsemana 
+                    ```
+            }
+            columnMapping {
+                label: SEMANA
+                value: VALOR
+                customTooltip: LINK
+            }
+            appearance {
+                color: #544954
+            }
+            label {
+                show: true
+            }
+        )
+
+        axis x (
+            name: x
+            title: Semana
+            majorTicks {
+                show: auto
+            }
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            title: Valores
+            appearance {
+                position: top
+            }
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y-1 (
+            name: y2
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    pageItem P341_IDPESSOAFORNECEDOR (
+        type: popupLov
+        label {
+            label: Fornecedor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(pe.apelido) display_value
+                     , fe.idpessoa return_value
+                from fornecedores fe
+                    , pessoas     pe
+                where fe.idpessoa = pe.idpessoa 
+                  and exists ( select 1
+                               from ordensdepositos o
+                                  , depositosdiarios_orig dr
+                                  , contasbancarias c
+                               where dr.idordemdeposito = o.idordemdeposito
+                                 and o.idcontabancaria  = c.idcontabanc
+                                 and fe.idpessoa        = c.idpessoa )
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @filtro-fornecedores
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    dynamicAction submit (
+        name: Submit
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P341_IDPESSOAFORNECEDOR
+        }
+        clientSideCondition {
+            type: itemIsNotNull
+            item: P341_IDPESSOAFORNECEDOR
+        }
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)
+

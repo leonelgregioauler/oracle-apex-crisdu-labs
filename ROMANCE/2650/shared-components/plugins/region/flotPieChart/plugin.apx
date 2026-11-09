@@ -1,0 +1,276 @@
+plugin flotPieChart (
+    name: Flot Pie Chart
+    staticId: COM.ORACLE.APEX.FLOT.PIE
+    type: region
+    component {
+        standardAttributes: [
+            regionSourceIsSqlQuery
+            pageItemsToSubmitAttr
+            noDataFoundMessageAttr
+            escapeSpecialCharsRegionAttr
+        ]
+    }
+    source {
+        plsqlCode:
+            ```plsql
+                -- NOTE: THIS IS THE VALUE FOR PLUGIN FILE PREFIX #IMAGE_PREFIX#plugins/com.oracle.apex.flot_pie/
+            
+            function render (
+                p_region              in apex_plugin.t_region,
+                p_plugin              in apex_plugin.t_plugin,
+                p_is_printer_friendly in boolean )
+                return apex_plugin.t_region_render_result
+            is
+                -- determine plugin attributes and assign readable names
+                c_color_scheme         constant varchar2(255) := p_region.attribute_15;
+                l_colors               varchar2(2000);
+            
+                c_pie_type             constant apex_application_page_regions.attribute_05%type := nvl(p_region.attribute_05, 'STANDARD');
+            
+                c_inner_radius         constant number  := apex_plugin_util.get_attribute_as_number(apex_plugin_util.replace_substitutions(nvl(p_region.attribute_14,'-1')), 'Inner Radius');
+            
+                c_show_tooltip         constant boolean := (instr(':' || p_region.attribute_08 || ':', ':TOOLTIP:') > 0);
+                c_show_legend          constant boolean := (instr(':' || p_region.attribute_08 || ':', ':LEGEND:') > 0);
+                c_show_label           constant boolean := (instr(':' || p_region.attribute_08 || ':', ':LABEL:')  > 0);
+                c_show_value           constant boolean := (instr(':' || p_region.attribute_08 || ':', ':VALUE:')  > 0);
+                c_pie_width            constant number  := to_number(apex_plugin_util.replace_substitutions(p_region.attribute_06));
+            
+                c_min_height           constant number  := to_number(nvl(p_region.attribute_17, '100'));
+                c_max_height           constant number  := to_number(nvl(p_region.attribute_18, '400'));
+            
+                c_min_ar               constant number  := greatest(apex_plugin_util.get_attribute_as_number(p_plugin.attribute_01, 'Min Aspect Ratio'), 0.25);
+                c_max_ar               constant number  := least(apex_plugin_util.get_attribute_as_number(p_plugin.attribute_02, 'Max Aspect Ratio'), 4);
+            
+                c_combine_slices       constant boolean := (nvl(p_region.attribute_09, 'N') = 'Y');
+                c_combine_threshold    constant number  := nvl(to_number(p_region.attribute_10), 10);
+                c_combined_slice_label constant apex_application_page_regions.attribute_11%type := nvl(p_region.attribute_11, 'Other');
+                c_combined_slice_link  constant apex_application_page_regions.attribute_12%type := p_region.attribute_12;
+                c_combined_slice_color constant apex_application_page_regions.attribute_13%type := p_region.attribute_13;
+            begin
+                -- add placeholder div for chart
+                sys.htp.p(
+                    '<div class="flotPieContainer"><div id="' || apex_escape.html_attribute(p_region.static_id || '_chart') || '" style="width:' ||
+                    case when c_pie_width is null then 'auto' else c_pie_width || 'px' end ||
+                    '" class="flotPieContainerInner"></div></div>' );
+            
+                -- Set the colors to be used, if a non-SQL scheme was selected
+                case c_color_scheme
+                  when 'MODERN' then
+                    l_colors := '#FF3B30,#FF9500,#FFCC00,#4CD964,#34AADC,#007AFF,#5856D6,#FF2D55,#8E8E93,#C7C7CC';
+                  when 'MODERN2' then
+                    l_colors := '#1ABC9C,#2ECC71,#4AA3DF,#9B59B6,#3D566E,#F1C40F,#E67E22,#E74C3C';
+                  when 'SOLAR' then
+                    l_colors := '#B58900,#CB4B16,#DC322F,#D33682,#6C71C4,#268BD2,#2AA198,#859900';
+                  when 'METRO' then
+                    l_colors := '#E61400,#19A2DE,#319A31,#EF9608,#8CBE29,#A500FF,#00AAAD,#FF0094,#9C5100,#E671B5';
+                  when 'CUSTOM' then
+                    l_colors := p_region.attribute_16;
+                  when 'SQL' then
+                    l_colors := null;
+                end case;
+            
+                -- Initialize the Flot pie chart when the page has been rendered.
+                -- apex_javascript.add_attribute are used to make sure that
+                -- the values are properly escaped.   
+                apex_javascript.add_onload_code (
+                    p_code => 'com_oracle_apex_flot_pie(' ||
+                              apex_javascript.add_value(p_region.static_id) ||
+                              '{' ||
+                                  apex_javascript.add_attribute('colors',           l_colors) || 
+                                  apex_javascript.add_attribute('type',             c_pie_type) || 
+                                  apex_javascript.add_attribute('innerRadius',      c_inner_radius)||
+                                  apex_javascript.add_attribute('minAR',            c_min_ar)||
+                                  apex_javascript.add_attribute('maxAR',            c_max_ar)||
+                                  apex_javascript.add_attribute('minHeight',        c_min_height) || 
+                                  apex_javascript.add_attribute('maxHeight',        c_max_height) || 
+                                  apex_javascript.add_attribute('showLabel',        c_show_label) || 
+                                  apex_javascript.add_attribute('showLegend',       c_show_legend) ||
+                                  apex_javascript.add_attribute('showTooltip',      c_show_tooltip) || 
+                                  apex_javascript.add_attribute('showValue',        c_show_value) || 
+                                  apex_javascript.add_attribute('combineSlices',    c_combine_slices) || 
+                                  apex_javascript.add_attribute('combineThreshold', c_combine_threshold) || 
+                                  apex_javascript.add_attribute('combineLabel',     apex_plugin_util.escape(
+                                                                                        apex_plugin_util.replace_substitutions (
+                                                                                            p_value  => c_combined_slice_label,
+                                                                                            p_escape => false ),
+                                                                                        p_region.escape_output )) || 
+                                  apex_javascript.add_attribute('combineUrl',       wwv_flow_utilities.prepare_url(
+                                                                                        apex_plugin_util.replace_substitutions (
+                                                                                            p_value  => c_combined_slice_link,
+                                                                                            p_escape => false ))) ||
+                                  apex_javascript.add_attribute('combineColor',     apex_plugin_util.escape(
+                                                                                        apex_plugin_util.replace_substitutions (
+                                                                                            p_value  => c_combined_slice_color,
+                                                                                            p_escape => false ),
+                                                                                        true )) || 
+                                  apex_javascript.add_attribute('noDataFoundMessage', p_region.no_data_found_message) || 
+                                  apex_javascript.add_attribute('pageItems',        apex_plugin_util.page_item_names_to_jquery(p_region.ajax_items_to_submit)) ||
+                                  apex_javascript.add_attribute('ajaxIdentifier',   apex_plugin.get_ajax_identifier, false, false) ||
+                              '});' );
+                apex_javascript.add_onload_code (
+                    p_code => 'setTimeout(function(){$("span.pieLabel").removeAttr("id");},1000);' );
+            
+                return null;
+            
+            end render;
+            
+            
+            function ajax (
+                 p_region in apex_plugin.t_region,
+                 p_plugin in apex_plugin.t_plugin )
+                 return apex_plugin.t_region_ajax_result
+            is
+                -- It's better to have named variables instead of using the generic ones,
+                -- makes the code more readable. We are using the same defaults for the
+                -- required attributes as in the plug-in attribute configuration, because
+                -- they can still be null. Keep them in sync!
+                c_label_column constant varchar2(255) := p_region.attribute_01;
+                c_value_column constant varchar2(255) := p_region.attribute_02;
+                c_color_column constant varchar2(255) := p_region.attribute_03;
+                c_link_target  constant varchar2(255) := p_region.attribute_04;
+            
+                l_label_column_no   pls_integer;
+                l_value_column_no   pls_integer;
+                l_color_column_no   pls_integer;
+                l_column_value_list apex_plugin_util.t_column_value_list2;
+                
+                l_label             varchar2(4000);
+                l_value             number;
+                l_color             varchar2(20);
+                l_url               varchar2(4000);
+            begin
+                apex_plugin_util.print_json_http_header;
+            
+                l_column_value_list := apex_plugin_util.get_data2 (
+                                           p_sql_statement  => p_region.source,
+                                           p_min_columns    => 2,
+                                           p_max_columns    => null,
+                                           p_component_name => p_region.name );
+            
+                -- Get the actual column# for faster access and also verify that the data type
+                -- of the column matches with what we are looking for
+                l_label_column_no := apex_plugin_util.get_column_no (
+                                         p_attribute_label   => 'Label Column',
+                                         p_column_alias      => c_label_column,
+                                         p_column_value_list => l_column_value_list,
+                                         p_is_required       => true,
+                                         p_data_type         => apex_plugin_util.c_data_type_varchar2 );
+                                                  
+                l_value_column_no := apex_plugin_util.get_column_no (
+                                         p_attribute_label   => 'Value Column',
+                                         p_column_alias      => c_value_column,
+                                         p_column_value_list => l_column_value_list,
+                                         p_is_required       => true,
+                                         p_data_type         => apex_plugin_util.c_data_type_number );
+            
+                l_color_column_no := apex_plugin_util.get_column_no (
+                                         p_attribute_label   => 'Color Column',
+                                         p_column_alias      => c_color_column,
+                                         p_column_value_list => l_column_value_list,
+                                         p_is_required       => false,
+                                         p_data_type         => apex_plugin_util.c_data_type_varchar2 );
+            
+                sys.htp.prn('[');
+            
+                -- It's time to emit the selected rows
+                for l_row_num in 1 .. l_column_value_list(1).value_list.count loop
+                    begin
+                        apex_plugin_util.set_component_values (
+                            p_column_value_list => l_column_value_list,
+                            p_row_num           => l_row_num );
+            
+                        -- get the label
+                        l_label := apex_plugin_util.escape (
+                                       apex_plugin_util.get_value_as_varchar2 (
+                                           p_data_type => l_column_value_list(l_label_column_no).data_type,
+                                           p_value     => l_column_value_list(l_label_column_no).value_list(l_row_num) ),
+                                       p_region.escape_output );
+            
+                        -- get the value
+                        l_value := l_column_value_list(l_value_column_no).value_list(l_row_num).number_value;
+            
+                        -- get the color if specified
+                        if l_color_column_no is not null then
+                            l_color := apex_plugin_util.escape (
+                                           apex_plugin_util.get_value_as_varchar2 (
+                                               p_data_type => l_column_value_list(l_color_column_no).data_type,
+                                               p_value     => l_column_value_list(l_color_column_no).value_list(l_row_num) ),
+                                           true );
+                        end if;
+            
+                        -- get the link target if it does exist
+                        if c_link_target is not null then
+                            l_url := wwv_flow_utilities.prepare_url (
+                                         apex_plugin_util.replace_substitutions (
+                                             p_value  => c_link_target,
+                                             p_escape => false ));
+                        end if;
+            
+                        -- write the data to our output buffer
+                        sys.htp.p (
+                            case when l_row_num > 1 then ',' end ||
+                            '{' ||
+                            apex_javascript.add_attribute('label', l_label) ||
+                            apex_javascript.add_attribute('color', l_color) ||
+                            apex_javascript.add_attribute('url',   l_url) ||
+                            apex_javascript.add_attribute('data',  l_value, false, false ) ||
+                            '}' );
+            
+                        apex_plugin_util.clear_component_values;
+                    exception when others then
+                        apex_plugin_util.clear_component_values;
+                        raise;
+                    end;
+                end loop;
+                sys.htp.prn(']');
+            
+                return null;
+            end ajax;
+            ```
+    }
+    callbacks {
+        apiInterface: function
+        renderProcedureName: render
+        ajaxProcedureName: ajax
+    }
+    advanced {
+        filePrefix: #IMAGE_PREFIX#plugins/com.oracle.apex.flot_pie/
+    }
+    css {
+        fileUrls: #PLUGIN_FILES#com_oracle_apex_flot_pie.css
+    }
+    javaScript {
+        fileUrls: [
+            #IMAGE_PREFIX#libraries/jquery-flot/0.8.3/excanvas#MIN#.js
+            #IMAGE_PREFIX#libraries/jquery-flot/0.8.3/jquery.flot#MIN#.js
+            #IMAGE_PREFIX#libraries/jquery-flot/0.8.3/jquery.flot.resize#MIN#.js
+            #PLUGIN_FILES#jquery.flot.pie.js
+            #PLUGIN_FILES#com_oracle_apex_flot_pie.js
+        ]
+    }
+    information {
+        version: 5.02
+        aboutUrl: http://apex.oracle.com/plugins
+        helpText: Flot Pie Chart is a pure JavaScript plotting library for jQuery, with a focus on simple usage, attractive looks and interactive features.
+    }
+
+    standardAttributeConfig (
+        name: regionSourceIsSqlQuery
+        validation {
+            required: true
+        }
+        sqlQuery {
+            minColumns: 1
+        }
+        examples {
+            examples:
+                ```
+                select *
+                  from emp
+                 order by sal
+                ```
+        }
+    )
+
+)
+

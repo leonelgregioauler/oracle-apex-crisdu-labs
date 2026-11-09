@@ -1,0 +1,600 @@
+page 502 (
+    name: Relatorio Orcamentos Semanais
+    alias: RELATORIO-ORCAMENTOS-SEMANAIS
+    title: Relatorio Orcamentos Semanais
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function setcolor_ir_cells() {
+              // for each cell in marked column (Interactive Report)
+              $(".setcolor .orc_real").each(function() {
+                var $cell = $(this);
+                var $tr   = $cell.closest("tr");
+            
+                // get values (ORCAMENTO_REALIZADO vs ORCAMENTO_SEMANA)
+                var tReal   = $cell.text();
+                var tSemana = $tr.find(".orc_semana").text();
+            
+                // parse numbers (remove thousands, change comma to dot)
+                var realizado = parseFloat(String(tReal).trim().replace(/\./g,"").replace(",","."));
+                var semana    = parseFloat(String(tSemana).trim().replace(/\./g,"").replace(",","."));
+            
+                // rules for coloring
+                this.style.color = "";
+                if (!isNaN(realizado) && !isNaN(semana)) {
+                  if (realizado < semana) {
+                    this.style.color = "green";
+                  } else if (realizado > semana) {
+                    this.style.color = "red";
+                  } // equal -> neutral
+                }
+              });
+            }
+            
+            // rodar após refresh do IR e na carga
+            $("#ir_orcamento").on("apexafterrefresh", function(){ setcolor_ir_cells(); });
+            setcolor_ir_cells();
+            
+            
+            (function() {
+              var items = ["P502_SEMANAINICIAL", "P502_SEMANAFINAL"];
+              var state = {}; // por item: {prevDigits, caretStart, caretEnd, op, data}
+            
+              function fmt(d) {
+                d = (d || "").replace(/\D/g, "").slice(0, 6); // SS + AAAA
+                return d.length <= 2 ? d : d.slice(0,2) + "/" + d.slice(2);
+              }
+              function digitsBeforeCaret(str, pos) {
+                var n = 0;
+                for (var i=0; i<Math.min(pos, str.length); i++) if (/\d/.test(str[i])) n++;
+                return n;
+              }
+              function caretFromDigitIndex(idx, formatted) {
+                if (idx <= 0) return 0;
+                var seen = 0;
+                for (var i=0; i<formatted.length; i++) {
+                  if (/\d/.test(formatted[i])) {
+                    seen++;
+                    if (seen === idx) return i + 1;
+                  }
+                }
+                return formatted.length;
+              }
+              function applyEdit(prevDigits, op, data, dStart, dEnd) {
+                // edita a STRING DE DÍGITOS com base na operação
+                var left  = prevDigits.slice(0, dStart);
+                var mid   = prevDigits.slice(dStart, dEnd);
+                var right = prevDigits.slice(dEnd);
+            
+                // default: retorna prevDigits e caret no mesmo lugar
+                var newDigits = prevDigits, newCaret = dStart;
+            
+                if (op === "insertText") {
+                  var add = (data || "").replace(/\D/g,"");
+                  if (!add) return {digits: prevDigits, caret: dStart};
+                  newDigits = left + add + right;
+                  newCaret  = dStart + add.length;
+                } else if (op === "insertFromPaste") {
+                  var addP = (data || "").replace(/\D/g,"");
+                  if (!addP) return {digits: prevDigits, caret: dStart};
+                  newDigits = left + addP + right;
+                  newCaret  = dStart + addP.length;
+                } else if (op === "deleteContentBackward") {
+                  if (dStart !== dEnd) {
+                    newDigits = left + right;
+                    newCaret  = dStart;
+                  } else if (dStart > 0) {
+                    newDigits = prevDigits.slice(0, dStart-1) + prevDigits.slice(dStart);
+                    newCaret  = dStart - 1;
+                  }
+                } else if (op === "deleteContentForward") {
+                  if (dStart !== dEnd) {
+                    newDigits = left + right;
+                    newCaret  = dStart;
+                  } else if (dStart < prevDigits.length) {
+                    newDigits = prevDigits.slice(0, dStart) + prevDigits.slice(dStart+1);
+                    newCaret  = dStart;
+                  }
+                } else {
+                  // fallback (ex.: auto-preenchimentos): reconstrói a partir do valor atual
+                  var addF = (data || "").replace(/\D/g,"");
+                  if (dStart !== dEnd) {
+                    newDigits = left + addF + right;
+                    newCaret  = dStart + addF.length;
+                  } else {
+                    newDigits = left + addF + right;
+                    newCaret  = dStart + addF.length;
+                  }
+                }
+            
+                // limita no máx 6 dígitos
+                if (newDigits.length > 6) {
+                  newDigits = newDigits.slice(0,6);
+                  if (newCaret > 6) newCaret = 6;
+                }
+                return {digits: newDigits, caret: newCaret};
+              }
+            
+              items.forEach(function(id){
+                var el = document.getElementById(id);
+                if (!el) return;
+                el.setAttribute("maxlength","7");
+            
+                state[id] = {prevDigits: (el.value||"").replace(/\D/g,"").slice(0,6)};
+            
+                // antes de aplicar a alteração: capturamos contexto
+                el.addEventListener("beforeinput", function(e){
+                  var s = state[id];
+                  s.prevDigits = (el.value || "").replace(/\D/g,"").slice(0,6);
+                  s.caretStart = digitsBeforeCaret(el.value, el.selectionStart);
+                  s.caretEnd   = digitsBeforeCaret(el.value, el.selectionEnd);
+                  s.op         = e.inputType || "";
+                  s.data       = e.data || "";
+                });
+            
+                // após a alteração do navegador: nós substituímos pelo nosso cálculo estável
+                el.addEventListener("input", function(){
+                  var s = state[id] || {};
+                  // Se o navegador não disparou beforeinput (alguns casos), inicializa agora
+                  if (s.prevDigits == null) {
+                    s.prevDigits = (el.value || "").replace(/\D/g,"").slice(0,6);
+                    s.caretStart = digitsBeforeCaret(el.value, el.selectionStart);
+                    s.caretEnd   = digitsBeforeCaret(el.value, el.selectionEnd);
+                    s.op         = "";
+                    s.data       = "";
+                  }
+            
+                  var res = applyEdit(s.prevDigits, s.op, s.data, s.caretStart, s.caretEnd);
+                  var formatted = fmt(res.digits);
+            
+                  if (el.value !== formatted) el.value = formatted;
+            
+                  var newCaret = caretFromDigitIndex(res.caret, formatted);
+                  requestAnimationFrame(function(){
+                    try { el.setSelectionRange(newCaret, newCaret); } catch(e){}
+                  });
+            
+                  // prepara próximo ciclo
+                  state[id] = {prevDigits: res.digits};
+                });
+            
+                // formata o valor inicial (se houver)
+                var init = fmt((el.value||"").replace(/\D/g,""));
+                if (el.value !== init) el.value = init;
+            
+                // validação (opcional)
+                el.addEventListener("blur", function(){
+                  var v = el.value;
+                  if (!v) return;
+                  var ok = /^(0[1-9]|[1-4][0-9]|5[0-3])\/(19|20)\d{2}$/.test(v);
+                  if (!ok) {
+                    apex.message.showErrors([{
+                      type: "error",
+                      location: "inline",
+                      pageItem: id,
+                      message: "Use o formato SS/AAAA (semana 01–53)."
+                    }]);
+                    el.focus();
+                  }
+                });
+              });
+            })();
+            ```
+        executeWhenPageLoads: setcolor_ig_cells()
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+    )
+
+    region relatório-de-orçamentos-semanais-fornecedores (
+        name: Relatório de Orçamentos Semanais (FORNECEDORES)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT oc.idorcamentopedidocompra
+                     , ( SELECT pm.nomepromocao
+                         FROM roman.promocoescompras pm 
+                        WHERE pm.idpromocaocompra = oc.idpromocaocompra ) promocao
+                     , oc.idfornecedor
+                     , oc.idsemana
+                     , oc.valororcamento
+                     , ( SELECT SUM(it.valortotal)
+                         FROM roman.pedidoscomprasroman pd
+                            , roman.itenspedidocompraroman it
+                         WHERE pd.idpedidocompraroman = it.idpedidocompraroman
+                           AND pd.idsemanaentrega = oc.idsemana
+                           AND pd.idfornecedor = oc.idfornecedor ) orcamento_realizado
+                FROM roman.orcamentospedidoscompras oc
+                WHERE ( :P502_SEMANAINICIAL is null or oc.idsemana BETWEEN ( SELECT s.idsemana
+                                                                            FROM roman.semana_dias s
+                                                                            WHERE s.semanacompleta = :P502_SEMANAINICIAL ) AND ( SELECT s.idsemana
+                                                                                                                                 FROM roman.semana_dias s
+                                                                                                                                 WHERE s.semanacompleta = :P502_SEMANAFINAL ))
+                  AND :P502_FILTRAR = 'S'
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+            cssClasses: setcolor
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        advanced {
+            savedReportMappingIdentifier: 48899236624208415
+        }
+
+        column IDFORNECEDOR (
+            type: plainTextBasedOnLov
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            lov {
+                lov: @lov-fornecedor
+            }
+            layout {
+                sequence: 66
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column IDORCAMENTOPEDIDOCOMPRA (
+            type: link
+            heading {
+                heading: Editar
+                alignment: center
+            }
+            layout {
+                sequence: 0
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 503
+                    items: {
+                        P503_IDORCAMENTOPEDIDOCOMPRA: #IDORCAMENTOPEDIDOCOMPRA#
+                    }
+                }
+                linkText: <span role="img" aria-label="Edit" class="fa fa-edit" title="Edit"></span>
+            }
+            source {
+                primaryKey: true
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column IDSEMANA (
+            type: plainTextBasedOnLov
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            lov {
+                lov: @lov-semanas
+            }
+            layout {
+                sequence: 36
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column ORCAMENTO_REALIZADO (
+            type: plainText
+            heading {
+                heading: Orçamento Realizado
+                alignment: center
+            }
+            layout {
+                sequence: 56
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            columnFormatting {
+                htmlExpression: <span class="orc_real">#ORCAMENTO_REALIZADO#</span>
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column PROMOCAO (
+            type: plainText
+            heading {
+                heading: Promoção
+                alignment: center
+            }
+            layout {
+                sequence: 46
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column VALORORCAMENTO (
+            type: plainText
+            heading {
+                heading: Valor do Orçamento
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            columnFormatting {
+                htmlExpression:
+                    ```html
+                    <span class="orc_semana">#VALORORCAMENTO#</span>
+                    
+                    ```
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        pageHeader {
+            pageHeaderText: Relatorio Orcamentos Semanais
+        }
+
+        savedReport 489031 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn IDFORNECEDOR (
+                sequence: 3
+            )
+
+            displayColumn IDORCAMENTOPEDIDOCOMPRA (
+                sequence: 1
+            )
+
+            displayColumn IDSEMANA (
+                sequence: 2
+            )
+
+            displayColumn ORCAMENTO_REALIZADO (
+                sequence: 5
+            )
+
+            displayColumn PROMOCAO (
+                sequence: 6
+            )
+
+            displayColumn VALORORCAMENTO (
+                sequence: 4
+            )
+
+            sort (
+                column: IDSEMANA
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: IDFORNECEDOR
+                sort {
+                    direction: desc
+                    sequence: 2
+                }
+            )
+
+            aggregate (
+                column: VALORORCAMENTO
+            )
+
+            aggregate (
+                column: ORCAMENTO_REALIZADO
+            )
+
+            controlBreak (
+                column: IDSEMANA
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P502_FILTRAR (
+        type: hidden
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+    )
+
+    pageItem P502_SEMANAFINAL (
+        type: textField
+        label {
+            label: <strong>Semana Final:</strong>
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--xlarge
+            ]
+            width: 30
+        }
+    )
+
+    pageItem P502_SEMANAINICIAL (
+        type: textField
+        label {
+            label: <strong>Semana Inicial:</strong>
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--xlarge
+            ]
+            width: 30
+        }
+    )
+
+    button create (
+        buttonName: CREATE
+        label: Novo Orçamento
+        layout {
+            sequence: 10
+            region: @relatório-de-orçamentos-semanais-fornecedores
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+            icon: fa-ai-sparkle-generate-document
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 503
+                items: {
+                    P503_IDORCAMENTOPEDIDOCOMPRA:
+                }
+                clearCache: 503
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Consultar Semanas
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: change
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--success
+                t-Button--iconLeft
+            ]
+            icon: fa-spinner
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 502
+                items: {
+                    P502_FILTRAR: S
+                }
+            }
+        }
+    )
+
+)
+

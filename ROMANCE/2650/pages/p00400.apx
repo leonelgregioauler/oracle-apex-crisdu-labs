@@ -1,0 +1,357 @@
+page 400 (
+    name: Fechamento de Conciliações Bancárias
+    title: Fechamento de Conciliações Bancárias
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        width: 50%
+        height: 70%
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region fechamento-bancário (
+        name: Fechamento Bancário
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select d.data
+                     , nvl( ( select 'Sim'
+                              from dual
+                              where exists ( select 1
+                                             from extratosbancarios ex
+                                             where ex.datamovimentacao = d.data 
+                                               and ( :P400_IDCONTABANCARIA is null or exists ( select 1
+                                                                                               from contasbancarias cb
+                                                                                               where cb.idcontabanc   = :P400_IDCONTABANCARIA
+                                                                                                 and trim(ltrim(replace(cb.agencia,'-',''),0)) = ex.agencia
+                                                                                                 and trim(ltrim(replace(cb.conta,'-',''),0))   = ex.conta ) ) ) ),'Não') conciliacao
+                     , nvl( ( select 'Sim'
+                              from dual
+                              where exists ( select 1
+                                             from fechamentomovimentacoes fm
+                                             where fm.datafechamento = d.data
+                                               and ( :P400_IDCONTABANCARIA is null or fm.idcontabancaria = :P400_IDCONTABANCARIA ) ) ),'Não') fechamento
+                from datasperiodos d
+                where d.data between to_date(:P400_DATAINICIO) and to_date(:P400_DATAFIM)
+                order by 1 desc
+                ```
+            pageItemsToSubmit: [
+                P400_DATAINICIO
+                P400_DATAFIM
+                P400_IDCONTABANCARIA
+            ]
+        }
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado, verifique as datas informadas.
+        }
+        advanced {
+            savedReportMappingIdentifier: 97080536080469513
+        }
+
+        column CONCILIACAO (
+            type: plainText
+            heading {
+                heading: Conciliação Realizada?
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column DATA (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column FECHAMENTO (
+            type: plainText
+            heading {
+                heading: Fechamento Realizado?
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 970949 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CONCILIACAO (
+                sequence: 2
+            )
+
+            displayColumn DATA (
+                sequence: 1
+            )
+
+            displayColumn FECHAMENTO (
+                sequence: 3
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P400_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 12
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P400_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 12
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P400_IDCONTABANCARIA (
+        type: popupLov
+        label {
+            label: Conta Bancária
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distinct(b.nomebanco||' - Agencia: '||c.agencia||' / Conta: '||c.conta||' Beneficiario: '||c.beneficiario) display_value
+                     , c.idcontabanc return_value
+                from contasbancarias c
+                   , bancos b
+                where c.idpessoa = 16625
+                  and b.idbanco = c.idbanco
+                  and c.ativo = 'S'
+                order by 1
+                ```
+            nullDisplayValue: "- Todas - "
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    dynamicAction refres-data-fim (
+        name: Refres Data Fim
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P400_DATAFIM
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @fechamento-bancário
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction refresh-conta (
+        name: Refresh Conta
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P400_IDCONTABANCARIA
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @fechamento-bancário
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction refresh-data-inicio (
+        name: Refresh Data Inicio
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P400_DATAINICIO
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @fechamento-bancário
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)
+

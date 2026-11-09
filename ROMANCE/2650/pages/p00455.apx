@@ -1,0 +1,807 @@
+page 455 (
+    name: Saldo Devedor Vencido/Atrasado
+    title: Saldo Devedor Vencido/Atrasado
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region legenda (
+        name: Legenda
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                js-useLocalStorage
+                is-expanded
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <b><font color="white">...</font>Legenda:</b><br><br>
+                <b><font color="white">...</font><font color="red">Vencidos após 15d = Depois de 15 dias</font></b><br>
+                <b><font color="white">...</font><font color="blue">Vencidos até 15d = Em Até 15 dias</font></b><br><br>
+                
+                
+                ```
+        }
+    )
+
+    region saldos (
+        name: Saldos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select atrasados.data_vencimento
+                     , atrasados.distribuidor
+                     , atrasados.valor
+                     , atrasados.situacao
+                     , atrasados.calc
+                     , atrasados.tipo_debito
+                     , atrasados.filial
+                  from( select nvl(pck_romance.fnc_nomerepresentante(n.idrepresentante),pck_romance.fnc_nomepessoa(n.idpessoa)) distribuidor
+                             , pn.datapagamento data_vencimento 
+                             , pn.valorpago valor
+                             , 'Atrasado' situacao
+                             , (trunc(sysdate) - trunc(pn.datapagamento)) calc
+                             , (select t.descricao from tiposnegociacoes t where t.idtiponegociacao = n.idtiponegociacao) tipo_debito
+                             , (select f.nome from roman.vw_filiais f where f.idfilial = n.idfilial) filial
+                          from pagamentosnegociacoes pn
+                             , negociacoes n
+                         where pn.idnegociacao = n.idnegociacao
+                           and pn.situacao <> 'Q'
+                           and (trunc(sysdate) - trunc(pn.datapagamento)) between 0 and 15 -- Atrasado
+                           and (:P455_TIPO = 'T' or :P455_TIPO = 'A')
+                           and trunc(n.data) between :P455_DATAINICIO and :P455_DATAFIM
+                           and (:P455_IDFILIAL = -1 --/*todos*/
+                            or (:P455_IDFILIAL = -2 and n.idfilial is null)
+                            or (:P455_IDFILIAL = 1 and exists(select 1 --/*brasil*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = n.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma = 1))
+                            or (:P455_IDFILIAL = 2 and exists(select 1 --/*america latina*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = n.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma not in (1,5,9,10,11)))
+                            or (:P455_IDFILIAL > 2 and n.idfilial = :P455_IDFILIAL))
+                           and (:P455_IDDISTRIBUIDOR = -1 or n.idrepresentante = :P455_IDDISTRIBUIDOR)
+                           and (:P455_TIPO_DEBITO is null or (:P455_TIPO_DEBITO not in (-2, -4, -5) and n.idtiponegociacao = :P455_TIPO_DEBITO ))
+                        union
+                        select pck_romance.fnc_nomerepresentante(nb.idrepresentante) distribuidor
+                             , pnb.data_vencimento 
+                             , pnb.valor
+                             , 'Atrasado' situacao
+                             , (trunc(sysdate) - trunc(pnb.data_vencimento)) calc
+                             , 'Balanço (Antigo)' tipo_debito
+                             , (select f.nome from roman.vw_filiais f where f.idfilial = nb.idfilial) filial
+                          from parcelanegociacaobalanco pnb
+                             , negociacoesbalanco nb
+                         where pnb.idnegociacaobalanco = nb.idnegociacaobalanco
+                           and pnb.situacao <> 'QUI'
+                           and (trunc(sysdate) - trunc(pnb.data_vencimento)) between 0 and 15 -- Atrasado
+                           and (:P455_TIPO = 'T' or :P455_TIPO = 'A')
+                           and trunc(nb.data) between :P455_DATAINICIO and :P455_DATAFIM
+                           and (:P455_IDFILIAL = -1 --/*todos*/
+                            or (:P455_IDFILIAL = -2 and nb.idfilial is null)
+                            or (:P455_IDFILIAL = 1 and exists(select 1 --/*brasil*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = nb.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma = 1))
+                            or (:P455_IDFILIAL = 2 and exists(select 1 --/*america latina*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = nb.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma not in (1,5,9,10,11)))
+                            or (:P455_IDFILIAL > 2 and nb.idfilial = :P455_IDFILIAL))
+                           and (:P455_IDDISTRIBUIDOR = -1 or nb.idrepresentante = :P455_IDDISTRIBUIDOR)
+                           and (:P455_TIPO_DEBITO is null or :P455_TIPO_DEBITO = -2)
+                        union
+                        select nvl(pck_romance.fnc_nomerepresentante(em.idrepresentante),em.nome) distribuidor
+                             , trunc(pe.datavencimento) data_vencimento
+                             , pe.valorapagar valor 
+                             , 'Atrasado' situacao
+                             , (trunc(sysdate) - trunc(pe.datavencimento)) calc
+                             , 'Empréstimo (Antigo)' tipo_debito
+                             , (select f.nome from roman.vw_filiais f where f.idfilial = em.idfilial) filial
+                          from parcelamentosemprestimos pe
+                             , emprestimos em
+                         where pe.idemprestimo = em.idemprestimo
+                           and pe.situacao <> 'Q'
+                           and (trunc(sysdate) - trunc(pe.datavencimento)) between 0 and 15 -- atrasado
+                           and (:P455_TIPO = 'T' or :P455_TIPO = 'A')
+                           and trunc(em.data) between :P455_DATAINICIO and :P455_DATAFIM
+                           and (:P455_IDFILIAL = -1 --/*todos*/
+                            or (:P455_IDFILIAL = -2 and em.idfilial is null)
+                            or (:P455_IDFILIAL = 1 and exists(select 1 --/*brasil*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = em.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma = 1))
+                            or (:P455_IDFILIAL = 2 and exists(select 1 --/*america latina*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = em.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma not in (1,5,9,10,11)))
+                            or (:P455_IDFILIAL > 2 and em.idfilial = :P455_IDFILIAL))
+                           and (:P455_IDDISTRIBUIDOR = -1 or em.idrepresentante = :P455_IDDISTRIBUIDOR)
+                           and (:P455_TIPO_DEBITO is null or :P455_TIPO_DEBITO = -4)
+                      ) atrasados
+                 -- where atrasados.calc between 0 and 15
+                union
+                select vencidos.data_vencimento
+                     , vencidos.distribuidor
+                     , vencidos.valor
+                     , vencidos.situacao
+                     , vencidos.calc
+                     , vencidos.tipo_debito
+                     , vencidos.filial
+                  from( select nvl(pck_romance.fnc_nomerepresentante(n.idrepresentante),pck_romance.fnc_nomepessoa(n.idpessoa)) distribuidor
+                             , pn.datapagamento data_vencimento 
+                             , pn.valorpago valor
+                             , 'Vencido' situacao
+                             , (trunc(sysdate) - trunc(pn.datapagamento)) calc
+                             , (select t.descricao from tiposnegociacoes t where t.idtiponegociacao = n.idtiponegociacao) tipo_debito
+                             , (select f.nome from roman.vw_filiais f where f.idfilial = n.idfilial) filial
+                          from pagamentosnegociacoes pn
+                             , negociacoes n
+                         where pn.idnegociacao = n.idnegociacao
+                           and pn.situacao <> 'Q'
+                           and (trunc(sysdate) - trunc(pn.datapagamento)) > 15 -- vencido
+                           and (:P455_TIPO = 'T' or :P455_TIPO = 'V')
+                           and trunc(n.data) between :P455_DATAINICIO and :P455_DATAFIM
+                           and (:P455_IDFILIAL = -1 --/*todos*/
+                            or (:P455_IDFILIAL = -2 and n.idfilial is null)
+                            or (:P455_IDFILIAL = 1 and exists(select 1 --/*brasil*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = n.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma = 1))
+                            or (:P455_IDFILIAL = 2 and exists(select 1 --/*america latina*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = n.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma not in (1,5,9,10,11)))
+                            or (:P455_IDFILIAL > 2 and n.idfilial = :P455_IDFILIAL))
+                           and (:P455_IDDISTRIBUIDOR = -1 or n.idrepresentante = :P455_IDDISTRIBUIDOR)
+                           and (:P455_TIPO_DEBITO is null or (:P455_TIPO_DEBITO not in (-2, -4, -5) and n.idtiponegociacao = :P455_TIPO_DEBITO ))
+                        union
+                        select pck_romance.fnc_nomerepresentante(nb.idrepresentante) distribuidor
+                             , pnb.data_vencimento
+                             , pnb.valor
+                             , 'Vencido' situacao
+                             , (trunc(sysdate) - trunc(pnb.data_vencimento)) calc
+                             , 'Balanço (Antigo)' tipo_debito
+                             , (select f.nome from roman.vw_filiais f where f.idfilial = nb.idfilial) filial
+                          from parcelanegociacaobalanco pnb
+                             , negociacoesbalanco nb
+                         where pnb.idnegociacaobalanco = nb.idnegociacaobalanco
+                           and pnb.situacao <> 'QUI'
+                           and (trunc(sysdate) - trunc(pnb.data_vencimento)) > 15 -- vencido
+                           and (:P455_TIPO = 'T' or :P455_TIPO = 'V')
+                           and trunc(nb.data) between :P455_DATAINICIO and :P455_DATAFIM
+                           and (:P455_IDFILIAL = -1 --/*todos*/
+                            or (:P455_IDFILIAL = -2 and nb.idfilial is null)
+                            or (:P455_IDFILIAL = 1 and exists(select 1 --/*brasil*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = nb.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma = 1))
+                            or (:P455_IDFILIAL = 2 and exists(select 1 --/*america latina*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = nb.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma not in (1,5,9,10,11)))
+                            or (:P455_IDFILIAL > 2 and nb.idfilial = :P455_IDFILIAL))
+                           and (:P455_IDDISTRIBUIDOR = -1 or nb.idrepresentante = :P455_IDDISTRIBUIDOR)
+                           and (:P455_TIPO_DEBITO is null or :P455_TIPO_DEBITO = -2)
+                        union
+                        select nvl(pck_romance.fnc_nomerepresentante(em.idrepresentante),em.nome) distribuidor
+                             , trunc(pe.datavencimento)
+                             , pe.valorapagar valor
+                             , 'Vencido' situacao
+                             , (trunc(sysdate) - trunc(pe.datavencimento)) calc
+                             , 'Emprestimo (Antigo)' tipo_debito
+                             , (select f.nome from roman.vw_filiais f where f.idfilial = em.idfilial) filial
+                          from parcelamentosemprestimos pe
+                             , emprestimos em
+                         where pe.idemprestimo = em.idemprestimo
+                           and pe.situacao <> 'Q'
+                           and (trunc(sysdate) - trunc(pE.datavencimento)) > 15 -- vencido
+                           and (:P455_TIPO = 'T' or :P455_TIPO = 'V')
+                           and trunc(em.data) between :P455_DATAINICIO and :P455_DATAFIM
+                           and (:P455_IDFILIAL = -1 --/*todos*/
+                            or (:P455_IDFILIAL = -2 and em.idfilial is null)
+                            or (:P455_IDFILIAL = 1 and exists(select 1 --/*brasil*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = em.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma = 1))
+                            or (:P455_IDFILIAL = 2 and exists(select 1 --/*america latina*/
+                                                                from vw_filiais f
+                                                               where f.idfilial = em.idfilial
+                                                                 and f.idgrupo is not null
+                                                                 and f.ididioma not in (1,5,9,10,11)))
+                            or (:P455_IDFILIAL > 2 and em.idfilial = :P455_IDFILIAL))
+                           and (:P455_IDDISTRIBUIDOR = -1 or em.idrepresentante = :P455_IDDISTRIBUIDOR)
+                           and (:P455_TIPO_DEBITO is null or :P455_TIPO_DEBITO = -4)
+                      ) vencidos
+                  --where vencidos.calc > 15
+                   -- and :P455_EXECUTA = 'S'
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1506035122287891144
+        }
+
+        column CALC (
+            type: hidden
+            heading {
+                heading: Calc
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DATA_VENCIMENTO (
+            type: plainText
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/yyyy
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column SITUACAO (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column TIPO_DEBITO (
+            type: plainText
+            heading {
+                heading: Tipo Debito
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column VALOR (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15062793 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATA_VENCIMENTO (
+                sequence: 1
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 2
+            )
+
+            displayColumn FILIAL (
+                sequence: 3
+            )
+
+            displayColumn SITUACAO (
+                sequence: 5
+            )
+
+            displayColumn TIPO_DEBITO (
+                sequence: 6
+            )
+
+            displayColumn VALOR (
+                sequence: 4
+            )
+
+        )
+
+    )
+
+    pageItem P455_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Data Final Negociação
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/YYYY
+            width: 30
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P455_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: Data Inicial Negociação
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/YYYY
+            width: 30
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P455_EXECUTA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P455_IDDISTRIBUIDOR (
+        type: selectOne
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ' Todos' d, -1 r
+                from dual
+                union
+                select pck_romance.fnc_nomerepresentante(r.idrepresentante) d
+                     , r.idrepresentante r
+                from representantes r
+                where r.idgerente in ( select idgerente 
+                                      from gerentes g
+                                         , filiais fil
+                                      where g.idfilial = fil.idfilial
+                                        and ( :P455_IDFILIAL = -1  -- Todos
+                                         or ( :P455_IDFILIAL = 1 and fil.idgrupo != 5  ) -- Brasil
+                                         or ( :P455_IDFILIAL = 2 and fil.idgrupo  = 5  ) -- America Latina
+                                         or ( :P455_IDFILIAL > 2 and g.idfilial = :P455_IDFILIAL )))
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P455_IDFILIAL
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: static
+            staticValue: -1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P455_IDFILIAL (
+        type: selectOne
+        label {
+            label: Empresa
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select '   Todos', -1
+                from dual
+                union
+                select '  Sem Filial', -2
+                from dual
+                union
+                select ' Brasil', 1
+                from dual
+                union
+                select ' America Latina', 2
+                from dual
+                union
+                select nome
+                     , idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: static
+            staticValue: -1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P455_TIPO (
+        type: radioGroup
+        label {
+            label: Situação
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Vencidos após 15d;V,Vencidos até 15d;A
+            displayExtraValues: false
+            nullDisplayValue: Todos
+            nullReturnValue: T
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P455_TIPO_DEBITO (
+        type: selectList
+        label {
+            label: Tipo Débito
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select descricao
+                     , idtiponegociacao
+                  from (select descricao
+                             , idtiponegociacao
+                             , idtiponegociacao ordem
+                          from tiposnegociacoes
+                         union
+                        select 'Balanço (Antigo)', -2, 8
+                          from dual
+                         union
+                        select 'Empréstimos  (Antigo)', -4, 7
+                          from dual
+                         union
+                        select 'Cheques', -5, 5
+                          from dual)
+                order by ordem
+                ```
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: Filtrar
+        label: Filtrar
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction executa (
+        name: Executa
+        execution {
+            sequence: 20
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @filtrar
+        }
+
+        action native-set-value (
+            action: setValue
+            settings {
+                value: S
+            }
+            affectedElements {
+                selectionType: items
+                items: P455_EXECUTA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process new (
+        name: New
+        type: executeCode
+        source {
+            plsqlCode: :P455_EXECUTA := 'N';
+        }
+        execution {
+            sequence: 10
+            point: afterSubmit
+        }
+        advanced {
+            executionMappingIdentifier: 3494659001290678542
+        }
+    )
+
+)
+

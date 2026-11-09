@@ -1,0 +1,1361 @@
+page 7 (
+    name: Lista de Pessoas
+    title: Lista de Pessoas
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region buscar-cadastro (
+        name: Buscar Cadastro
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/inline-dialog
+            templateOptions: [
+                #DEFAULT#
+                js-dialog-size480x320
+            ]
+        }
+        advanced {
+            htmlDomId: BUSCAR
+            regionDisplaySelector: true
+        }
+    )
+
+    region lista-de-pessoas (
+        name: Lista de Pessoas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select /*+ FIRST_ROWS(50) */ distinct(p.idpessoa)
+                     , decode(p.ativo, 'S','Sim','Não') "Pessoa Ativa"
+                     , nvl(( select distinct 'Sim' from representantes f where f.idpessoa = p.idpessoa and f.ativo = 'S') ,'Não') "Representante Ativo"
+                     , nvl(( select distinct 'Sim' from filiais f where f.idpessoa = p.idpessoa) ,'Não') "Filial"
+                     , nvl(( select distinct 'Sim' from gerentes f where f.idpessoa = p.idpessoa) ,'Não') "Gerente"
+                     , nvl(( select distinct 'Sim' from representantes f where f.idpessoa = p.idpessoa) ,'Não') "Representante"
+                     , nvl(( select distinct 'Sim' from vendedoras f where f.idpessoa = p.idpessoa ),'Não') "Vendedora"
+                     , nvl(( select distinct 'Sim' from secretarias f where f.idpessoa = p.idpessoa) ,'Não') "Secretária"
+                     , nvl(( select distinct 'Sim' from fornecedores f where f.idpessoa = p.idpessoa ),'Não') "Fornecedor"
+                     , nvl(( select distinct 'Sim' from transportadoras f where f.idpessoa = p.idpessoa) ,'Não') "Transportadora"
+                     , nvl(( select distinct 'Sim' from usuarios f where f.idpessoa = p.idpessoa ),'Não') "Usuário"
+                     , nvl(( select distinct 'Sim' from mei m where m.idpessoa = p.idpessoa ),'Não') "MEI"
+                     , initcap(p.nomepessoa) nomepessoa
+                     , initcap(p.apelido) "Nome Abreviado"
+                     , p.cpf CPF
+                     , p.cnpj CNPJ
+                  --   , p.telefoneprinc
+                  --   , p.telefonesecund
+                     , initcap(p.enderecoprincipal) enderecoprincipal    
+                     , initcap(p.enderecosecundario) enderecosecundario
+                     , pck_romance.fnc_nomecidade(p.idcidade) nomecidade
+                     , lower(p.email) email
+                     , datanascimento
+                     , ( select decode(f.tipofilial, 'C','Catalogo','D','Distribuidora','F','Fábrica','O','Outro','P','Parceira Favorita') 
+                         from filiais f 
+                         where f.idpessoa = p.idpessoa) "Tipo Filial"/*
+                     , nvl(( select initcap(pg.nomepessoa)
+                             from pessoas pg
+                                , gerentes g
+                                , representantes  r
+                             where pg.idpessoa = g.idpessoa
+                               and g.idgerente = r.idgerente 
+                               and r.idpessoa   = p.idpessoa),null) gerente*/
+                     , ( select initcap(nvl(pf.apelido,pf.nomepessoa))
+                         from pessoas pf
+                         where pf.idpessoa = ( select f.idpessoa
+                                               from filiais f
+                                               where f.idfilial = ( select g.idfilial       
+                                                                    from gerentes  g
+                                                                    where g.idgerente = ( select r.idgerente
+                                                                                          from representantes r
+                                                                                          where r.idpessoa    = p.idpessoa)))) filial
+                     , ( select u.nome
+                         from unidadesdenegocios u
+                            , filiais ff
+                         where u.idunidadedenegocio = ff.idunidadedenegocio
+                           and ff.idpessoa          = p.idpessoa ) unidadedenegocio
+                     , case
+                         when :P7_FILTRO = 'F' then
+                           nvl( ( select 'Sim'
+                                  from dual
+                                  where exists ( select 1
+                                                 from fechamentossemanais fs
+                                                    , filiais ff
+                                                 where ff.idpessoa = p.idpessoa
+                                                   and ff.idfilial = fs.idfilial
+                                                   and fs.concluido = 'N' ) ),'Não')
+                         else
+                           'Não'
+                       end caixaativo
+                     , nvl( ( select 'Sim'
+                              from dual
+                              where exists ( select 1
+                                             from chavespix c
+                                             where c.idpessoa = p.idpessoa ) ),'Não' ) chavepix
+                    , rf.codigovirtualage
+                    --, decode(fo.tipo_fornecedor,'INT','Interno','EXT','Externo') tipo_fornecedor 
+                    , (select descricao from table(catal.pck_util.fnc_siglasistema('TIPO_FORNECEDOR',fo.tipo_fornecedor))) tipo_fornecedor
+                from pessoas p
+                   , catal.fornecedores fo
+                   , roman.razoessociaisfornec rf
+                where fo.idpessoa = p.idpessoa
+                  and fo.idfornecedor = rf.idfornecedor(+)
+                  and ( (:P7_FILTRO = 'F' and exists ( select 1 from filiais f where p.idpessoa = f.idpessoa))
+                     or (:P7_FILTRO = 'O' and exists ( select 1 from fornecedores f where p.idpessoa = f.idpessoa))
+                     or (:P7_FILTRO = 'C' and exists ( select 1 from representantes f where p.idpessoa = f.idpessoa))
+                     or (:P7_FILTRO = 'T' and exists ( select 1 from transportadoras t where p.idpessoa = t.idpessoa))
+                     or :P7_FILTRO = 'Z' )
+                  and ( :P7_CNPJ is null or ( exists ( select 1
+                                                       from razoessociaisfiliais rc
+                                                          , filiais              ff
+                                                       where rc.idfilial = ff.idfilial
+                                                         and ff.idpessoa = p.idpessoa 
+                                                         and rc.cnpj     = :P7_CNPJ )
+                                           or p.cnpj  = :P7_CNPJ
+                                           or exists ( select 1
+                                                       from razoessociaisfornec rc
+                                                          , fornecedores        fc
+                                                       where fc.idfornecedor  = rc.idfornecedor
+                                                         and fc.idpessoa = p.idpessoa 
+                                                         and REGEXP_REPLACE(rc.cnpj,'[./-]','') = REGEXP_REPLACE(:P7_CNPJ,'[./-]','') ) ) )
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        link {
+            linkColumn: customTarget
+            target: {
+                page: 8
+                items: {
+                    P8_IDPESSOA: #IDPESSOA#
+                }
+            }
+            linkIcon: <img src="#IMAGE_PREFIX#menu/pencil16x16.gif"  border="0">
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: This query returns more than 10,000 rows, please filter your data to ensure complete results.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            rowsPerPage: false
+            pivot: false
+            savePublicReport: true
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 1
+        }
+
+        column CAIXAATIVO (
+            type: plainText
+            heading {
+                heading: Caixa Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 51
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column CHAVEPIX (
+            type: plainText
+            heading {
+                heading: Chave Pix?
+                alignment: center
+            }
+            layout {
+                sequence: 61
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        column CNPJ (
+            type: plainText
+            heading {
+                heading: CNPJ
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: CNPJ
+                endUserAlias: O
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column CODIGOVIRTUALAGE (
+            type: plainText
+            heading {
+                heading: Codigo Virtual Age
+                alignment: center
+            }
+            layout {
+                sequence: 71
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AI
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: CPF
+                alignment: center
+            }
+            layout {
+                sequence: 14
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: CPF
+                endUserAlias: N
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DATANASCIMENTO (
+            type: plainText
+            heading {
+                heading: Data Nascimento
+                alignment: center
+            }
+            layout {
+                sequence: 17
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                htmlDomId: DATANASCIMENTO
+                endUserAlias: Q
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column EMAIL (
+            type: plainText
+            heading {
+                heading: Email
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: EMAIL
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column ENDERECOPRINCIPAL (
+            type: plainText
+            heading {
+                heading: End Principal
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: ENDERECOPRINCIPAL
+                endUserAlias: C
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column ENDERECOSECUNDARIO (
+            type: plainText
+            heading {
+                heading: End Secund
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: ENDERECOSECUNDARIO
+                endUserAlias: D
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 19
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: FILIAL
+                endUserAlias: S
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Filial (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 21
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Filial
+                endUserAlias: U
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Fornecedor (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 26
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Fornecedor
+                endUserAlias: Z
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Gerente (
+            type: plainText
+            heading {
+                heading: Gerente
+                alignment: center
+            }
+            layout {
+                sequence: 22
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Gerente
+                endUserAlias: V
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDPESSOA (
+            type: hidden
+            heading {
+                heading: Idpessoa
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDPESSOA
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column MEI (
+            type: plainText
+            heading {
+                heading: Mei
+                alignment: center
+            }
+            layout {
+                sequence: 31
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: MEI
+                endUserAlias: AE
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column NOMECIDADE (
+            type: plainText
+            heading {
+                heading: Cidade
+                alignment: center
+            }
+            layout {
+                sequence: 16
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: NOMECIDADE
+                endUserAlias: P
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column NOMEPESSOA (
+            type: plainText
+            heading {
+                heading: Nome
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: NOMEPESSOA
+                endUserAlias: B
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Nome Abreviado" (
+            type: plainText
+            heading {
+                heading: Nome Fantasia
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Nome Abreviado
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Pessoa Ativa" (
+            type: plainText
+            heading {
+                heading: Pessoa Ativa
+                alignment: center
+            }
+            layout {
+                sequence: 29
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Pessoa Ativa
+                endUserAlias: AC
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Representante
+                alignment: center
+            }
+            layout {
+                sequence: 23
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Representante
+                endUserAlias: W
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Representante Ativo" (
+            type: plainText
+            heading {
+                heading: Representante Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Representante Ativo
+                endUserAlias: AD
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Secretária (
+            type: plainText
+            heading {
+                heading: Secretária
+                alignment: center
+            }
+            layout {
+                sequence: 25
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Secretária
+                endUserAlias: Y
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column TIPO_FORNECEDOR (
+            type: plainText
+            heading {
+                heading: Tipo Fornecedor
+            }
+            layout {
+                sequence: 81
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AJ
+            }
+        )
+
+        column "Tipo Filial" (
+            type: plainText
+            heading {
+                heading: Tipo Filial
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Tipo Filial
+                endUserAlias: T
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Transportadora (
+            type: plainText
+            heading {
+                heading: Transportadora
+                alignment: center
+            }
+            layout {
+                sequence: 27
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Transportadora
+                endUserAlias: AA
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column UNIDADEDENEGOCIO (
+            type: plainText
+            heading {
+                heading: Unidade de Negócio
+                alignment: center
+            }
+            layout {
+                sequence: 41
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column Usuário (
+            type: plainText
+            heading {
+                heading: Usuário
+                alignment: center
+            }
+            layout {
+                sequence: 28
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Usuário
+                endUserAlias: AB
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Vendedora (
+            type: plainText
+            heading {
+                heading: Vendedora
+                alignment: center
+            }
+            layout {
+                sequence: 24
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Vendedora
+                endUserAlias: X
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        savedReport 13798 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 1
+            }
+
+            displayColumn CAIXAATIVO (
+                sequence: 9
+            )
+
+            displayColumn CHAVEPIX (
+                sequence: 10
+            )
+
+            displayColumn CNPJ (
+                sequence: 4
+            )
+
+            displayColumn CODIGOVIRTUALAGE (
+                sequence: 11
+            )
+
+            displayColumn EMAIL (
+                sequence: 3
+            )
+
+            displayColumn NOMECIDADE (
+                sequence: 6
+            )
+
+            displayColumn NOMEPESSOA (
+                sequence: 2
+            )
+
+            displayColumn "Nome Abreviado" (
+                sequence: 1
+            )
+
+            displayColumn TIPO_FORNECEDOR (
+                sequence: 5
+            )
+
+            displayColumn "Tipo Filial" (
+                sequence: 8
+            )
+
+            displayColumn UNIDADEDENEGOCIO (
+                sequence: 7
+            )
+
+            sort (
+                column: "Nome Abreviado"
+                sort {
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: FILIAL
+                sort {
+                    nulls: last
+                    sequence: 2
+                }
+            )
+
+        )
+
+        savedReport 5879127 (
+            visibility: alternativeDefault
+            name: Filiais
+            view {
+                rowsPerPage: 200
+            }
+
+            displayColumn CAIXAATIVO (
+                sequence: 5
+            )
+
+            displayColumn EMAIL (
+                sequence: 3
+            )
+
+            displayColumn NOMEPESSOA (
+                sequence: 2
+            )
+
+            displayColumn "Nome Abreviado" (
+                sequence: 1
+            )
+
+            displayColumn UNIDADEDENEGOCIO (
+                sequence: 4
+            )
+
+            sort (
+                column: "Nome Abreviado"
+                sort {
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: FILIAL
+                sort {
+                    nulls: last
+                    sequence: 2
+                }
+            )
+
+            filter ir-condition (
+                column: "Filial"
+                value: Sim
+            )
+
+        )
+
+        savedReport 5879137 (
+            visibility: alternativeDefault
+            name: Fornecedores
+            view {
+                rowsPerPage: 200
+            }
+
+            displayColumn CAIXAATIVO (
+                sequence: 8
+            )
+
+            displayColumn EMAIL (
+                sequence: 3
+            )
+
+            displayColumn "Filial" (
+                sequence: 4
+            )
+
+            displayColumn "Fornecedor" (
+                sequence: 5
+            )
+
+            displayColumn NOMEPESSOA (
+                sequence: 2
+            )
+
+            displayColumn "Nome Abreviado" (
+                sequence: 1
+            )
+
+            displayColumn "Transportadora" (
+                sequence: 6
+            )
+
+            displayColumn UNIDADEDENEGOCIO (
+                sequence: 7
+            )
+
+            sort (
+                column: "Nome Abreviado"
+                sort {
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: FILIAL
+                sort {
+                    nulls: last
+                    sequence: 2
+                }
+            )
+
+            filter ir-condition (
+                column: "Fornecedor"
+                value: Sim
+            )
+
+        )
+
+    )
+
+    pageItem P7_CNPJ (
+        type: textField
+        label {
+            label: CNPJ
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @lista-de-pessoas
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P7_CNPJBUSCA (
+        type: textField
+        label {
+            label: CNPJ
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @buscar-cadastro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P7_CPF (
+        type: textField
+        label {
+            label: CPF
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @buscar-cadastro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P7_FILTRO (
+        type: radioGroup
+        label {
+            label: Filtro
+            alignment: left
+        }
+        settings {
+            noOfCols: 5
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Distribuidoras/Setores/Filial Crisdu;F,Fornecedores;O,Clientes;C,Outros;Z,Transportadoras;T
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @lista-de-pessoas
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P7_IDPESSOA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 40
+            region: @buscar-cadastro
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P7_TIPOCONSULTA (
+        type: radioGroup
+        label {
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:CNPJ;J,CPF;F
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @buscar-cadastro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Buscar
+        layout {
+            sequence: 50
+            region: @buscar-cadastro
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button buscar-cadastro (
+        buttonName: BUSCAR_CADASTRO
+        label: Buscar Cadastro
+        layout {
+            sequence: 10
+            region: @lista-de-pessoas
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+            ]
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript: openModal('BUSCAR');
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button create (
+        buttonName: CREATE
+        label: Nova Pessoa
+        layout {
+            sequence: 20
+            region: @lista-de-pessoas
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 8
+                clearCache: 8
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction cnpj (
+        name: CNPJ
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P7_TIPOCONSULTA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P7_TIPOCONSULTA
+            value: J
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P7_CNPJBUSCA
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P7_CNPJBUSCA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction cpf (
+        name: CPF
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P7_TIPOCONSULTA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P7_TIPOCONSULTA
+            value: F
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P7_CPF
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P7_CPF
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction onchange (
+        name: OnChange
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: [
+                P7_CNPJ
+                P7_FILTRO
+            ]
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: FILTRO
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    validation valida-cpf (
+        name: Valida CPF
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where exists ( 
+                                select idpessoa
+                                from pessoas
+                                where replace(replace(cpf,'.',''),'-','') = replace(replace(:P7_CPF,'.',''),'-','') )
+                ```
+        }
+        error {
+            errorMessage: Cadastro não localizado!
+            associatedItem: @P7_CPF
+        }
+        serverSideCondition {
+            whenButtonPressed: @buscar
+            type: never
+        }
+    )
+
+    process busca-id (
+        name: Busca ID
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  select idpessoa
+                  into :P7_IDPESSOA
+                  from pessoas p
+                  where  nvl(p.cpf,p.cnpj) = replace(replace(replace(nvl(:P7_CPF,:P7_CNPJBUSCA),'.',''),'-',''),'/','');
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        advanced {
+            executionMappingIdentifier: 4996187273104106610
+        }
+        serverSideCondition {
+            whenButtonPressed: @buscar
+        }
+    )
+
+    process todos (
+        name: Todos
+        type: executeCode
+        source {
+            plsqlCode: :P7_FILTRO := NVL(:P7_FILTRO,'Z')
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 1438907237004427005
+        }
+    )
+
+    branch (
+        name: redireciona
+        execution {
+            sequence: 20
+        }
+        behavior {
+            target: {
+                page: 7
+                items: {
+                    P7_CNPJ: &P7_CNPJ.
+                    P7_FILTRO: &P7_FILTRO.
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 8
+                items: {
+                    P8_IDPESSOA: &P7_IDPESSOA.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @buscar
+        }
+    )
+
+)
+

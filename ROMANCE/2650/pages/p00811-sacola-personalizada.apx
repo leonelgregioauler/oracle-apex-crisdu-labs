@@ -1,0 +1,1872 @@
+page 811 (
+    name: Sacola Personalizada
+    alias: SACOLA-PERSONALIZADA
+    title: Sacola Personalizada
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+
+    region combinação-produtos-sacolas (
+        name: Combinação Produtos Sacolas
+        title: Combinação Produtos Sacolas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                with base as (
+                             select
+                                pck_romance.fnc_nomefilial(r.idfilial) franquia,
+                                pck_romance.fnc_nomerepresentante(r.idrepresentante) distribuidor,
+                                pck_romance.fnc_nomevendedora(s.idvendedora) consultora,
+                                pck_romance.fnc_cpfvendedora(s.idvendedora) cpf,
+                                pck_util.fnc_semanaid(s.idsemana) semana,
+                                nv.numeronota,
+                                nv.idnotavenda,
+                                nv.semanadistribuicao,
+                                /* Itens solicitados */
+                                (
+                                  select SUM((  ii.qtd_pp
+                                              + ii.qtd_p
+                                              + ii.qtd_m
+                                              + ii.qtd_g
+                                              + ii.qtd_gg
+                                              + ii.qtd_egg
+                                              + ii.qtd_exgg
+                                              + ii.qtd_u ))
+                                  from itenssugestoessacolas ii
+                                  where ii.idsugestaosacola = s.idsugestaosacola
+                                    and ( ii.qtd_pp
+                                        + ii.qtd_p
+                                        + ii.qtd_m
+                                        + ii.qtd_g
+                                        + ii.qtd_gg
+                                        + ii.qtd_egg
+                                        + ii.qtd_exgg
+                                        + ii.qtd_u ) > 0
+                                ) qtd_itens_pedidos,
+                         
+                                /* Itens na nota */
+                                (
+                                  select SUM(it.quantidade)
+                                  from itensnotavenda it
+                                  where it.idnotavenda = s.idnotavenda
+                                  group by it.idnotavenda
+                                ) qtd_na_sacola,
+                         
+                                /*sugerido x entregue */
+                                (
+                                  select SUM(it.quantidade)--COUNT(distinct ii.iditemsugestaosacola)
+                                  from itensnotavenda it
+                                  join itenssugestoessacolas ii on it.idestoquefil = ii.idestoquefil
+                                  where ii.idsugestaosacola = s.idsugestaosacola
+                                    and it.idnotavenda      = s.idnotavenda
+                                    and ( ii.qtd_pp
+                                        + ii.qtd_p
+                                        + ii.qtd_m
+                                        + ii.qtd_g
+                                        + ii.qtd_gg
+                                        + ii.qtd_egg
+                                        + ii.qtd_exgg
+                                        + ii.qtd_u ) > 0
+                                  group by it.idnotavenda
+                                ) qtd_itens_similares,
+                                
+                                --vendido
+                                (
+                                  select SUM(it.quantidade - it.qtddevolvida)--COUNT(distinct ii.iditemsugestaosacola)
+                                  from itensnotavenda it
+                                  join itenssugestoessacolas ii on it.idestoquefil = ii.idestoquefil
+                                  where ii.idsugestaosacola = s.idsugestaosacola
+                                    and it.idnotavenda      = s.idnotavenda
+                                    and ( ii.qtd_pp
+                                        + ii.qtd_p
+                                        + ii.qtd_m
+                                        + ii.qtd_g
+                                        + ii.qtd_gg
+                                        + ii.qtd_egg
+                                        + ii.qtd_exgg
+                                        + ii.qtd_u ) > 0
+                                  group by it.idnotavenda
+                                ) qtd_itens_vendidos,
+                                nv.idsituacaonotavenda
+                                
+                          from representantes r
+                             , sugestoessacolas s
+                             , notasvendas nv
+                          where r.ativo = 'S'
+                            and s.dataenviado is not null
+                            and r.idrepresentante = s.idrepresentante
+                            and nv.idnotavenda = s.idnotavenda
+                            and s.idnotavenda is not null
+                  
+                          -- FILTROS TELA
+                          and (r.idfilial = :P811_FILIAL OR :P811_FILIAL IS NULL)
+                          and (nv.semanadistribuicao = :P811_SEMANANOTA OR :P811_SEMANANOTA is null)
+                          and (nv.numeronota = :P811_NUMERONOTA
+                               OR nv.idnotavenda = :P811_NUMERONOTA
+                               OR :P811_NUMERONOTA is null)
+                          and (r.idrepresentante = :P811_DISTRIBUIDOR OR :P811_DISTRIBUIDOR is null)
+                          and (s.idvendedora = :P811_CONSULTORA OR :P811_CONSULTORA is null)
+                          and :P811_FILTRAR = 'S')
+                select
+                    t.franquia                                                               "Franquia",
+                    t.distribuidor                                                           "Distribuidor",
+                    t.consultora                                                             "Consultora",
+                    t.cpf                                                                    "CPF",
+                    t.semana                                                                 "Semana Sacola",
+                    t.idnotavenda                                                            "Id Nota Venda",
+                    t.numeronota                                                             "Nr Nota",
+                    t.semanadistribuicao                                                     "Semana Nota",
+                    nvl(t.qtd_itens_pedidos ,0)                                              "Produtos Solicitados",
+                    t.qtd_na_sacola                                                          "Produtos Entregues",
+                    nvl(t.qtd_itens_similares,0)                                             "Produtos que Combinam",
+                    nvl(round(t.qtd_itens_similares / t.qtd_itens_pedidos * 100,2),0) || '%' "% Combinação",
+                    nvl(t.qtd_itens_vendidos, 0)                                             "Itens Vendidos",
+                    /* Aproveitamento*/
+                    case
+                      when t.idsituacaonotavenda <> 4 then
+                        'Aguard. Acerto'
+                      when t.qtd_itens_similares = 0 then
+                        '0'
+                      else
+                        NVL(round((t.qtd_itens_vendidos / t.qtd_itens_similares) * 100, 2),0) || '%'
+                    end "% Aproveitamento"
+                from base t
+                --somente sacolas que tiveram solicitacoes > 0
+                where t.qtd_itens_pedidos is not null
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: regionBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P811_TIPO
+            value: 2
+        }
+        pagination {
+            type: rowRangesXToYOfZ
+        }
+        performance {
+            lazyLoading: true
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Dados não encontrados, revisar filtros.
+        }
+        advanced {
+            savedReportMappingIdentifier: 1804048369402459444
+        }
+
+        column "% Aproveitamento" (
+            type: plainText
+            heading {
+                heading: % Itens Solicitados
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "% Combinação" (
+            type: plainText
+            heading {
+                heading: % Combinação
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: CPF
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column Consultora (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column Franquia (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column "Id Nota Venda" (
+            type: hidden
+            heading {
+                heading: Id Nota Venda
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column "Itens Vendidos" (
+            type: plainText
+            heading {
+                heading: Itens Solicitados Vendidos
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column "Nr Nota" (
+            type: link
+            heading {
+                heading: Nr Nota
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 37
+                    items: {
+                        P37_IDNOTAVENDA: #Id Nota Venda#
+                    }
+                }
+                linkText: #Nr Nota#
+                linkAttributes: target="_blank"
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column "Produtos Entregues" (
+            type: plainText
+            heading {
+                heading: Produtos na Nota
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "Produtos Solicitados" (
+            type: plainText
+            heading {
+                heading: Produtos Solicitados
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Produtos que Combinam" (
+            type: plainText
+            heading {
+                heading: Produtos que Combinam
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "Semana Nota" (
+            type: plainText
+            heading {
+                heading: Semana Nota
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column "Semana Sacola" (
+            type: plainText
+            heading {
+                heading: Semana Sacola
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        pageHeader {
+            pageHeaderText: Combinação Produtos Sacolas
+        }
+
+        savedReport 18059348 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "% Aproveitamento" (
+                sequence: 10
+            )
+
+            displayColumn "% Combinação" (
+                sequence: 8
+            )
+
+            displayColumn CPF (
+                sequence: 4
+            )
+
+            displayColumn "Consultora" (
+                sequence: 3
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 2
+            )
+
+            displayColumn "Franquia" (
+                sequence: 1
+            )
+
+            displayColumn "Itens Vendidos" (
+                sequence: 9
+            )
+
+            displayColumn "Nr Nota" (
+                sequence: 11
+            )
+
+            displayColumn "Produtos Entregues" (
+                sequence: 6
+            )
+
+            displayColumn "Produtos Solicitados" (
+                sequence: 5
+            )
+
+            displayColumn "Produtos que Combinam" (
+                sequence: 7
+            )
+
+            displayColumn "Semana Nota" (
+                sequence: 12
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: REGION_POSITION_03
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+    )
+
+    region sacolas (
+        name: % Sacolas
+        title: % Sacolas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select
+                    pck_romance.fnc_nomefilial(t.idfilial) franquia,
+                    pck_romance.fnc_nomerepresentante(t.idrepresentante) distribuidor,
+                    pck_romance.fnc_nomevendedora(t.idvendedora) consultora,
+                    pck_romance.fnc_cpfvendedora(t.idvendedora) cpf,
+                
+                    /* média percentual ANTES da sugestão (mantida apenas como métrica histórica) */
+                    (
+                      select round(
+                               avg((nv.valortotalvenda / nullif(nv.valortotalnota, 0)) * 100),
+                               2
+                             )
+                      from notasvendas nv
+                      where nv.idvendedora = t.idvendedora
+                        and nv.idsituacaonotavenda = 4
+                        and nv.idnotavenda < t.idnota_sugestao
+                    ) || '%' perc_antes_sacola,
+                
+                    /* média percentual DEPOIS da sugestão */
+                    (
+                      select round(
+                               avg((nv.valortotalvenda / nullif(nv.valortotalnota, 0)) * 100),
+                               2
+                             )
+                      from notasvendas nv
+                      where nv.idvendedora = t.idvendedora
+                        and nv.idsituacaonotavenda = 4
+                        and nv.idnotavenda >= t.idnota_sugestao
+                    ) || '%' perc_pos_sacola,
+                
+                    /* diferença */
+                    (
+                      select round(
+                               avg((nv.valortotalvenda / nullif(nv.valortotalnota, 0)) * 100),
+                               2
+                             )
+                      from notasvendas nv
+                      where nv.idvendedora = t.idvendedora
+                        and nv.idsituacaonotavenda = 4
+                        and nv.idnotavenda >= t.idnota_sugestao
+                    )
+                    -
+                    (
+                      select round(
+                               avg((nv.valortotalvenda / nullif(nv.valortotalnota, 0)) * 100),
+                               2
+                             )
+                      from notasvendas nv
+                      where nv.idvendedora = t.idvendedora
+                        and nv.idsituacaonotavenda = 4
+                        and nv.idnotavenda < t.idnota_sugestao
+                    )|| '%' diferenca,
+                
+                    /* quantidade de notas ANTES */
+                    (
+                      select count(*)
+                      from notasvendas nv
+                      where nv.idvendedora = t.idvendedora
+                        and nv.idsituacaonotavenda = 4
+                        and nv.idnotavenda < t.idnota_sugestao
+                    ) qtde_notas_antes,
+                
+                    /* quantidade de notas DEPOIS */
+                    (
+                      select count(*)
+                      from notasvendas nv
+                      where nv.idvendedora = t.idvendedora
+                        and nv.idsituacaonotavenda = 4
+                        and nv.idnotavenda >= t.idnota_sugestao
+                    ) qtde_notas_depois,
+                    (
+                      select sum(
+                                   case
+                                     when exists (
+                                       select 1
+                                       from sugestoessacolas ss
+                                          , itenssugestoessacolas ii
+                                          , itensnotavenda it
+                                       where ss.idnotavenda      = nv.idnotavenda
+                                         and ii.idsugestaosacola = ss.idsugestaosacola
+                                         and it.idnotavenda      = nv.idnotavenda
+                                         and it.idestoquefil     = ii.idestoquefil
+                                     )
+                                     then 1
+                                     else 0
+                                   end
+                                 )
+                
+                      from notasvendas nv
+                      where nv.idvendedora = t.idvendedora
+                        and nv.idsituacaonotavenda = 4
+                        and nv.idnotavenda >= t.idnota_sugestao
+                    ) qtde_recorrencia,
+                
+                    /* INDICADOR DE RECORRÊNCIA */
+                    (
+                      select round(
+                               ( sum(
+                                   case
+                                     when exists (
+                                       select 1
+                                       from sugestoessacolas ss
+                                          , itenssugestoessacolas ii
+                                          , itensnotavenda it
+                                       where ss.idnotavenda      = nv.idnotavenda
+                                         and ii.idsugestaosacola = ss.idsugestaosacola
+                                         and it.idnotavenda      = nv.idnotavenda
+                                         and it.idestoquefil     = ii.idestoquefil
+                                     )
+                                     then 1
+                                     else 0
+                                   end
+                                 )
+                                 / nullif(count(*), 0)
+                               ) * 100,
+                               2
+                             )
+                      from notasvendas nv
+                      where nv.idvendedora = t.idvendedora
+                        and nv.idsituacaonotavenda = 4
+                        and nv.idnotavenda >= t.idnota_sugestao
+                    ) || '%' indicador_recorrencia,
+                
+                    (select nv.numeronota from notasvendas nv where nv.idnotavenda = t.idnota_sugestao) notaSacola,
+                
+                    t.idnota_sugestao idNotaSacola,
+                    t.idvendedora,
+                    t.idnota_sugestao
+                from (
+                    select
+                        v.idrepresentante,
+                        v.idfilial,
+                        v.idvendedora,
+                        s.idnotavenda idnota_sugestao
+                    from vendedoras v
+                       , sugestoessacolas s
+                    where s.dataenviado is not null
+                      and s.idnotavenda is not null
+                      and v.idvendedora = s.idvendedora
+                      and v.ativo = 'S'
+                      and s.idsugestaosacola = (
+                            select min(ss.idsugestaosacola)
+                            from sugestoessacolas ss
+                            where ss.dataenviado is not null
+                              and ss.idvendedora = v.idvendedora
+                        )
+                      and exists (
+                            select 1
+                            from notasvendas nv
+                            where nv.idsituacaonotavenda = 4
+                              and nv.idvendedora = v.idvendedora
+                              and nv.idnotavenda >= s.idnotavenda
+                        )
+                      and :P811_FILTRAR = 'S'
+                      and (v.idfilial = :P811_FILIAL OR :P811_FILIAL is null)
+                      and (v.idrepresentante = :P811_DISTRIBUIDOR OR :P811_DISTRIBUIDOR is null)
+                      and (v.idvendedora = :P811_CONSULTORA OR :P811_CONSULTORA is null)
+                ) t
+                order by 1, 2, 3;
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: regionBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P811_TIPO
+            value: 3
+        }
+        pagination {
+            type: rowRangesXToYOfZ
+        }
+        performance {
+            lazyLoading: true
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Dados não encontrados, revisar filtros.
+        }
+        advanced {
+            savedReportMappingIdentifier: 1805929925430935144
+        }
+
+        column CONSULTORA (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: CPF
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DIFERENCA (
+            type: plainText
+            heading {
+                heading: Diferenca
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column FRANQUIA (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column IDNOTASACOLA (
+            type: hidden
+            heading {
+                heading: Idnotasacola
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column IDNOTA_SUGESTAO (
+            type: hidden
+            heading {
+                heading: Idnota Sugestao
+            }
+            layout {
+                sequence: 180
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column IDVENDEDORA (
+            type: hidden
+            heading {
+                heading: Idvendedora
+            }
+            layout {
+                sequence: 170
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column INDICADOR_RECORRENCIA (
+            type: plainText
+            heading {
+                heading: Indicador Recorrência
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            columnFormatting {
+                htmlExpression: <span title="Quantas vendas, após a sugestão, a empreendedora utilizou a sacola personalizada.">#INDICADOR_RECORRENCIA#</span>
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column NOTASACOLA (
+            type: link
+            heading {
+                heading: Nota Sacola
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 37
+                    items: {
+                        P37_IDNOTAVENDA: #IDNOTASACOLA#
+                    }
+                }
+                linkText: #NOTASACOLA#
+                linkAttributes: target="_blank"
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column PERC_ANTES_SACOLA (
+            type: plainText
+            heading {
+                heading: Perc Antes Sacola
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column PERC_POS_SACOLA (
+            type: plainText
+            heading {
+                heading: Perc Pos Sacola
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column QTDE_NOTAS_ANTES (
+            type: plainText
+            heading {
+                heading: Qtde Notas Antes
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column QTDE_NOTAS_DEPOIS (
+            type: plainText
+            heading {
+                heading: Qtde Notas Depois
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column QTDE_RECORRENCIA (
+            type: link
+            heading {
+                heading: Qtde Uso Sacola Depois
+                alignment: end
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 813
+                    items: {
+                        P813_CONSULTORA: #IDVENDEDORA#
+                        P813_NOTABASE: #IDNOTA_SUGESTAO#
+                    }
+                }
+                linkText: #QTDE_RECORRENCIA#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        pageHeader {
+            pageHeaderText: % Sacolas
+        }
+
+        savedReport 18060734 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CONSULTORA (
+                sequence: 3
+            )
+
+            displayColumn CPF (
+                sequence: 4
+            )
+
+            displayColumn DIFERENCA (
+                sequence: 10
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 2
+            )
+
+            displayColumn FRANQUIA (
+                sequence: 1
+            )
+
+            displayColumn INDICADOR_RECORRENCIA (
+                sequence: 12
+            )
+
+            displayColumn NOTASACOLA (
+                sequence: 5
+            )
+
+            displayColumn PERC_ANTES_SACOLA (
+                sequence: 7
+            )
+
+            displayColumn PERC_POS_SACOLA (
+                sequence: 9
+            )
+
+            displayColumn QTDE_NOTAS_ANTES (
+                sequence: 6
+            )
+
+            displayColumn QTDE_NOTAS_DEPOIS (
+                sequence: 8
+            )
+
+            displayColumn QTDE_RECORRENCIA (
+                sequence: 11
+            )
+
+        )
+
+    )
+
+    region solicitações-produtos-sacolas (
+        name: Solicitações Produtos Sacolas
+        title: Solicitações Produtos Sacolas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefilial(s.idfilial) franquia
+                     , p.codigosisdist referencia
+                     , p.nomeproduto produto
+                     , sum(it.qtd_pp)   as qtd_pp
+                     , sum(it.qtd_p)    as qtd_p
+                     , sum(it.qtd_m)    as qtd_m
+                     , sum(it.qtd_g)    as qtd_g
+                     , sum(it.qtd_gg)   as qtd_gg
+                     , sum(it.qtd_egg)  as qtd_egg
+                     , sum(it.qtd_exgg) as qtd_exgg
+                     , sum(it.qtd_u)    as qtd_u
+                     , (sum(it.qtd_pp) 
+                        + sum(it.qtd_p) 
+                        + sum(it.qtd_m) 
+                        + sum(it.qtd_g) 
+                        + sum(it.qtd_gg) 
+                        + sum(it.qtd_egg) 
+                        + sum(it.qtd_exgg) 
+                        + sum(it.qtd_u)) as total_geral
+                from sugestoessacolas s
+                   , itenssugestoessacolas it
+                   , produtos p
+                where s.situacao = 'R'
+                  and it.idsugestaosacola = s.idsugestaosacola
+                  and p.idproduto = it.idproduto
+                  and ( it.qtd_pp   > 0 
+                     or it.qtd_p    > 0
+                     or it.qtd_m    > 0
+                     or it.qtd_g    > 0
+                     or it.qtd_gg   > 0
+                     or it.qtd_egg  > 0
+                     or it.qtd_exgg > 0
+                     or it.qtd_u    > 0 )
+                  and :P811_FILTRAR = 'S'
+                  and (s.idfilial = :P811_FILIAL OR :P811_FILIAL is null )
+                  and (p.idproduto = :P811_PRODUTO OR :P811_PRODUTO is null)
+                group by s.idfilial
+                       , p.codigosisdist
+                       , p.nomeproduto
+                order by 1 asc, 12 desc
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: regionBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P811_TIPO
+            value: 1
+        }
+        pagination {
+            type: rowRangesXToYOfZ
+        }
+        performance {
+            lazyLoading: true
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Dados não encontrados, revisar filtros.
+        }
+        advanced {
+            savedReportMappingIdentifier: 1806059418424807904
+        }
+
+        column FRANQUIA (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column PRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column QTD_EGG (
+            type: plainText
+            heading {
+                heading: Qtd EGG
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column QTD_EXGG (
+            type: plainText
+            heading {
+                heading: Qtd EXGG
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column QTD_G (
+            type: plainText
+            heading {
+                heading: Qtd G
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column QTD_GG (
+            type: plainText
+            heading {
+                heading: Qtd GG
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column QTD_M (
+            type: plainText
+            heading {
+                heading: Qtd M
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column QTD_P (
+            type: plainText
+            heading {
+                heading: Qtd P
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column QTD_PP (
+            type: plainText
+            heading {
+                heading: Qtd PP
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column QTD_U (
+            type: plainText
+            heading {
+                heading: Qtd U
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column REFERENCIA (
+            type: plainText
+            heading {
+                heading: Referência
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column TOTAL_GERAL (
+            type: plainText
+            heading {
+                heading: Total Geral
+                alignment: end
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        pageHeader {
+            pageHeaderText: Solicitações Produtos Sacolas
+        }
+
+        savedReport 18060868 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn FRANQUIA (
+                sequence: 1
+            )
+
+            displayColumn PRODUTO (
+                sequence: 3
+            )
+
+            displayColumn QTD_EGG (
+                sequence: 9
+            )
+
+            displayColumn QTD_EXGG (
+                sequence: 10
+            )
+
+            displayColumn QTD_G (
+                sequence: 7
+            )
+
+            displayColumn QTD_GG (
+                sequence: 8
+            )
+
+            displayColumn QTD_M (
+                sequence: 6
+            )
+
+            displayColumn QTD_P (
+                sequence: 5
+            )
+
+            displayColumn QTD_PP (
+                sequence: 4
+            )
+
+            displayColumn QTD_U (
+                sequence: 11
+            )
+
+            displayColumn REFERENCIA (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    pageItem P811_CONSULTORA (
+        type: selectList
+        label {
+            label: <b>Consultora</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(nvl(p.apelido, p.nomepessoa)) || ' (ID: '||v.idvendedora||')' display_value
+                             , v.idvendedora                     return_value
+                        from pessoas p
+                           , vendedoras v
+                        where p.idpessoa                    = v.idpessoa
+                          and v.idrepresentante             = :P811_DISTRIBUIDOR
+                order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: Todas
+        }
+        cascadingLov {
+            parentItems: P811_DISTRIBUIDOR
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+    )
+
+    pageItem P811_DISTRIBUIDOR (
+        type: selectList
+        label {
+            label: <b>Distribuidor</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                 select pck_romance.fnc_nomepessoa(r.idpessoa)||' - '||idrepresentante display_value
+                             , r.idrepresentante                     return_value
+                        from representantes r
+                        where r.idgerente                   = ( select idgerente
+                                                                from gerentes u
+                                                                where u.idfilial = :P811_FILIAL )
+                  order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: Todos
+        }
+        cascadingLov {
+            parentItems: P811_FILIAL
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+    )
+
+    pageItem P811_FILIAL (
+        type: selectList
+        label {
+            label: <b>Filial</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from roman.vw_filiais f
+                where f.ativo = 'S'
+                  and f.ididioma = (select ididioma 
+                                      from vw_filiais
+                                     where idfilial = :P0_IDFILIAL)
+                  
+                
+                ```
+            displayExtraValues: false
+            nullDisplayValue: Todas
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+    )
+
+    pageItem P811_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+        }
+    )
+
+    pageItem P811_NUMERONOTA (
+        type: textField
+        label {
+            label: <b>Nr/Id Nota</b>
+            alignment: left
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+    )
+
+    pageItem P811_PRODUTO (
+        type: popupLov
+        label {
+            label: <b>Produto</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 
+                    nomeproduto display_value, 
+                    idproduto return_value
+                from produtos 
+                where ativo = 'S'
+                ```
+            nullDisplayValue: Todos
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+    )
+
+    pageItem P811_SEMANANOTA (
+        type: selectList
+        label {
+            label: <b>Semana Nota</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 
+                    semanacompleta as display_value
+                  , semanacompleta as return_value
+                from roman.semana_dias
+                where ano between to_char(sysdate-730,'YYYY') and to_char(sysdate,'YYYY')
+                order by ano desc, semana desc
+                ```
+            displayExtraValues: false
+            nullDisplayValue: Todas
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+    )
+
+    pageItem P811_TIPO (
+        type: selectList
+        label {
+            label: <b>Tipo Relatório</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Solicitações Produtos Sacolas;1,Combinação Produtos Sacolas;2,% Sacolas;3
+            displayExtraValues: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+    )
+
+    button filtrar (
+        buttonName: Filtrar
+        label: Filtrar
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction controlafiltros (
+        name: ControlaFiltros1
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P811_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P811_TIPO
+            value: 1
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P811_SEMANANOTA
+                    P811_DISTRIBUIDOR
+                    P811_CONSULTORA
+                    P811_NUMERONOTA
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P811_PRODUTO
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction controlafiltros-2 (
+        name: ControlaFiltros2
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P811_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P811_TIPO
+            value: 2
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P811_PRODUTO
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P811_FILIAL
+                    P811_DISTRIBUIDOR
+                    P811_CONSULTORA
+                    P811_SEMANANOTA
+                    P811_NUMERONOTA
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction controlafiltros-3 (
+        name: ControlaFiltros3
+        execution {
+            sequence: 40
+        }
+        when {
+            selectionType: items
+            items: P811_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P811_TIPO
+            value: 3
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P811_PRODUTO
+                    P811_SEMANANOTA
+                    P811_NUMERONOTA
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P811_FILIAL
+                    P811_DISTRIBUIDOR
+                    P811_CONSULTORA
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction new (
+        name: New
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @filtrar
+        }
+
+        action native-set-value (
+            action: setValue
+            settings {
+                value: S
+            }
+            affectedElements {
+                selectionType: items
+                items: P811_FILTRAR
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)
+

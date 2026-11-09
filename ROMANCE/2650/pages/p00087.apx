@@ -1,0 +1,2286 @@
+page 87 (
+    name: Fechamento Semanal
+    title: Fechamento Semanal
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        formAutoComplete: true
+        browserCache: false
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region concluir (
+        name: Concluir
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+            renderComponents: belowContent
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from dual
+                 where :P87_IDFECHAMENTO IS NOT NULL
+                   and nvl(:P87_CONCLUIDO,'N') = 'N'
+                   and exists ( select 1 
+                                  from gerentes
+                                 where idpessoa = ( select idpessoa 
+                                                      from usuarios 
+                                                     where usuario = v('APP_USER')) )
+                union
+                
+                select 1
+                  from dual 
+                 where :P87_IDFECHAMENTO IS NOT NULL
+                   and nvl(:P87_CONCLUIDO,'N') = 'N'
+                   and exists ( select 1
+                                  from vw_filiais f
+                                 where f.idfilial = :P0_IDFILIALCAIXA 
+                                   and f.tipofilial = 'F'
+                                   and f.ativo      = 'S' )
+                
+                union 
+                
+                -- Maicon Aimi - 27/01/2024 - 9635989: Incluído para permitir fechamento por usuários que não são gerentes
+                select 1
+                  from dual
+                 where roman.pck_util.fnc_verificaacesso(pidaplicacao => 3565, pusuario => v('APP_USER')) = 'S'
+                ```
+        }
+    )
+
+    region fechamento-concluído (
+        name: Fechamento Concluído
+        type: staticContent
+        source {
+            htmlCode: <font color="red">Fechamento já Concluído!</font>
+        }
+        layout {
+            sequence: 1
+            slot: body
+        }
+        appearance {
+            template: @/alert
+            templateOptions: [
+                #DEFAULT#
+                t-Alert--horizontal
+                t-Alert--defaultIcons
+                t-Alert--info
+                t-Alert--removeHeading js-removeLandmark
+                t-Form--slimPadding
+            ]
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery: select 1 from fechamentossemanais f where f.concluido = 'S' and f.idfechamento = :P87_IDFECHAMENTO
+        }
+    )
+
+    region fechamento-semanal (
+        name: Fechamento Semanal
+        type: form
+        source {
+            location: localDatabase
+            tableName: FECHAMENTOSSEMANAIS
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+    )
+
+    pageItem P87_ASSINATURA (
+        type: textField
+        label {
+            label: Assinatura
+            alignment: left
+        }
+        settings {
+            trimSpaces: none
+        }
+        layout {
+            sequence: 380
+            region: @concluir
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+        validation {
+            maxLength: 4000
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_COMISFAVORITAGERENTE (
+        type: hidden
+        layout {
+            sequence: 930
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        appearance {
+            formatMask: 999G999G999G999G990D00
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALCOMISSOESFAVORITAGERENTE
+            used: always
+        }
+        default {
+            type: static
+            staticValue: 0,00
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_COMISFAVORITAREPRES (
+        type: hidden
+        layout {
+            sequence: 960
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        appearance {
+            formatMask: 999G999G999G999G990D00
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALCOMISSOESFAVORITAREPRES
+            used: always
+        }
+        default {
+            type: static
+            staticValue: 0,00
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_CONCLUIDO (
+        type: selectList
+        label {
+            label: Concluído
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayNullValue: false
+        }
+        layout {
+            sequence: 620
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: CONCLUIDO
+            used: always
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        readOnly {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1 -- nova logica aplica para atender o ticket 9810741 - Maicon Aimi - 29/01/2025
+                  from dual
+                 where -- permite concluir e reabrir o caixa
+                       pck_util.fnc_verificaacesso(pidaplicacao => 2897, pusuario => v('APP_USER')) = 'N' 
+                       -- permite somente concluir o caixa
+                   and (    ( pck_util.fnc_verificaacesso(pidaplicacao => 2941, pusuario => v('APP_USER')) = 'N')
+                         or ( pck_util.fnc_verificaacesso(pidaplicacao => 2941, pusuario => v('APP_USER')) = 'S' and :P87_CONCLUIDO = 'S') ) 
+                   
+                   
+                /*
+                select 1
+                  from dual
+                 where pck_util.fnc_verificaacesso(pidaplicacao => 2897,pusuario => v('APP_USER'))  = 'N' 
+                */
+                 
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_ENTRADASDIV (
+        type: textField
+        label {
+            label: Entradas Diversas
+            alignment: left
+        }
+        settings {
+            trimSpaces: none
+        }
+        layout {
+            sequence: 660
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G999G990D00
+            width: 15
+        }
+        validation {
+            maxLength: 255
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALENTRADASDIVERSAS
+            used: always
+        }
+        default {
+            type: static
+            staticValue: 0,00
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_FATORCONVERSAO (
+        type: textField
+        label {
+            label: Fator Conversão
+            alignment: left
+        }
+        settings {
+            trimSpaces: none
+        }
+        layout {
+            sequence: 600
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 0D00
+            width: 5
+        }
+        validation {
+            maxLength: 4000
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: FATORCONVERSAO
+            used: always
+        }
+        serverSideCondition {
+            type: never
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_HIDDEN (
+        type: hidden
+        layout {
+            sequence: 760
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_HIDDEN02 (
+        type: hidden
+        layout {
+            sequence: 830
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_HIDDEN04 (
+        type: hidden
+        layout {
+            sequence: 940
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_HIDDES10 (
+        type: hidden
+        layout {
+            sequence: 1000
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_IDFECHAMENTO (
+        type: hidden
+        layout {
+            sequence: 630
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: IDFECHAMENTO
+            used: always
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_IDFILIAL (
+        type: selectList
+        label {
+            label: Filial
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(nvl(p.apelido,p.nomepessoa)) display_value
+                     , f.idfilial return_value
+                from filiais    f
+                   , pessoas    p
+                where f.idpessoa  = p.idpessoa
+                  and f.idfilial = :P87_IDFILIAL
+                ```
+            displayNullValue: false
+        }
+        layout {
+            sequence: 590
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: IDFILIAL
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                vfilial number;
+                begin
+                return PCK_ROMANCE.FNC_FILIALUSUARIO(V('APP_USER'));
+                EXCEPTION
+                WHEN OTHERS THEN 
+                NULL;
+                end;
+                ```
+        }
+        sessionState {
+            storage: request
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_IDSEMANA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 380
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        source {
+            formRegion: @fechamento-semanal
+            column: IDSEMANA
+            dataType: number
+        }
+    )
+
+    pageItem P87_MENSAGEM (
+        type: displayOnly
+        label {
+            alignment: left
+        }
+        settings {
+            sendOnPageSubmit: false
+        }
+        layout {
+            sequence: 375
+            region: @concluir
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        source {
+            type: staticValue
+            staticValue:
+                ```
+                Para confirmar a conclusão do fechamento, escreva o seu usuário no campo abaixo e clique no botão "Confirmar".
+                Após a confirmação, não será mais possível alterar qualquer informação referente ao mesmo.
+                ```
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_MESVALORNOBANCO (
+        type: textField
+        label {
+            label: Referente a (MM/AAAA)
+            alignment: left
+        }
+        settings {
+            trimSpaces: none
+        }
+        layout {
+            sequence: 720
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            width: 10
+        }
+        validation {
+            maxLength: 4000
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: MESVALORNOBANCO
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_OBSERVACAO (
+        type: textarea
+        label {
+            label: Observação
+            alignment: left
+        }
+        settings {
+            autoHeight: true
+            charCounter: true
+            trimSpaces: none
+        }
+        layout {
+            sequence: 1050
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            width: 100
+            height: 5
+        }
+        validation {
+            maxLength: 4000
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: OBSERVACAO
+            used: always
+        }
+        readOnly {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from fechamentossemanais f
+                 where f.idfechamento = :P87_IDFECHAMENTO
+                   and nvl(f.concluido, 'N') = 'S'
+                
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SALDOANTERIORGAVETA (
+        type: numberField
+        label {
+            label: Saldo Anterior (Gaveta)
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 640
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: 999G999G999G999G990D00
+            width: 15
+        }
+        validation {
+            maxLength: 255
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: SALDOANTERIORGAVETA
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SALDOBOLETOS (
+        type: textField
+        label {
+            label: Saldo
+            alignment: left
+        }
+        settings {
+            trimSpaces: none
+        }
+        layout {
+            sequence: 820
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G990D00
+            width: 15
+        }
+        validation {
+            maxLength: 4000
+        }
+        advanced {
+            customAttributes: style="text-align: right;" readonly;
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: SALDOBOLETOS
+            used: always
+        }
+        serverSideCondition {
+            type: item=value
+            item: P87_IDFILIAL
+            value: 200
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SALDOFINALCHEQUE (
+        type: hidden
+        layout {
+            sequence: 1010
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        appearance {
+            formatMask: 999G999G999G999G990D00
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: SALDOFINALCHEQUE
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SALDOFINALESPECIE (
+        type: hidden
+        layout {
+            sequence: 980
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        appearance {
+            formatMask: 999G999G999G999G990D00
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: SALDOFINALESPECIE
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SEMANA (
+        type: selectList
+        label {
+            label: Semana
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select trim(to_char(s.semana,'00')||'/'||to_char(s.ano))||' ('||dt_ini||' a '||dt_fim||')'
+                     , trim(to_char(s.semana,'00')||'/'||to_char(s.ano))
+                from semana_dias s
+                where trim(to_char(s.semana,'00')||'/'||to_char(s.ano)) = :P87_SEMANA
+                ```
+            displayNullValue: false
+        }
+        layout {
+            sequence: 610
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: SEMANA
+            used: always
+        }
+        sessionState {
+            storage: request
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SEPARA (
+        type: displayOnly
+        label {
+            alignment: left
+        }
+        settings {
+            format: html
+            sendOnPageSubmit: false
+        }
+        layout {
+            sequence: 780
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        advanced {
+            postText: <hr size="1" style="border:1px dashed black;">
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SEPARA00 (
+        type: displayOnly
+        label {
+            alignment: left
+        }
+        settings {
+            format: html
+            sendOnPageSubmit: false
+        }
+        layout {
+            sequence: 650
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        advanced {
+            postText: <hr size="1" style="border:1px dashed black;">
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SEPARA03 (
+        type: hidden
+        layout {
+            sequence: 860
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        source {
+            type: staticValue
+            staticValue: ----------------------------------------------------------------------------------------------------------------
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SEPARA04 (
+        type: hidden
+        layout {
+            sequence: 1040
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SEPARA05 (
+        type: hidden
+        layout {
+            sequence: 1030
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        source {
+            type: staticValue
+            staticValue: ----------------------------------------------------------------------------------------------------------------
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SEPARA06 (
+        type: displayOnly
+        label {
+            alignment: left
+        }
+        settings {
+            format: html
+            sendOnPageSubmit: false
+        }
+        layout {
+            sequence: 890
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        advanced {
+            postText: <hr size="1" style="border:1px dashed black;">
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SEPARA07 (
+        type: displayOnly
+        label {
+            alignment: left
+        }
+        settings {
+            format: html
+            sendOnPageSubmit: false
+        }
+        layout {
+            sequence: 850
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        advanced {
+            postText: <hr size="1" style="border:1px dashed black;">
+        }
+        serverSideCondition {
+            type: item=value
+            item: P87_IDFILIAL
+            value: 200
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SUBTOTAL01 (
+        type: hidden
+        layout {
+            sequence: 770
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select replace(TO_CHAR(
+                 nvl(to_number(:P87_TOTALCOBRANCA,'999G999G999G990D00'),0)
+                + nvl(to_number(:P87_TOTALVENDASDIRETAS,'999G999G999G990D00'),0)
+                + nvl(to_number(:P87_TOTALCHQSEMFUNDORECEBIDOS,'999G999G999G990D00'),0)
+                + nvl(to_number(:P87_TOTALBOLETOSFAVORITA,'999G999G999G990D00'),0)
+                + nvl(to_number(:P87_ENTRADASDIV,'999G999G999G999G999G990D00'),0)
+                + nvl(to_number(:P87_TOTALRESGATE,'999G999G999G990D00'),0)
+                ,'999G999G999G990D00'),' ','') SUBTOTAL1
+                FROM DUAL
+                ```
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SUBTOTAL02 (
+        type: hidden
+        layout {
+            sequence: 840
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select replace(TO_CHAR(
+                 nvl(to_number(:P87_TOTALDESPESAS,'999G999G999G990D00'),0)
+                + nvl(to_number(:P87_TOTALCOMISSAOGERENTE,'999G999G999G990D00'),0)
+                + nvl(to_number(:P87_TOTALCOMISSOESPROMOTORES,'999G999G999G990D00'),0)
+                ,'999G999G999G990D00'),' ','')
+                FROM DUAL
+                ```
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SUBTOTAL03 (
+        type: hidden
+        layout {
+            sequence: 950
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select replace(TO_CHAR(
+                 to_number(nvl(:P87_TOTALDEPOSITOSESPECIE,'0'),'999G999G999G990D00')
+                + to_number(nvl(:P87_TOTALDEPSITOSCHEQUES,'0'),'999G999G999G990D00')
+                + to_number(nvl(:P87_COMISFAVORITAGERENTE,'0'),'999G999G999G990D00')
+                + to_number(nvl(:P87_COMISFAVORITAREPRES,'0'),'999G999G999G990D00')
+                ,'999G999G999G990D00'),' ','')
+                FROM DUAL
+                ```
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SUBTOTAL04 (
+        type: hidden
+        layout {
+            sequence: 990
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select replace(TO_CHAR(nvl(TO_NUMBER(:P87_SALDOFINALESPECIE,'999G999G999G990D00'),0)+nvl(TO_NUMBER(:P87_SALDOFINALCHEQUE,'999G999G999G990D00'),0),'999G999G999G990D00'),' ','')
+                FROM DUAL
+                ```
+            used: always
+        }
+        default {
+            type: static
+            staticValue: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_SUBTOTALGAVETA (
+        type: hidden
+        layout {
+            sequence: 1020
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        appearance {
+            formatMask: 999G999G999G999G990D00
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: SUBTOTALGAVETA
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  --
+                  vvalor varchar2(30);
+                  --
+                begin
+                  --
+                  select TO_CHAR(
+                to_number(nvl(:P69_SALDOANTERIORGAVETA,0),'999G999G999G990D00')
+                +to_number(nvl(:P69_SUBTOTAL01,0),'999G999G999G990D00')
+                -to_number(nvl(:P69_SUBTOTAL02,0),'999G999G999G990D00')
+                -to_number(nvl(:P69_SUBTOTAL03,0),'999G999G999G990D00')
+                -to_number(nvl(:P69_SUBTOTAL04,0),'999G999G999G990D00')
+                        ,'999G999G999G990D00')
+                  into vvalor
+                  from dual;
+                  --
+                  return vvalor;
+                  --
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALBOLETOSAPAGAR (
+        type: textField
+        label {
+            label: Boletos a Pagar
+            alignment: left
+        }
+        settings {
+            trimSpaces: none
+        }
+        layout {
+            sequence: 800
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G990D00
+            width: 15
+        }
+        validation {
+            maxLength: 4000
+        }
+        advanced {
+            customAttributes: style="text-align: right;" readonly
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALBOLETOSAPAGAR
+            used: always
+        }
+        serverSideCondition {
+            type: item=value
+            item: P87_IDFILIAL
+            value: 200
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALBOLETOSFAVORITA (
+        type: hidden
+        layout {
+            sequence: 750
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        appearance {
+            formatMask: 999G999G999G999G990D00
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALBOLETOSFAVORITA
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  --
+                  vvalor number(15,2);
+                  --
+                begin
+                  --
+                  select sum(valor)
+                  into vvalor
+                  from boletosfavorita f
+                  where f.semana = :P69_SEMANA
+                    and f.idfilial = :P69_IDFILIAL;
+                  --
+                  return to_char(nvl(vvalor,0),'999G999G999G990D00') ;
+                  --
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALBOLETOSPAGO (
+        type: textField
+        label {
+            label: Boletos Pagos
+            alignment: left
+        }
+        settings {
+            trimSpaces: none
+        }
+        layout {
+            sequence: 790
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G990D00
+            width: 15
+        }
+        validation {
+            maxLength: 4000
+        }
+        advanced {
+            customAttributes: style="text-align: right;" readonly;
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALBOLETOSPAGO
+            used: always
+        }
+        serverSideCondition {
+            type: item=value
+            item: P87_IDFILIAL
+            value: 200
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALCHQSEMFUNDORECEBIDOS (
+        type: hidden
+        layout {
+            sequence: 730
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        appearance {
+            formatMask: 999G999G999G999G990D00
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALCHQSEMFUNDORECEBIDOS
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  --
+                  vvalor number(15,2);
+                  --
+                begin
+                  --
+                    select SUM(cp.valor)
+                    into vvalor 
+                    from cheques2pgto cp
+                       , cheques2     c
+                       , representantes r
+                       , gerentes g
+                    where cp.idcheque = c.idcheque
+                      and c.semfundo  = 'S'
+                      and c.Idrepresentante = r.idrepresentante
+                      and r.idgerente       = g.idgerente
+                      and g.idfilial        = :P69_IDFILIAL
+                      and to_char(cp.datapgto,'IW/RRRR') = :P69_SEMANA;
+                  --
+                  return replace(to_char(NVL(vvalor,0),'999G999G999G990D00'),' ','') ;
+                  --
+                exception
+                  when others then
+                    return replace(to_char(0,'999G999G999G990D00'),' ','') ;
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALCOMISSAOGERENTE (
+        type: hidden
+        layout {
+            sequence: 810
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        appearance {
+            formatMask: 999G999G999G999G990D00
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALCOMISSAOGERENTE
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  --
+                  vvalor number(15,2);
+                  --
+                begin
+                  --
+                  select sum(totalgeral)*3/100
+                  into vvalor
+                  from fechamentorepresentantes f
+                  where f.semana = :P69_SEMANA
+                    and f.idfilial = :P69_IDFILIAL;
+                  --
+                  return to_char(nvl(vvalor,0),'999G999G999G990D00') ;
+                  --
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALCOMISSOESPROMOTORES (
+        type: hidden
+        layout {
+            sequence: 970
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        appearance {
+            formatMask: 999G999G999G999G990D00
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALCOMISSOESREPRESENTANTES
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  --
+                  vvalor number(15,2);
+                  --
+                begin
+                  --
+                  select sum(f.vlrcomissao )
+                  into vvalor
+                  from fechamentorepresentantes f
+                  where f.semana = :P69_SEMANA
+                    and f.idfilial = :P69_IDFILIAL;
+                  --
+                  return to_char(nvl(vvalor,0),'999G999G999G990D00') ;
+                  --
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALDEPOSITOSESPECIE (
+        type: hidden
+        layout {
+            sequence: 910
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        appearance {
+            formatMask: 999G999G999G999G990D00
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALDEPOSITOSESPECIE
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  --
+                  vvalor number(15,2);
+                  --
+                begin
+                  --
+                  select sum(f.valordeposito)
+                  into vvalor
+                  from depositosdiarios_orig f
+                     , representantes r
+                     , gerentes g
+                     , filiais f
+                  where f.idrepresentante = r.idrepresentante
+                    and r.idgerente   = g.idgerente
+                    and g.idfilial  = f.idfilial
+                    and g.idfilial   = :P69_IDFILIAL
+                    and f.fechamento = :P69_SEMANA
+                    and f.tipo = 'DD';
+                  --
+                  return to_char(NVL(vvalor,0),'999G999G999G990D00') ;
+                  --
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALDEPSITOSCHEQUES (
+        type: hidden
+        layout {
+            sequence: 920
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        appearance {
+            formatMask: 999G999G999G999G990D00
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALDEPSITOSCHEQUES
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  --
+                  vvalor number(15,2);
+                  --
+                begin
+                  --
+                  select sum(f.valordeposito)
+                  into vvalor
+                  from depositosdiarios_orig f
+                     , representantes r
+                     , gerentes g
+                     , filiais f
+                  where f.idrepresentante = r.idrepresentante
+                    and r.idgerente   = g.idgerente
+                    and g.idfilial  = f.idfilial
+                    and g.idfilial   = :P69_IDFILIAL
+                    and f.fechamento = :P69_SEMANA
+                    and f.tipo = 'CC';
+                  --
+                  return to_char(NVL(vvalor,0),'999G999G999G990D00') ;
+                  --
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALDESPESAS (
+        type: numberField
+        label {
+            label: Total Despesas
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 670
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+            width: 15
+        }
+        validation {
+            maxLength: 255
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALDESPESAS
+            used: always
+        }
+        default {
+            type: static
+            staticValue: 0,00
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALEMPRESTIMOS (
+        type: numberField
+        label {
+            label: Empréstimos
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 870
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 999g999g990d00
+            width: 15
+        }
+        validation {
+            maxLength: 15
+        }
+        advanced {
+            customAttributes: readonly  style="text-align:right"
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALEMPRESTIMOS
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALEMPRESTIMOSPAGOS (
+        type: numberField
+        label {
+            label: Empréstimos Recebido
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 880
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 999g999g990d00
+            width: 15
+        }
+        validation {
+            maxLength: 15
+        }
+        advanced {
+            customAttributes: readonly  style="text-align:right"
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALEMPRESTIMOSPAGOS
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALFATURAS (
+        type: numberField
+        label {
+            label: Total Faturas
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 680
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+            width: 15
+        }
+        validation {
+            maxLength: 255
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALFATURAS
+            used: always
+        }
+        default {
+            type: static
+            staticValue: 0,00
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALGAVETA (
+        type: numberField
+        label {
+            label: Total Gaveta
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 900
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+            width: 15
+        }
+        validation {
+            maxLength: 255
+        }
+        advanced {
+            customAttributes: style="text-align: right;" readonly
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALGAVETA
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALRESGATE (
+        type: hidden
+        layout {
+            sequence: 740
+            region: @fechamento-semanal
+            slot: regionBody
+        }
+        appearance {
+            formatMask: 999G999G999G999G990D00
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALRESGATE
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  --
+                  vvalor number(15,2);
+                  --
+                begin
+                  --
+                    select SUM(cp.valor)
+                    into vvalor 
+                    from cheques2pgto cp
+                       , cheques2     c
+                       , representantes r
+                       , gerentes g
+                    where cp.idcheque = c.idcheque
+                      and c.semfundo  = 'S'
+                      and c.Idrepresentante = r.idrepresentante
+                      and r.idgerente       = g.idgerente
+                      and g.idfilial        = :P69_IDFILIAL
+                      and to_char(cp.datapgto,'IW/RRRR') = :P69_SEMANA;
+                  --
+                  return replace(to_char(NVL(vvalor,0),'999G999G999G990D00'),' ','') ;
+                  --
+                exception
+                  when others then
+                    return replace(to_char(0,'999G999G999G990D00'),' ','') ;
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALSAIDASDIVERSAS (
+        type: numberField
+        label {
+            label: Total Saídas Diversas
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 690
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+            width: 15
+        }
+        validation {
+            maxLength: 255
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALSAIDASDIVERSAS
+            used: always
+        }
+        default {
+            type: static
+            staticValue: 0,00
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_TOTALVENDASDIRETAS (
+        type: numberField
+        label {
+            label: Vendas Diretas
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 700
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 999G990D00
+            width: 15
+        }
+        validation {
+            maxLength: 255
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TOTALVENDASDIRETAS
+            used: always
+        }
+        default {
+            type: static
+            staticValue: 0,00
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P87_VALORNOBANCO (
+        type: numberField
+        label {
+            label: Valor no Banco
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 710
+            region: @fechamento-semanal
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G990D00
+            width: 15
+        }
+        validation {
+            maxLength: 4000
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: VALORNOBANCO
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button cancel (
+        buttonName: CANCEL
+        label: Voltar
+        layout {
+            sequence: 10
+            region: @fechamento-semanal
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 86
+                items: {
+                    P0_IDFECHAMENTO: &P87_IDFECHAMENTO.
+                }
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button confirmar (
+        buttonName: CONFIRMAR
+        label: Confirmar
+        layout {
+            sequence: 60
+            region: @concluir
+            slot: change
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+            databaseAction: update
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P87_IDFECHAMENTO
+        }
+    )
+
+    button create (
+        buttonName: CREATE
+        label: Incluir
+        layout {
+            sequence: 40
+            region: @fechamento-semanal
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+            databaseAction: insert
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P87_IDFECHAMENTO IS NULL
+                and nvl(:P87_CONCLUIDO,'N') = 'N'
+                ```
+        }
+    )
+
+    button delete (
+        buttonName: DELETE
+        label: Delete
+        layout {
+            sequence: 20
+            region: @fechamento-semanal
+            slot: delete
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:apex.confirm(htmldb_delete_message,'DELETE');
+            executeValidations: false
+            warnOnUnsavedChanges: doNotCheck
+            databaseAction: delete
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    button save (
+        buttonName: SAVE
+        label: Salvar
+        layout {
+            sequence: 30
+            region: @fechamento-semanal
+            slot: change
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+            databaseAction: update
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P87_IDFECHAMENTO IS NOT NULL
+                and ( nvl(:P87_CONCLUIDO,'N') = 'N'
+                  or pck_util.fnc_verificaacesso(pidaplicacao => 2309,
+                                                       pusuario => 'CINARA' ) = 'S' )
+                ```
+        }
+    )
+
+    validation p87-assinatura (
+        name: P87_ASSINATURA
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P87_ASSINATURA = v('APP_USER')
+                ```
+        }
+        error {
+            errorMessage: Assinatura incorreta, fechamento não concluído.
+            associatedItem: @P87_ASSINATURA
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: 69_ASSINATURA
+        }
+    )
+
+    process confirma-fechamento (
+        name: confirma fechamento
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vidgerente  number;
+                  vencerrarcaixa varchar2(1) := 'N';
+                begin
+                  --
+                  begin
+                    select u.encerrarcaixa
+                    into vencerrarcaixa
+                    from usuarios u
+                    where u.usuario = v('APP_USER');
+                  exception
+                    when others then
+                      vencerrarcaixa := 'N';
+                  end;
+                  --
+                  select idgerente
+                  into vidgerente
+                  from gerentes
+                  where idpessoa = ( select idpessoa
+                                     from usuarios
+                                     where usuario = upper(v('APP_USER')));
+                  --
+                  if upper(TRIM(:P87_ASSINATURA)) = v('APP_USER') and pck_romance.fnc_filialusuario(v('APP_USER')) = :P0_IDFILIALCAIXA then
+                    --
+                    :P87_CONCLUIDO := 'S';
+                    --
+                    pck_acertosfechamento.prc_enviaemailfechamento(pidfechamento => :P87_IDFECHAMENTO,
+                                                                   pusuario => v('APP_USER'));
+                    --
+                  elsif upper(TRIM(:P87_ASSINATURA)) = v('APP_USER') and vencerrarcaixa = 'S' then
+                    --
+                    :P87_CONCLUIDO := 'S';
+                    pck_acertosfechamento.prc_enviaemailfechamento(pidfechamento => :P87_IDFECHAMENTO,
+                                                                   pusuario => v('APP_USER'));
+                    --           
+                  else
+                    :P87_CONCLUIDO := 'N';
+                  end if;
+                  --
+                exception
+                  when others then
+                    null;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Fechamento concluído!
+        }
+        error {
+            displayLocation: onErrorPage
+        }
+        advanced {
+            executionMappingIdentifier: 180579633744112341
+        }
+        serverSideCondition {
+            whenButtonPressed: @confirmar
+        }
+    )
+
+    process fetch-row-from-fechamentossemanais (
+        name: Fetch Row from FECHAMENTOSSEMANAIS
+        type: autoRowFetch
+        source {
+            tableName: FECHAMENTOSSEMANAIS
+            pkColumn: IDFECHAMENTO
+            pkItem: P87_IDFECHAMENTO
+        }
+        execution {
+            sequence: 34
+            point: afterHeader
+        }
+        error {
+            errorMessage: Unable to fetch row.
+        }
+        advanced {
+            executionMappingIdentifier: 180580020436112358
+        }
+    )
+
+    process insere-novo (
+        name: Insere Novo
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  -- Call the procedure
+                  pck_acertosfechamento.prc_inserenovofechamento(pidfechamento => :P87_IDFECHAMENTO);
+                end;
+                
+                ```
+        }
+        execution {
+            sequence: 14
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 205504754567180220
+        }
+    )
+
+    process insere-novo-2 (
+        name: insere novo
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vsemana     varchar2(50);
+                  verro       varchar2(500);
+                  vidfilial   number := :P87_IDFILIAL;
+                  vusuario    varchar2(20) :=  v('APP_USER');
+                  --
+                begin
+                  --
+                  IF pck_romance.fnc_filialusuario (pusuario => vusuario ) = :P87_IDFILIAL then
+                    --
+                    begin
+                      select TRIM(pck_romance.fnc_retornasemanafechamento(psemanatela => null,  pusuario => trim(vusuario)))
+                      into vsemana
+                      from dual
+                      where not exists ( select 1 
+                                         from fechamentossemanais f
+                                         where f.semana = TRIM(pck_romance.fnc_retornasemanafechamento(psemanatela => null,  pusuario => trim(vusuario)))
+                                           and f.idfilial = vidfilial);
+                    exception
+                      when others then
+                        verro := sqlerrm;
+                        vsemana := null;
+                    end;
+                    --
+                    if vsemana is not null and length(vsemana) > 5 then
+                      insert into fechamentossemanais ( idfechamento , idfilial , semana )
+                      values ( seq_idfechamentosemanal.nextval, vidfilial, vsemana);
+                    end if;
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterRegions
+        }
+        advanced {
+            executionMappingIdentifier: 271860814560676714
+        }
+    )
+
+    process process-row-of-fechamentossemanais (
+        name: Process Row of FECHAMENTOSSEMANAIS
+        type: autoRowProcessing
+        target {
+            tableName: FECHAMENTOSSEMANAIS
+            pkColumn: IDFECHAMENTO
+            pkItem: P87_IDFECHAMENTO
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: Fechamento incluído/atualizado!
+        }
+        error {
+            errorMessage: Unable to process row of table FECHAMENTOSSEMANAIS.
+            displayLocation: onErrorPage
+        }
+        advanced {
+            executionMappingIdentifier: 180580435974112359
+        }
+    )
+
+    process processa-faturas (
+        name: processa faturas
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  if :P87_IDFILIAL in (220,1075) then --fabrica
+                    --
+                    pck_investimentos.prc_investimento_fabri(pidfechamento =>  :P87_IDFECHAMENTO );
+                    --
+                  end if;
+                  --
+                  if :P87_IDFILIAL = 421 then -- sim esteio
+                    --
+                    pck_investimentos.prc_investimento_fabri_esteio(pidfechamento =>  :P87_IDFECHAMENTO );
+                    --
+                  end if;
+                  --
+                  if :P87_IDFILIAL = 162 then --varejo
+                    --
+                    pck_investimentos.prc_investimento_times(pidfechamento =>  :P87_IDFECHAMENTO );
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        error {
+            displayLocation: onErrorPage
+        }
+        advanced {
+            executionMappingIdentifier: 413473022361585785
+        }
+        serverSideCondition {
+            whenButtonPressed: @confirmar
+        }
+    )
+
+    process update (
+        name: update2
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --  
+                  pck_acertosfechamento.prc_atualiza_fechamento( pidfechamento => :P87_IDFECHAMENTO );
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 24
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 180581240949112366
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P87_IDFECHAMENTO is not null
+                  and exists ( select 1
+                               from fechamentossemanais f
+                               where f.idfechamento = :P87_IDFECHAMENTO
+                                 and f.idfilialfavorita is null )
+                ```
+        }
+    )
+
+    process update-favorita (
+        name: update favorita
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vtotalpagar number(15,2);
+                  vtotalpago  number(15,2);
+                  vsaldo      number(15,2);
+                  vsemana     varchar2(10) := trim(:P87_SEMANA);
+                begin
+                  --
+                  select pg.pago
+                       , apg.apagar
+                       , pg.pago - apg.apagar
+                  into vtotalpago
+                     , vtotalpagar
+                     , vsaldo
+                  from ( select sum(b.valorcobrado) apagar
+                         from boletos B
+                         where to_char(b.DATAVENCIMENTO,'IW/RRRR') = vsemana
+                           and b.databaixa is null ) apg
+                     , ( select sum(b.valorcobrado) pago
+                         from boletos B
+                         where to_char(b.DATAVENCIMENTO,'IW/RRRR') = vsemana
+                           and b.databaixa is not null ) pg;
+                  --
+                  update fechamentossemanais f
+                  set f.totalboletosapagar = vtotalpagar
+                    , f.totalboletospago   = vtotalpago
+                    , f.saldoboletos       = vsaldo
+                  where f.idfechamento = :P87_IDFECHAMENTO
+                  --  and f.idfilial = 200 --favorita
+                    and (( nvl(f.concluido,'N') = 'N')
+                   or (pck_romance.fnc_verificaacesso('PERM_ALTERAFECHA', v('APP_USER')) = 'S'));
+                  --
+                  commit;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 4
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 180581028762112366
+        }
+        serverSideCondition {
+            type: item=value
+            item: P87_IDFILIAL
+            value: 200
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 87
+            }
+            saveStateBeforeBranching: true
+        }
+    )
+
+)
+

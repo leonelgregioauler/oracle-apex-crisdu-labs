@@ -1,0 +1,1327 @@
+page 424 (
+    name: Detalhado Investimento Favorita
+    title: Detalhado Investimento Favorita
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        width: 40%
+        height: 80%
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region comissões (
+        name: Comissões
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefilial(idfilial) empresa
+                     , destino
+                     , sum(total) total
+                from (
+                        select pdd.idfilial
+                             , case
+                                 when pcp.idrepresentante is not null then
+                                   'Distribuidor'
+                                 else
+                                   'Gerente' 
+                                   end destino
+                             , sum(valorpago) total
+                        from pagamentocomissoes pcp
+                           , pedidos            pdd
+                        where pcp.fechamento = ( select f.semana 
+                                                 from fechamentossemanais f 
+                                                 where f.idfechamento = :P424_IDFECHAMENTO )
+                          and pcp.idpedido   = pdd.idpedido
+                        group by pdd.idfilial
+                               , case
+                                 when pcp.idrepresentante is not null then
+                                   'Distribuidor'
+                                 else
+                                   'Gerente' 
+                                   end 
+                
+                        union
+                        select pdf.idfilialromance
+                             , case
+                                 when pcp.idrepresentante is not null then
+                                   'Distribuidor'
+                                 else
+                                   'Gerente' 
+                                   end destino
+                             , sum(valorpago * nvl(pdf.fatorconversao,1)) total
+                        from pagamentocomissoes pcp
+                           , favorita.pedidos   pdf
+                        where pcp.fechamento = ( select f.semana 
+                                                 from fechamentossemanais f 
+                                                 where f.idfechamento = :P424_IDFECHAMENTO )  
+                                and not exists ( select 1
+                                                 from favorita.classificacoespedidos c
+                                                 where c.idpedido = pdf.idpedido
+                                                   and c.idcaracteristicapedido  = 73 )
+                          and pcp.idpedido          = pdf.idpedido 
+                        group by pdf.idfilialromance
+                               , case
+                                 when pcp.idrepresentante is not null then
+                                   'Distribuidor'
+                                 else
+                                   'Gerente' 
+                                   end )
+                group by idfilial
+                     , destino 
+                order by 1, 2
+                ```
+        }
+        layout {
+            sequence: 60
+            slot: contentBody
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: item=value
+            item: P424_TIPO
+            value: C
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            subscription: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 262805083656852250
+        }
+
+        column DESTINO (
+            type: plainText
+            heading {
+                heading: Destino
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column TOTAL (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 3079121 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DESTINO (
+                sequence: 2
+            )
+
+            displayColumn EMPRESA (
+                sequence: 1
+            )
+
+            displayColumn TOTAL (
+                sequence: 3
+            )
+
+            aggregate (
+                column: TOTAL
+            )
+
+        )
+
+    )
+
+    region despesas (
+        name: Despesas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select d.unidade 
+                     , d.conta
+                     , d.subconta
+                     , sum(d.valor) valor
+                from vw_despesascentroscustos_m d
+                   , semana_dias s
+                   , fechamentossemanais f
+                where f.idfechamento = :P424_IDFECHAMENTO
+                  and d.idgruponegocio = 0
+                  and d.idcontafinan != 272
+                  and d.idregra in ('D','I','X')
+                  and d.data between s.dt_ini and s.dt_fim
+                  and s.idsemana = f.idsemana
+                  and not exists ( select 1
+                                   from rateioscentroscustos rr
+                                   where rr.idcentrodecusto = d.idcentrodecusto
+                                     and rr.percentual is not null )
+                group by d.unidade 
+                     , d.conta
+                     , d.subconta
+                union
+                select dm.unidade
+                     , dm.conta
+                     , dm.subconta
+                     , sum(round(r.percentual * dm.valor / 100,2)) valor
+                from vw_despesascentroscustos_m dm
+                   , vw_rateioscentroscustos r
+                   , semana_dias s
+                where r.idcentrodecusto = dm.idcentrodecusto
+                  and exists ( select 1
+                               from unidadesdenegocios u
+                               where u.idunidadedenegocio = r.idunidadedenegocio
+                                 and u.idgruponegocio     = 0 )
+                  and s.idsemana = :P424_IDSEMANA
+                  and r.percentual > 0
+                  and dm.data between s.dt_ini and s.dt_fim
+                  and s.mes between r.mesinicial and r.mesfinal
+                  and r.vigencia = s.ano
+                  and r.tipo = 'M'
+                  and r.contabilizadespesa = 'S'
+                group by dm.unidade
+                     , dm.conta
+                     , dm.subconta
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: contentBody
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: item=value
+            item: P424_TIPO
+            value: D
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            subscription: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 262803679855852236
+        }
+
+        column CONTA (
+            type: plainText
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column SUBCONTA (
+            type: plainText
+            heading {
+                heading: Sub Conta
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column UNIDADE (
+            type: plainText
+            heading {
+                heading: Unidade de Negócio
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column VALOR (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 3073827 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn CONTA (
+                sequence: 2
+            )
+
+            displayColumn SUBCONTA (
+                sequence: 3
+            )
+
+            displayColumn UNIDADE (
+                sequence: 1
+            )
+
+            displayColumn VALOR (
+                sequence: 4
+            )
+
+            sort (
+                column: VALOR
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: VALOR
+            )
+
+            controlBreak (
+                column: UNIDADE
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region fornecedores (
+        name: Fornecedores
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select d.origem
+                     , sum(d.valor) valor
+                from vw_despesascentroscustos_m d
+                   , semana_dias s
+                   , fechamentossemanais f
+                where f.idfechamento = :P424_IDFECHAMENTO
+                  and d.idgruponegocio = 0
+                  and d.idcontafinan != 272
+                  and d.idregra = 'C'
+                  and d.data between s.dt_ini and s.dt_fim
+                  and s.idsemana = f.idsemana
+                  and not exists ( select 1
+                                  from rateioscentroscustos rr
+                                  where rr.idcentrodecusto = d.idcentrodecusto
+                                    and rr.percentual is not null )
+                group by origem
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: contentBody
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: item=value
+            item: P424_TIPO
+            value: F
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            subscription: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 262804061695852240
+        }
+
+        column ORIGEM (
+            type: plainText
+            heading {
+                heading: Fornecedor/Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column VALOR (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 3073305 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ORIGEM (
+                sequence: 1
+            )
+
+            displayColumn VALOR (
+                sequence: 2
+            )
+
+            sort (
+                column: ORIGEM
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: VALOR
+            )
+
+        )
+
+    )
+
+    region rateios (
+        name: Rateios
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ( select c.nome
+                         from centrodecustos c
+                         where c.idcentrodecusto = r.idcentrodecusto ) centrodecusto
+                     , ( select u.nome
+                         from unidadesdenegocios u
+                         where u.idunidadedenegocio = r.idunidadedenegocio ) unidadedenegocio
+                     , r.percentual
+                     , rateio.valor
+                     , round(( r.percentual * rateio.valor / 100 ),2) rateio
+                from vw_rateioscentroscustos r
+                   , semana_dias s
+                   , ( select md.idcentrodecusto
+                            , sum(md.valor) valor 
+                       from vw_despesascentroscustos_m md
+                          , semana_dias s
+                       where s.idsemana = :P424_IDSEMANA
+                         and md.data between s.dt_ini and s.dt_fim
+                       group by md.idcentrodecusto ) rateio 
+                where exists ( select 1
+                               from unidadesdenegocios u
+                               where u.idgruponegocio = 0
+                                 and u.idunidadedenegocio = r.idunidadedenegocio )
+                  and r.vigencia = s.ano
+                  and s.idsemana = :P424_IDSEMANA
+                  and r.percentual > 0
+                  and s.mes between r.mesinicial and r.mesfinal
+                  and r.tipo = 'M'
+                  and r.contabilizarateio = 'S'
+                  and r.idcentrodecusto = rateio.idcentrodecusto(+);
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: contentBody
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: item=value
+            item: P424_TIPO
+            value: X
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            subscription: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 307400052827031215
+        }
+
+        column CENTRODECUSTO (
+            type: plainText
+            heading {
+                heading: Centro de Custo
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column PERCENTUAL (
+            type: plainText
+            heading {
+                heading: Percentual
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00MI
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column RATEIO (
+            type: plainText
+            heading {
+                heading: Valor Rateio
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column UNIDADEDENEGOCIO (
+            type: plainText
+            heading {
+                heading: Unid. de Negócio
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column VALOR (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 3150693 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn CENTRODECUSTO (
+                sequence: 1
+            )
+
+            displayColumn PERCENTUAL (
+                sequence: 4
+            )
+
+            displayColumn RATEIO (
+                sequence: 5
+            )
+
+            displayColumn UNIDADEDENEGOCIO (
+                sequence: 2
+            )
+
+            displayColumn VALOR (
+                sequence: 3
+            )
+
+            sort (
+                column: UNIDADEDENEGOCIO
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: RATEIO
+            )
+
+            controlBreak (
+                column: CENTRODECUSTO
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region recebimentos (
+        name: Recebimentos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select empresa
+                     , sum(total) total
+                from (  select pck_romance.fnc_nomefilial(o.idfilial) empresa
+                             , sum(b.valorcobrado) total
+                        from catal.boletos b
+                           , pedidos       o
+                        where b.semanabaixa = ( select f.semana 
+                                                 from fechamentossemanais f 
+                                                 where f.idfechamento = :P424_IDFECHAMENTO )
+                          and b.idpedido    = o.idpedido
+                          and o.idfilial    != 1041 
+                        group by o.idfilial
+                        union
+                        select pck_romance.fnc_nomefilial(p.idfilial) empresa
+                             , sum(p.vlrtotalsemcomissao)
+                        from catal.pedidos p
+                        where p.situacao     = 'O'
+                         and semanaemissao   = ( select f.semana 
+                                                 from fechamentossemanais f 
+                                                 where f.idfechamento = :P424_IDFECHAMENTO )
+                         and p.idfilial     != 1041
+                         and not exists ( select 1
+                                          from boletos b
+                                          where b.idpedido = p.idpedido)
+                        group by p.idfilial                  
+                        union
+                        select pck_romance.fnc_nomefilial(pff.idfilialromance) empresa
+                             , sum(pf2.valorpago * nvl(pff.fatorconversao,1))
+                        from favorita.pagamentospedidos pf2
+                           , favorita.vencimentospedidos v
+                           , favorita.pedidos pff
+                        where pf2.idsemanapago      = ( select f.idsemana 
+                                                        from fechamentossemanais f 
+                                                        where f.idfechamento = :P424_IDFECHAMENTO )
+                          and v.idpedido           = pff.idpedido
+                          and v.idvencimentopedido = pf2.idvencimentopedido
+                          and pf2.idsituacao       = 20 --- quitado
+                          and not  exists ( select 1
+                                            from favorita.classificacoespedidos c
+                                            where c.idpedido = pff.idpedido
+                                              and c.idcaracteristicapedido  = 73 )
+                          and v.situacaovencimento = 'V'
+                        group by pff.idfilialromance )
+                group by empresa
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: item=value
+            item: P424_TIPO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            subscription: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 2858224809502439180
+        }
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Empresa
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column TOTAL (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: end
+            }
+            layout {
+                sequence: 2
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 3068414 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn EMPRESA (
+                sequence: 1
+            )
+
+            displayColumn TOTAL (
+                sequence: 2
+            )
+
+            aggregate (
+                column: TOTAL
+            )
+
+        )
+
+    )
+
+    region repasses-romance (
+        name: Repasses Romance
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ( select ff.nomefilialfavorita
+                         from favorita.filiaisfavorita ff
+                         where ff.idfilialfavorita = cp.idfilialfavoritaorigem ) origem
+                     , pck_romance.fnc_nomefilial(cp.idfilialromancedestino) destino
+                     , cp.numero
+                     , sum(ic.quantidadecomprada*ic.valorcusto) total
+                from favorita.comprastransferencias cp
+                  , favorita.itenscomprastransferencias ic
+                where cp.idtipocomptransrem = 6
+                  and cp.idcompratransferencia = ic.idcompratransferencia
+                  and pck_util.fnc_idsemanadata(dataemissao)  = :P424_IDSEMANA
+                group by cp.idfilialfavoritaorigem
+                       , cp.idfilialromancedestino
+                       , cp.numero
+                ```
+        }
+        layout {
+            sequence: 70
+            slot: contentBody
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: item=value
+            item: P424_TIPO
+            value: RR
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            subscription: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 307401623072031231
+        }
+
+        column DESTINO (
+            type: plainText
+            heading {
+                heading: Destino
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column NUMERO (
+            type: plainText
+            heading {
+                heading: Numero
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column ORIGEM (
+            type: plainText
+            heading {
+                heading: Origem
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column TOTAL (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 3379073 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DESTINO (
+                sequence: 2
+            )
+
+            displayColumn NUMERO (
+                sequence: 3
+            )
+
+            displayColumn ORIGEM (
+                sequence: 1
+            )
+
+            displayColumn TOTAL (
+                sequence: 4
+            )
+
+            aggregate (
+                column: TOTAL
+            )
+
+        )
+
+    )
+
+    region retirada-de-pontos (
+        name: Retirada de Pontos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefilial(idfilial) empresa
+                     , sum(total) total
+                from (
+                        select p.idfilial
+                             , sum(p.valortotal) total
+                        from catal.pedidos p
+                        where SEMANAEMISSAO = ( select f.semana 
+                                                from fechamentossemanais f 
+                                                where f.idfechamento = :P424_IDFECHAMENTO )
+                          and p.situacao   != 'Z'
+                          and idfilial     != 1041
+                          and p.tipo        = 'R'
+                        group by p.idfilial
+                        union
+                        select p.idfilial
+                             , sum(p.pontosutilizados)
+                        from catal.pedidos p
+                        where SEMANAEMISSAO = ( select f.semana 
+                                                from fechamentossemanais f 
+                                                where f.idfechamento = :P424_IDFECHAMENTO )
+                          and idfilial     != 1041
+                          and p.situacao   != 'Z'
+                        group by  p.idfilial
+                        union
+                        select pff.idfilialromance
+                             , sum(idvalorcaracteristica * nvl(pff.fatorconversao,1))
+                        from favorita.classificacoespedidos c
+                           , favorita.pedidos               pff
+                        where idcaracteristicapedido = 5
+                          and to_char(c.dataclassificado,'IW/RRRR') = ( select f.semana 
+                                                                        from fechamentossemanais f 
+                                                                        where f.idfechamento = :P424_IDFECHAMENTO )
+                          and pff.idpedido                          = c.idpedido  
+                        group by pff.idfilialromance )
+                group by idfilial
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: item=value
+            item: P424_TIPO
+            value: P
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            subscription: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 262803268260852232
+        }
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Empresa
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column TOTAL (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: end
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 3075819 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn EMPRESA (
+                sequence: 1
+            )
+
+            displayColumn TOTAL (
+                sequence: 2
+            )
+
+            aggregate (
+                column: TOTAL
+            )
+
+        )
+
+    )
+
+    region tipo (
+        name: TIPO
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: dialogHeader
+        }
+        appearance {
+            template: @/blank-with-attributes-no-grid
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P424_IDFECHAMENTO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @tipo
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P424_IDSEMANA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 30
+            region: @tipo
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P424_TIPO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 20
+            region: @tipo
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+)
+

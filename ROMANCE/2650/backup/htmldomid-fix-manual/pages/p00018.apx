@@ -1,0 +1,848 @@
+page 18 (
+    name: Lista de Contas Bancarias
+    title: Lista de Contas Bancarias
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region lista-de-contas-bancarias (
+        name: Lista de Contas Bancarias
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select c.idcontabanc 
+                     , initcap(pf.nomepessoa) Fornecedor
+                     , initcap(b.nomebanco) Banco
+                     , c.agencia
+                     , c.conta
+                     , initcap(c.beneficiario) beneficiario
+                     , documento
+                     , to_char(c.datacriacao, 'DD/MM/YYYY HH24:MI') "Data Criação"
+                     , decode(c.liberaabatimento,'S','Sim','Não') "Libera Abatimento"
+                     , ( select initcap(nvl(cb.beneficiario,p.apelido)||'('||b.nomebanco)||' - '||cb.agencia ||', '||cb.conta||')' display_value
+                         from contasbancarias cb
+                            , bancos b
+                            , pessoas p
+                         where cb.idbanco      = b.idbanco
+                           and cb.idpessoa     = p.idpessoa
+                           and cb.ativo        = 'S'
+                           and cb.contaraiz    = 'S'
+                           and cb.idcontabanc  =  c.idcontabancraiz ) "Conta Raíz Vinculada"
+                     , decode(c.contaraiz, 'S', 'Sim', 'Não') "Conta Raíz"
+                     , decode(c.poupanca,'S','Sim','N','Não') "Poupança"
+                     , decode(c.usosetorcobranca,'S','Sim','Não') "Uso na Cobrança"
+                     , decode(c.contaprincipal,'S','Sim','Não') "Conta Principal"
+                     , decode(c.ativo,'S','Sim','Não') "Conta Ativa"
+                     , (select listagg(decode(p.tipochave, '1','CPF/CNPJ','2','Chave Aleatória','3','Telefone','4','Email') || ' - '|| p.chave||' ')
+                          from roman.chavespix p
+                         where p.idcontabancaria = c.idcontabanc ) chavepix
+                     , c.contacontabil 
+                       --
+                     , case when c.tipoconta = 'F' then 'Financeiro'
+                            when c.tipoconta = 'C' then 'Caixa'
+                            else ''
+                        end "Tipo Conta"
+                       --
+                     , (select gf.grupo
+                        from roman.gruposfinanceiros gf
+                        where gf.idgrupofinanceiro = c.idgrupofinanceiro) as "Grupo Financeiro"
+                       --
+                from contasbancarias c
+                   , pessoas         pf
+                   , bancos          b
+                where c.idpessoa     = pf.idpessoa
+                  and c.idbanco      = b.idbanco
+                  and (    ( :P18_TIPO is null)
+                        or ( :P18_TIPO = 'F' and :P18_IDFORNECEDOR = -1 ) 
+                        or ( :P18_TIPO = 'F' and   exists ( select 1
+                                                              from catal.fornecedores f
+                                                             where f.idfornecedor = c.idfornecedor
+                                                               and f.idfornecedor = :P18_IDFORNECEDOR ))
+                        or ( :P18_TIPO = 'E' and :P18_IDFILIAL = -1 )
+                        or ( :P18_TIPO = 'E' and exists ( select 1
+                                                            from catal.filiais f
+                                                           where f.idpessoa = c.idpessoa
+                                                             and f.idfilial = :P18_IDFILIAL )))
+                 order by 2;
+                ```
+            pageItemsToSubmit: [
+                P18_TIPO
+                P18_IDFORNECEDOR
+                P18_IDFILIAL
+            ]
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        link {
+            linkColumn: customTarget
+            target: {
+                page: 19
+                items: {
+                    P19_IDCONTABANC: #IDCONTABANC#
+                }
+            }
+            linkIcon: <img src="#IMAGE_PREFIX#menu/pencil16x16.gif"  border="0">
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: This query returns more than 10,000 rows, please filter your data to ensure complete results.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            rowsPerPage: false
+            pivot: false
+            savePublicReport: true
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 1
+        }
+
+        column AGENCIA (
+            type: plainText
+            heading {
+                heading: Agência
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: AGENCIA
+                endUserAlias: D
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column BANCO (
+            type: plainText
+            heading {
+                heading: Banco
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: BANCO
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column BENEFICIARIO (
+            type: plainText
+            heading {
+                heading: Beneficiario
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: BENEFICIARIO
+                endUserAlias: F
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column CHAVEPIX (
+            type: plainText
+            heading {
+                heading: Chave Pix
+            }
+            layout {
+                sequence: 71
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column CONTA (
+            type: plainText
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: CONTA
+                endUserAlias: E
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column CONTACONTABIL (
+            type: plainText
+            heading {
+                heading: Contacontabil
+                alignment: end
+            }
+            layout {
+                sequence: 81
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "Conta Ativa" (
+            type: plainText
+            heading {
+                heading: Conta Ativa?
+            }
+            layout {
+                sequence: 61
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column "Conta Principal" (
+            type: plainText
+            heading {
+                heading: Conta Principal
+                alignment: center
+            }
+            layout {
+                sequence: 51
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column "Conta Raíz" (
+            type: plainText
+            heading {
+                heading: Conta Raíz
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Conta Raíz
+                endUserAlias: K
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Conta Raíz Vinculada" (
+            type: plainText
+            heading {
+                heading: Conta Raíz Vinculada
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Conta Raíz Vinculada
+                endUserAlias: J
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column DOCUMENTO (
+            type: plainText
+            heading {
+                heading: Cnpj/Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 21
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column "Data Criação" (
+            type: plainText
+            heading {
+                heading: Data Criação
+            }
+            layout {
+                sequence: 101
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column FORNECEDOR (
+            type: plainText
+            heading {
+                heading: Fornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: FORNECEDOR
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Grupo Financeiro" (
+            type: plainText
+            heading {
+                heading: Grupo Financeiro
+            }
+            layout {
+                sequence: 111
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column IDCONTABANC (
+            type: plainText
+            heading {
+                heading: ID
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDCONTABANC
+                endUserAlias: A
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Libera Abatimento" (
+            type: plainText
+            heading {
+                heading: Libera Abatimento
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Libera Abatimento
+                endUserAlias: I
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Poupança (
+            type: plainText
+            heading {
+                heading: Poupança
+                alignment: center
+            }
+            layout {
+                sequence: 31
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "Tipo Conta" (
+            type: plainText
+            heading {
+                heading: Tipo Conta
+            }
+            layout {
+                sequence: 91
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column "Uso na Cobrança" (
+            type: plainText
+            heading {
+                heading: Uso na cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 41
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        savedReport 14376 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 15
+            }
+
+            displayColumn AGENCIA (
+                sequence: 3
+            )
+
+            displayColumn BANCO (
+                sequence: 2
+            )
+
+            displayColumn BENEFICIARIO (
+                sequence: 6
+            )
+
+            displayColumn CONTA (
+                sequence: 4
+            )
+
+            displayColumn "Conta Principal" (
+                sequence: 12
+            )
+
+            displayColumn "Conta Raíz" (
+                sequence: 8
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 7
+            )
+
+            displayColumn FORNECEDOR (
+                sequence: 1
+            )
+
+            displayColumn "Grupo Financeiro" (
+                sequence: 5
+            )
+
+            displayColumn IDCONTABANC (
+                sequence: 10
+            )
+
+            displayColumn "Poupança" (
+                sequence: 9
+            )
+
+            displayColumn "Tipo Conta" (
+                sequence: 13
+            )
+
+            displayColumn "Uso na Cobrança" (
+                sequence: 11
+            )
+
+        )
+
+    )
+
+    pageItem P18_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa Romance
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                ```
+            nullDisplayValue: - Todas -
+            nullReturnValue: -1
+        }
+        layout {
+            sequence: 30
+            region: @lista-de-contas-bancarias
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P18_IDFORNECEDOR (
+        type: selectList
+        label {
+            label: Fornecedor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefornecedor(idfornecedor) nome
+                     , idfornecedor
+                from fornecedores f
+                where f.ativo = 'S'
+                order by 1
+                ```
+            nullDisplayValue: - Todos -
+            nullReturnValue: -1
+        }
+        layout {
+            sequence: 20
+            region: @lista-de-contas-bancarias
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P18_TIPO (
+        type: radioGroup
+        label {
+            label: Busca Por
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Fornecedor;F,Empresa Romance;E
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @lista-de-contas-bancarias
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button create (
+        buttonName: CREATE
+        label: Nova Conta
+        layout {
+            sequence: 30
+            region: @lista-de-contas-bancarias
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 19
+                clearCache: 19
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction refresh (
+        name: Refresh 1
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P18_TIPO
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @lista-de-contas-bancarias
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction refresh-2 (
+        name: Refresh 2
+        execution {
+            sequence: 40
+        }
+        when {
+            selectionType: items
+            items: P18_IDFORNECEDOR
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @lista-de-contas-bancarias
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction refresh-3 (
+        name: Refresh 3
+        execution {
+            sequence: 50
+        }
+        when {
+            selectionType: items
+            items: P18_IDFILIAL
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @lista-de-contas-bancarias
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction tipo-pesquisa-forn (
+        name: Tipo Pesquisa Forn
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P18_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P18_TIPO
+            value: F
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P18_IDFORNECEDOR
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P18_IDFORNECEDOR
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction tipo-pesquisa-rom (
+        name: Tipo Pesquisa Rom
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P18_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P18_TIPO
+            value: E
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P18_IDFILIAL
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P18_IDFILIAL
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+)
+
