@@ -1,0 +1,650 @@
+page 309 (
+    name: Indicadores de Cadastros
+    title: Indicadores de Cadastros
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region medidores-de-indicações (
+        name: Medidores de Indicações
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome faixa
+                     , nvl(indicacoes.qtd,0) indicacoes
+                     , nvl(ativo.qtd,0) ativo
+                     , trim(to_char(nvl(ativo.ticket,0),'999G999G999G999G999G999G990D00')) ticketativo
+                     , round(nvl((ativo.sacolas/ativo.qtd),0)) mediasacolasativa
+                     , nvl(inativo.qtd,0) inativo
+                     , trim(to_char(nvl(inativo.ticket,0),'999G999G999G999G999G999G990D00')) ticketinativo
+                     , round(nvl((inativo.sacolas/inativo.qtd),0)) mediasacolasinativa
+                     , nvl(debito.qtd,0) debito
+                from roman.faixasetarias f
+                   , ( select count(distinct(c.idcontrolecontatossite)) qtd
+                            , f.idfaixaetaria
+                       from roman.controlecontatossite c
+                          , roman.faixasetarias f
+                       where c.datanascimento is not null
+                         and ( :P309_IDFILIALROMANCE is null or c.idfilial = :P309_IDFILIALROMANCE )
+                         and NVL(Floor(Months_Between(trunc(sysdate),c.datanascimento)/12),0) between f.valorinicial and f.valorfinal
+                         and trunc(c.datacadastro) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM) 
+                       group by f.idfaixaetaria ) indicacoes
+                   , ( select count(distinct(p.idpessoa)) qtd
+                            , f.idfaixaetaria
+                            , avg(( select nvl((sum(n.valorpago) / count(n.idnotavenda)),0) 
+                                    from roman.notasvendas n
+                                       , vendedoras v
+                                    where v.idvendedora         = n.idvendedora
+                                      and v.idpessoa            = p.idpessoa
+                                      and trunc(n.dataacerto) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM)
+                                      and n.idsituacaonotavenda = 4)) ticket
+                            , sum(( select count(distinct(n.idnotavenda))
+                                    from roman.notasvendas n
+                                       , vendedoras v
+                                    where v.idvendedora         = n.idvendedora
+                                      and v.idpessoa            = p.idpessoa
+                                      and trunc(n.datanota) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM)
+                                      and n.idsituacaonotavenda in (3,4) )) sacolas
+                       from pessoas p
+                          , roman.faixasetarias f
+                       where NVL(Floor(Months_Between(trunc(sysdate),p.datanascimento)/12),0) between f.valorinicial and f.valorfinal
+                         and exists ( select 1
+                                      from vendedoras v
+                                      where v.idpessoa = p.idpessoa
+                                        and v.ativo    = 'S' )
+                         and exists ( select 1
+                                      from roman.controlecontatossite c
+                                      where nvl(p.cpf,p.documentoestrangeiro) = replace(replace(replace(nvl(c.cpf,c.documentoestrangeiro),'.',''),'-',''),' ','')
+                                        and ( :P309_IDFILIALROMANCE is null or c.idfilial = :P309_IDFILIALROMANCE )
+                                        and trunc(c.datacadastro) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM) 
+                                        and c.dataliberadofilial is not null )
+                       group by f.idfaixaetaria ) ativo
+                   , ( select count(distinct(p.idpessoa)) qtd
+                            , f.idfaixaetaria
+                            , avg(( select nvl((sum(n.valorpago) / count(n.idnotavenda)),0) 
+                                    from roman.notasvendas n
+                                       , vendedoras v
+                                    where v.idvendedora         = n.idvendedora
+                                      and v.idpessoa            = p.idpessoa
+                                      and trunc(n.dataacerto) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM)
+                                      and n.idsituacaonotavenda = 4)) ticket
+                            , sum(( select count(distinct(n.idnotavenda))
+                                    from roman.notasvendas n
+                                       , vendedoras v
+                                    where v.idvendedora         = n.idvendedora
+                                      and v.idpessoa            = p.idpessoa
+                                      and n.idsituacaonotavenda in (3,4)
+                                      and trunc(n.datanota) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM))) sacolas
+                       from pessoas p
+                          , roman.faixasetarias f
+                       where NVL(Floor(Months_Between(trunc(sysdate),p.datanascimento)/12),0) between f.valorinicial and f.valorfinal
+                         and exists ( select 1
+                                      from vendedoras v
+                                      where v.idpessoa = p.idpessoa
+                                        and v.ativo    = 'N' )
+                         and exists ( select 1
+                                      from roman.controlecontatossite c
+                                      where nvl(p.cpf,p.documentoestrangeiro) = replace(replace(replace(nvl(c.cpf,c.documentoestrangeiro),'.',''),'-',''),' ','')
+                                        and ( :P309_IDFILIALROMANCE is null or c.idfilial = :P309_IDFILIALROMANCE )
+                                        and trunc(c.datacadastro) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM) 
+                                        and c.dataliberadofilial is not null )
+                       group by f.idfaixaetaria ) inativo
+                   , ( select count(distinct(p.idpessoa)) qtd
+                            , f.idfaixaetaria
+                       from pessoas p
+                          , vendedoras v
+                          , roman.faixasetarias f
+                       where p.idpessoa = v.idpessoa
+                         and NVL(Floor(Months_Between(trunc(sysdate),p.datanascimento)/12),0) between f.valorinicial and f.valorfinal
+                         and exists ( select 1
+                                      from roman.controlecontatossite c
+                                      where nvl(p.cpf,p.documentoestrangeiro) = replace(replace(replace(nvl(c.cpf,c.documentoestrangeiro),'.',''),'-',''),' ','')
+                                        and ( :P309_IDFILIALROMANCE is null or c.idfilial = :P309_IDFILIALROMANCE )
+                                        and trunc(c.datacadastro) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM) 
+                                        and c.dataliberadofilial is not null )
+                         and exists ( select 1
+                                      from roman.notasvendas nv
+                                      where nv.idvendedora = v.idvendedora
+                                        and nv.idsituacaonotavenda = 4
+                                        and nv.saldo > 0 )
+                       group by f.idfaixaetaria ) debito
+                where indicacoes.idfaixaetaria(+) = f.idfaixaetaria
+                  and ativo.idfaixaetaria(+) = f.idfaixaetaria
+                  and inativo.idfaixaetaria(+) = f.idfaixaetaria
+                  and debito.idfaixaetaria(+) = f.idfaixaetaria
+                  and :P309_DATAINICIO is not null
+                union
+                select 'Sem Faixa Etária'
+                     , nvl(indicacoes.qtd,0) indicacoes
+                     , nvl(ativo.qtd,0) ativo
+                     , trim(to_char(nvl(ativo.ticket,0),'999G999G999G999G999G999G990D00')) ticketativo
+                     , round(nvl((ativo.sacolas/ativo.qtd),0)) mediasacolasativa
+                     , nvl(inativo.qtd,0) inativo
+                     , trim(to_char(nvl(inativo.ticket,0),'999G999G999G999G999G999G990D00')) ticketinativo
+                     , round(nvl((inativo.sacolas/inativo.qtd),0)) mediasacolasinativa
+                     , nvl(debito.qtd,0) debito
+                from ( select count(distinct(c.idcontrolecontatossite)) qtd
+                       from roman.controlecontatossite c
+                       where c.datanascimento is not null
+                         and ( :P309_IDFILIALROMANCE is null or c.idfilial = :P309_IDFILIALROMANCE )
+                         and not exists ( select 1
+                                          from roman.faixasetarias f
+                                          where NVL(Floor(Months_Between(trunc(sysdate),c.datanascimento)/12),0) between f.valorinicial and f.valorfinal )
+                         and trunc(c.datacadastro) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM)  ) indicacoes
+                   , ( select count(distinct(p.idpessoa)) qtd
+                            , avg(( select nvl((sum(n.valorpago) / count(n.idnotavenda)),0) 
+                                    from roman.notasvendas n
+                                       , vendedoras v
+                                    where v.idvendedora         = n.idvendedora
+                                      and v.idpessoa            = p.idpessoa
+                                      and trunc(n.dataacerto) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM)
+                                      and n.idsituacaonotavenda = 4)) ticket
+                            , sum(( select count(distinct(n.idnotavenda))
+                                    from roman.notasvendas n
+                                       , vendedoras v
+                                    where v.idvendedora         = n.idvendedora
+                                      and v.idpessoa            = p.idpessoa
+                                      and trunc(n.datanota) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM)
+                                      and n.idsituacaonotavenda in (3,4) )) sacolas
+                       from pessoas p
+                       where exists ( select 1
+                                      from vendedoras v
+                                      where v.idpessoa = p.idpessoa
+                                        and v.ativo    = 'S' )
+                         and not exists ( select 1
+                                          from roman.faixasetarias f
+                                          where NVL(Floor(Months_Between(trunc(sysdate),p.datanascimento)/12),0) between f.valorinicial and f.valorfinal )
+                         and exists ( select 1
+                                      from roman.controlecontatossite c
+                                      where nvl(p.cpf,p.documentoestrangeiro) = replace(replace(replace(nvl(c.cpf,c.documentoestrangeiro),'.',''),'-',''),' ','')
+                                        and ( :P309_IDFILIALROMANCE is null or c.idfilial = :P309_IDFILIALROMANCE )
+                                        and trunc(c.datacadastro) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM) 
+                                        and c.dataliberadofilial is not null ) ) ativo
+                   , ( select count(distinct(p.idpessoa)) qtd
+                            , avg(( select nvl((sum(n.valorpago) / count(n.idnotavenda)),0) 
+                                    from roman.notasvendas n
+                                       , vendedoras v
+                                    where v.idvendedora         = n.idvendedora
+                                      and v.idpessoa            = p.idpessoa
+                                      and trunc(n.dataacerto) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM)
+                                      and n.idsituacaonotavenda = 4)) ticket
+                            , sum(( select count(distinct(n.idnotavenda))
+                                    from roman.notasvendas n
+                                       , vendedoras v
+                                    where v.idvendedora         = n.idvendedora
+                                      and v.idpessoa            = p.idpessoa
+                                      and n.idsituacaonotavenda in (3,4)
+                                      and trunc(n.datanota) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM))) sacolas
+                       from pessoas p
+                       where exists ( select 1
+                                      from vendedoras v
+                                      where v.idpessoa = p.idpessoa
+                                        and v.ativo    = 'N' )
+                         and not exists ( select 1
+                                          from roman.faixasetarias f
+                                          where NVL(Floor(Months_Between(trunc(sysdate),p.datanascimento)/12),0) between f.valorinicial and f.valorfinal )
+                         and exists ( select 1
+                                      from roman.controlecontatossite c
+                                      where nvl(p.cpf,p.documentoestrangeiro) = replace(replace(replace(nvl(c.cpf,c.documentoestrangeiro),'.',''),'-',''),' ','')
+                                        and ( :P309_IDFILIALROMANCE is null or c.idfilial = :P309_IDFILIALROMANCE )
+                                        and trunc(c.datacadastro) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM) 
+                                        and c.dataliberadofilial is not null ) ) inativo
+                   , ( select count(distinct(p.idpessoa)) qtd
+                       from pessoas p
+                          , vendedoras v
+                       where p.idpessoa = v.idpessoa
+                         and not exists ( select 1
+                                          from roman.faixasetarias f
+                                          where NVL(Floor(Months_Between(trunc(sysdate),p.datanascimento)/12),0) between f.valorinicial and f.valorfinal )
+                         and exists ( select 1
+                                      from roman.controlecontatossite c
+                                      where nvl(p.cpf,p.documentoestrangeiro) = replace(replace(replace(nvl(c.cpf,c.documentoestrangeiro),'.',''),'-',''),' ','')
+                                        and ( :P309_IDFILIALROMANCE is null or c.idfilial = :P309_IDFILIALROMANCE )
+                                        and trunc(c.datacadastro) between to_date(:P309_DATAINICIO) and to_date(:P309_DATAFIM) 
+                                        and c.dataliberadofilial is not null )
+                         and exists ( select 1
+                                      from roman.notasvendas nv
+                                      where nv.idvendedora = v.idvendedora
+                                        and nv.idsituacaonotavenda = 4
+                                        and nv.saldo > 0 ) ) debito
+                order by 2 desc
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado, verifique os filtros.
+        }
+        advanced {
+            savedReportMappingIdentifier: 1483977230160170241
+        }
+
+        column ATIVO (
+            type: plainText
+            heading {
+                heading: Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DEBITO (
+            type: plainText
+            heading {
+                heading: Débito
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column FAIXA (
+            type: plainText
+            heading {
+                heading: Faixa Etária
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column INATIVO (
+            type: plainText
+            heading {
+                heading: Inativo
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column INDICACOES (
+            type: plainText
+            heading {
+                heading: Qtd de Indicações
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column MEDIASACOLASATIVA (
+            type: plainText
+            heading {
+                heading: Média de Sacolas
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column MEDIASACOLASINATIVA (
+            type: plainText
+            heading {
+                heading: Média Sacolas
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column TICKETATIVO (
+            type: plainText
+            heading {
+                heading: Ticket Médio Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column TICKETINATIVO (
+            type: plainText
+            heading {
+                heading: Ticket Médio Inativo
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 14869420 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ATIVO (
+                sequence: 3
+            )
+
+            displayColumn DEBITO (
+                sequence: 9
+            )
+
+            displayColumn FAIXA (
+                sequence: 1
+            )
+
+            displayColumn INATIVO (
+                sequence: 6
+            )
+
+            displayColumn INDICACOES (
+                sequence: 2
+            )
+
+            displayColumn MEDIASACOLASATIVA (
+                sequence: 5
+            )
+
+            displayColumn MEDIASACOLASINATIVA (
+                sequence: 8
+            )
+
+            displayColumn TICKETATIVO (
+                sequence: 4
+            )
+
+            displayColumn TICKETINATIVO (
+                sequence: 7
+            )
+
+            aggregate (
+                column: INDICACOES
+            )
+
+            aggregate (
+                column: ATIVO
+            )
+
+            aggregate (
+                column: INATIVO
+            )
+
+            aggregate (
+                column: DEBITO
+            )
+
+        )
+
+    )
+
+    pageItem P309_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P309_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P309_IDFILIALROMANCE (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from roman.vw_filiais f
+                where f.tipofilial = 'D'
+                  --and f.idgrupo != 5
+                  and f.ativo = 'S'
+                order by 1
+                ```
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 309
+                items: {
+                    P309_IDFILIALROMANCE: &P309_IDFILIALROMANCE.
+                    P309_DATAINICIO: &P309_DATAINICIO.
+                    P309_DATAFIM: &P309_DATAFIM.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

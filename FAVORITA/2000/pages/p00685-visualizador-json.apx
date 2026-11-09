@@ -1,0 +1,338 @@
+page 685 (
+    name: Visualizador JSON
+    alias: VISUALIZADOR-JSON
+    title: Visualizador JSON
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        width: 800
+        height: 810
+    }
+    javaScript {
+        executeWhenPageLoads:
+            ```javascript-browser
+            function syntaxHighlightJson(jsonText) {
+                jsonText = jsonText
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+            
+                return jsonText.replace(
+                    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?)/g,
+                    function (match) {
+                        var cls = 'json-number';
+            
+                        if (/^"/.test(match)) {
+                            if (/:$/.test(match)) {
+                                cls = 'json-key';
+                            } else {
+                                cls = 'json-string';
+                            }
+                        } else if (/true|false/.test(match)) {
+                            cls = 'json-boolean';
+                        } else if (/null/.test(match)) {
+                            cls = 'json-null';
+                        }
+            
+                        return '<span class="' + cls + '">' + match + '</span>';
+                    }
+                );
+            }
+            
+            function escapeHtml(text) {
+                return text
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+            }
+            
+            function renderJsonApex(itemName, viewerId) {
+                var json = apex.item(itemName).getValue() || '';
+                var el = document.getElementById(viewerId);
+            
+                if (!el) return;
+            
+                try {
+                    var formatted = JSON.stringify(JSON.parse(json), null, 2);
+                    el.innerHTML = syntaxHighlightJson(formatted);
+                } catch (e) {
+                    // ¿ aqui mostra o conteúdo REAL, sem quebrar HTML
+                    el.innerHTML = escapeHtml(json);
+                }
+            }
+            
+            renderJsonApex("P685_JSON", "jsonViewer");
+            ```
+    }
+    css {
+        inline:
+            ```css
+            .code-block{
+            
+                background:#f8fafc;
+                border:1px solid #e2e8f0;
+                border-radius:16px;
+            
+                padding:16px;
+            
+            }
+            
+            .code-block-content{
+            
+                margin:0;
+            
+                background:#ffffff;
+            
+                border-radius:12px;
+            
+                padding:20px;
+            
+                max-height:690px;
+                overflow:auto;
+            
+                font-family:Consolas, Monaco, monospace;
+                font-size:13px;
+                line-height:1.7;
+            
+                color:#0f172a;
+            
+                white-space:pre;
+            
+            }
+            .json-key{
+                color:#2563eb;
+            }
+            
+            .json-string{
+                color:#16a34a;
+            }
+            
+            .json-number{
+                color:#ea580c;
+            }
+            
+            .json-boolean{
+                color:#7c3aed;
+            }
+            
+            .json-null{
+                color:#dc2626;
+            }
+            ```
+    }
+    security {
+        authentication: public
+        deepLinking: false
+        pageAccessProtection: unrestricted
+    }
+
+    region código (
+        name: Código
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <div class="code-block">
+                
+                    <pre class="code-block-content">
+                <code id="jsonViewer" class="language-json"></code>
+                    </pre>
+                
+                </div>
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: contentBody
+        }
+        appearance {
+            template: @/blank-with-attributes
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P685_CAMPO (
+        type: hidden
+        layout {
+            sequence: 30
+            slot: contentBody
+        }
+    )
+
+    pageItem P685_IDLOG (
+        type: hidden
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+    )
+
+    pageItem P685_JSON (
+        type: hidden
+        layout {
+            sequence: 40
+            slot: contentBody
+        }
+    )
+
+    process buscajson (
+        name: BuscaJson
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                -- Patch para o processo PL/SQL da pagina 685 (visualizador de JSON),
+                -- adicionando o branch RFID_REQUEST/RFID_RESPONSE usado pelos links
+                -- "Json" da pagina 692 (Log - Integracao RFID).
+                --
+                -- Cole este bloco no lugar do processo atual da pagina 685 no Page Designer.
+                
+                begin
+                
+                    if :P685_CAMPO in ('HEADERS','REQ','RESP') then
+                
+                        select case :P685_CAMPO
+                                 when 'HEADERS' then req_headers
+                                 when 'REQ'     then req_body
+                                 when 'RESP'    then resp_body
+                               end
+                          into :P685_JSON
+                          from bb_log_requisicoes
+                         where idlog = :P685_IDLOG;
+                
+                    elsif :P685_CAMPO in ('REDPAGO_REQUEST','REDPAGO_RESPONSE') then
+                
+                        select case :P685_CAMPO
+                                 when 'REDPAGO_REQUEST'  then request_body
+                                 when 'REDPAGO_RESPONSE' then response_body
+                               end
+                          into :P685_JSON
+                          from tb_redpago_log_requisicao
+                         where id_log = :P685_IDLOG;
+                
+                    elsif :P685_CAMPO in ('RFID_REQUEST','RFID_RESPONSE') then
+                
+                        select case :P685_CAMPO
+                                 when 'RFID_REQUEST'  then request_body
+                                 when 'RFID_RESPONSE' then response_body
+                               end
+                          into :P685_JSON
+                          from favorita.rfid_log_integracao
+                         where id_log = :P685_IDLOG;
+                
+                    else
+                        :P685_JSON := json_object(
+                            'erro' value 1,
+                            'mensagem' value 'Campo inválido: ' || :P685_CAMPO
+                        );
+                    end if;
+                
+                exception
+                
+                    when no_data_found then
+                        :P685_JSON := json_object(
+                            'erro' value 1,
+                            'mensagem' value 'Nenhum dado encontrado'
+                        );
+                
+                    when others then
+                
+                        -- tratamento específico para ORA-06502
+                        if sqlcode = -6502 then
+                            declare
+                                v_h1  clob;
+                                v_h2  clob;
+                                v_p   clob;
+                                v_out clob;
+                                v_ray varchar2(200);
+                                v_ip  varchar2(200);
+                                v_loc varchar2(200);
+                            begin
+                
+                                select resp_body
+                                  into v_out
+                                  from bb_log_requisicoes
+                                 where idlog = :P685_IDLOG;
+                
+                                -- H1
+                                v_h1 := REGEXP_SUBSTR(v_out,'<h1[^>]*>(.*?)</h1>',1,1,'i',1);
+                                v_h1 := REGEXP_REPLACE(v_h1,'<[^>]+>','');
+                                v_h1 := REPLACE(REPLACE(v_h1,'\\n',chr(10)),'\n',chr(10));
+                                v_h1 := regexp_replace(v_h1,'(^|\n)[[:space:]]+','\1');
+                                v_h1 := trim(v_h1);
+                
+                                -- H2
+                                v_h2 := REGEXP_SUBSTR(v_out,'<h2[^>]*>(.*?)</h2>',1,1,'i',1);
+                                v_h2 := REGEXP_REPLACE(v_h2,'<[^>]+>','');
+                                v_h2 := REPLACE(REPLACE(v_h2,'\\n',chr(10)),'\n',chr(10));
+                                v_h2 := regexp_replace(v_h2,'(^|\n)[[:space:]]+','\1');
+                                v_h2 := trim(v_h2);
+                
+                                -- Cloudflare
+                                v_ray := REGEXP_SUBSTR(v_out,'Ray ID: ([^<\n]+)',1,1,null,1);
+                                v_ip  := REGEXP_SUBSTR(v_out,'Your IP address: ([^<\n]+)',1,1,null,1);
+                                v_loc := REGEXP_SUBSTR(v_out,'Cloudflare Location: ([^<\n]+)',1,1,null,1);
+                
+                                -- Monta saída final
+                                v_out := 'Erro ao processar requisição no BB'||chr(10)||chr(10);
+                
+                                if v_out like '%522%' then
+                                    v_out := v_out || '[ERRO] 522 - Timeout na origem'||chr(10)||chr(10);
+                                end if;
+                
+                                if v_h1 is not null then
+                                    v_out := v_out || '[H1] '||v_h1||chr(10)||chr(10);
+                                end if;
+                
+                                if v_h2 is not null then
+                                    v_out := v_out || '[H2] '||v_h2||chr(10)||chr(10);
+                                end if;
+                
+                                if v_ray is not null then
+                                    v_out := v_out || '[CF_RAY] '||v_ray||chr(10);
+                                end if;
+                
+                                if v_ip is not null then
+                                    v_out := v_out || '[CF_IP] '||v_ip||chr(10);
+                                end if;
+                
+                                if v_loc is not null then
+                                    v_out := v_out || '[CF_LOCATION] '||v_loc||chr(10);
+                                end if;
+                
+                                :P685_JSON := v_out;
+                
+                            exception
+                                when others then
+                                    :P685_JSON := json_object(
+                                        'erro' value 1,
+                                        'mensagem' value 'Erro ao extrair HTML: ' || sqlerrm
+                                    );
+                            end;
+                
+                        else
+                            :P685_JSON := json_object(
+                                'erro' value 1,
+                                'mensagem' value sqlerrm,
+                                'code' value sqlcode
+                            );
+                        end if;
+                
+                end;
+                
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+        advanced {
+            executionMappingIdentifier: 40037330237348443
+        }
+    )
+
+)
+

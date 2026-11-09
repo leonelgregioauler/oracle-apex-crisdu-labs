@@ -1,0 +1,923 @@
+page 536 (
+    name: Controle de Campanha
+    title: Controle de Campanha
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region acompanhamento-de-campanha (
+        name: Acompanhamento de Campanha
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select rownum posicao
+                     , pck_romance.fnc_nomerepresentante(idrepresentante) "Distribuidor"
+                     , t.idrepresentante "IdRepresentante"
+                     , t.idfilial "IdFilial"
+                     , pck_romance.fnc_nomefilial(t.idfilial) "Filial"
+                     , t.contacertos "Contagem de Acertos"
+                     , mediageral
+                     , mediaromance
+                     , mediafavorita
+                     , vendaecommerce
+                     , t.contagemfaltante "Contagem Faltante"
+                     , t.mediageral * contacertos "Valor Atingido"
+                     , t.valoratingir "Valor Precisa Atingir"
+                     , ( t.valoratingir - ( mediageral * contacertos ) ) "Diferença"
+                     , valorminimo "Valor Mínimo Prox. Semanas"
+                     , ( valorminimo + ( t.valoratingir - ( mediageral * nvl(contacertos,1) ) ) ) "Faltante"
+                     , ( valorminimo + ( t.valoratingir - ( mediageral * nvl(contacertos,1) ) ) ) / contagemfaltante  "Média Faltante"
+                     , pck_rankingpontuacao.fnc_retornapremiocampanha(idrepresentante,mediageral) "Prêmio Atingido"
+                from ( 
+                       select t.*
+                       from (  
+                           select idrepresentante
+                                , idfilial
+                                , pontromance
+                                , pontfavorita
+                                , contacertos
+                                , qtdsemanas
+                                , mediageral  mediageral
+                                , pontromance        mediaromance
+                                , pontfavorita       mediafavorita
+                                , pontfavorita / pontromance *100 percfavorita
+                                , vendaecommerce
+                                , nvl(contagemfaltante,1) contagemfaltante
+                                , contacertos * :P536_IDPREMIO valoratingir
+                                , nvl(contagemfaltante,1) * :P536_IDPREMIO valorminimo
+                           from (
+                                    select r.idrepresentante
+                                         , g.idfilial
+                                         , p.mediaromance pontromance
+                                         --
+                                         , p.mediafavorita pontfavorita
+                                         --
+                                         , p.mediageral
+                                         --
+                                         , p.contagemacertos contacertos
+                                         , cf.idsemanafim - cf.idsemanainicio+1 qtdsemanas
+                                         , pck_rankingpontuacao.fnc_contagemfaltante( psemanaini => cf.semanainicio
+                                                                                    , psemanafim => cf.semanafim
+                                                                                    , pidrepresentante => r.idrepresentante ) contagemfaltante
+                                         , p.vendaecommerce vendaecommerce
+                                    from representantes r
+                                       , gerentes g
+                                       , campanhasfiliais cf
+                                       , vw_pontuacaogeral_rmc p
+                                       , campanhas c
+                                    where r.idgerente = g.idgerente
+                                      and g.idfilial = cf.idfilial
+                                      and p.idrepresentante = r.idrepresentante
+                                      and cf.idcampanha = c.idcampanha
+                                      and c.ativa = 'S'
+                                      and r.ativo = 'S'
+                                      and ( :P536_IDREPRESENTANTE = 99999999999999 or r.idrepresentante = :P536_IDREPRESENTANTE )
+                                      
+                                      and cf.idcampanhafilial = nvl(:P536_IDCAMPANHAFILIAL,cf.idcampanhafilial)
+                                      and ( :P0_IDFILIAL = -1 --Todos
+                                         --  Regionais
+                                         or (:P0_IDFILIAL in (1,2,3,4,5) and exists ( select 1
+                                                                                      from gerentes g
+                                                                                     where g.idgerente = r.idgerente
+                                                                                       and g.idfilial in (select f.idfilial
+                                                                                                            from catal.filiais f
+                                                                                                           where f.regional = :P0_IDFILIAL) ) )
+                                         -- Brasil
+                                         or (:P0_IDFILIAL = -2 and exists ( select 1
+                                                                              from gerentes g
+                                                                             where g.idgerente = r.idgerente
+                                                                               and g.idfilial in (select f.idfilial
+                                                                                                    from catal.filiais f
+                                                                                                   where f.ididioma = 1) ) )
+                                         -- America Latina
+                                         or (:P0_IDFILIAL = -3 and exists ( select 1
+                                                                              from gerentes g
+                                                                             where g.idgerente = r.idgerente
+                                                                               and g.idfilial in (select f.idfilial
+                                                                                                    from catal.filiais f
+                                                                                                   where f.ididioma in (2,3,4,6,7,8,13,14,15,16)) ) )
+                                         -- Comercial Romance
+                                         or (:P0_IDFILIAL = 1135 and exists ( select 1
+                                                                              from gerentes g
+                                                                             where g.idgerente = r.idgerente
+                                                                               and g.idfilial in (select f.idfilial
+                                                                                                    from catal.filiais f
+                                                                                                   where f.pertencecomercialromance = 'S')))
+                                        or (exists ( select 1
+                                                      from gerentes g
+                                                     where g.idgerente = r.idgerente
+                                                       and g.idfilial = :P0_IDFILIAL )) ) 
+                                    )  a
+                              where a.contacertos > 0  ) t
+                              order by mediageral desc ) t
+                
+                ```
+            pageItemsToSubmit: [
+                P536_IDREPRESENTANTE
+                P536_IDPREMIO
+                P536_IDCAMPANHAFILIAL
+            ]
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhuma informação encontrada, verifique os filtros escolhidos.
+        }
+        advanced {
+            savedReportMappingIdentifier: 6170866004480407
+        }
+
+        column "Contagem Faltante" (
+            type: plainText
+            heading {
+                heading: Semanas Faltantes
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "Contagem de Acertos" (
+            type: plainText
+            heading {
+                heading: Contagem de Acertos
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column Diferença (
+            type: plainText
+            heading {
+                heading: Diferença
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column Faltante (
+            type: plainText
+            heading {
+                heading: Faltante
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from usuariosgruposatendimento ug
+                    where ug.idgrupoatendimento in (0,20)
+                      and ug.usuario = v('APP_USER')
+                    ```
+            }
+        )
+
+        column Filial (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 180
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column IdFilial (
+            type: plainText
+            heading {
+                heading: ID Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 170
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column IdRepresentante (
+            type: plainText
+            heading {
+                heading: ID Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column MEDIAFAVORITA (
+            type: plainText
+            heading {
+                heading: Média Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column MEDIAGERAL (
+            type: plainText
+            heading {
+                heading: Média Geral Atual
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column MEDIAROMANCE (
+            type: plainText
+            heading {
+                heading: Média Romance
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "Média Faltante" (
+            type: plainText
+            heading {
+                heading: Média Geral Faltante
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column POSICAO (
+            type: plainText
+            heading {
+                heading: Posição
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Prêmio Atingido" (
+            type: plainText
+            heading {
+                heading: Prêmio Atingido
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column VENDAECOMMERCE (
+            type: plainText
+            heading {
+                heading: Venda Ecommerce
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column "Valor Atingido" (
+            type: plainText
+            heading {
+                heading: Valor  Médio Atingido
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from usuariosgruposatendimento ug
+                    where ug.idgrupoatendimento in (0,20)
+                      and ug.usuario = v('APP_USER')
+                    ```
+            }
+        )
+
+        column "Valor Mínimo Prox. Semanas" (
+            type: plainText
+            heading {
+                heading: Valor Mínimo prox. Semanas
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from usuariosgruposatendimento ug
+                    where ug.idgrupoatendimento in (0,20)
+                      and ug.usuario = v('APP_USER')
+                    ```
+            }
+        )
+
+        column "Valor Precisa Atingir" (
+            type: plainText
+            heading {
+                heading: Valor Precisa Atingir
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from usuariosgruposatendimento ug
+                    where ug.idgrupoatendimento in (0,20)
+                      and ug.usuario = v('APP_USER')
+                    ```
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 61830 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Contagem Faltante" (
+                sequence: 8
+            )
+
+            displayColumn "Contagem de Acertos" (
+                sequence: 7
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 5
+            )
+
+            displayColumn "Filial" (
+                sequence: 3
+            )
+
+            displayColumn "IdFilial" (
+                sequence: 2
+            )
+
+            displayColumn "IdRepresentante" (
+                sequence: 4
+            )
+
+            displayColumn MEDIAGERAL (
+                sequence: 9
+            )
+
+            displayColumn "Média Faltante" (
+                sequence: 10
+            )
+
+            displayColumn POSICAO (
+                sequence: 1
+            )
+
+            displayColumn "Prêmio Atingido" (
+                sequence: 6
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P536_IDCAMPANHAFILIAL (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  vidcampanhafilial number;
+                begin
+                  --
+                  select c.idcampanhafilial
+                  into vidcampanhafilial
+                  from campanhasfiliais c
+                  where c.idcampanha = 14
+                     and ( :P0_IDFILIAL = -1 --Todos
+                                         --  Regionais
+                                         or (:P0_IDFILIAL in (1,2,3,4,5) and exists (select 1
+                                                                                       from catal.filiais f
+                                                                                       where f.idfilial = c.idfilial
+                                                                                         and f.regional = :P0_IDFILIAL) )
+                                         -- Brasil
+                                         or (:P0_IDFILIAL = -2 and exists (select 1
+                                                                             from catal.filiais f
+                                                                            where f.idfilial = c.idfilial
+                                                                              and f.ididioma = 1))
+                                         -- America Latina
+                                         or (:P0_IDFILIAL = -3 and exists (select 1
+                                                                             from catal.filiais f
+                                                                            where f.idfilial = c.idfilial
+                                                                              and f.ididioma in (2,3,4,6,7,8,13,14,15,16)) ) 
+                                         -- Comercial Romance
+                                         or (:P0_IDFILIAL = 1135 and exists (select 1
+                                                                               from catal.filiais f
+                                                                              where f.idfilial = c.idfilial
+                                                                                and f.pertencecomercialromance = 'S') )
+                                        or (c.idfilial = :P0_IDFILIAL) ) ;
+                  --
+                  return vidcampanhafilial;
+                  --
+                exception
+                  when others then
+                    null;
+                end;
+                ```
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  vidcampanhafilial number;
+                begin
+                  --
+                  select c.idcampanhafilial
+                  into vidcampanhafilial
+                  from campanhasfiliais c
+                  where c.idcampanha = 9
+                    and ( :P0_IDFILIAL = -1 --Todos
+                                         --  Regionais
+                                         or (:P0_IDFILIAL in (1,2,3,4,5) and exists (select 1
+                                                                                       from catal.filiais f
+                                                                                       where f.idfilial = c.idfilial
+                                                                                         and f.regional = :P0_IDFILIAL) )
+                                         -- Brasil
+                                         or (:P0_IDFILIAL = -2 and exists (select 1
+                                                                             from catal.filiais f
+                                                                            where f.idfilial = c.idfilial
+                                                                              and f.ididioma = 1))
+                                         -- America Latina
+                                         or (:P0_IDFILIAL = -3 and exists (select 1
+                                                                             from catal.filiais f
+                                                                            where f.idfilial = c.idfilial
+                                                                              and f.ididioma in (2,3,4,6,7,8,13,14,15,16)) ) 
+                                         -- Comercial Romance
+                                         or (:P0_IDFILIAL = 1135 and exists (select 1
+                                                                               from catal.filiais f
+                                                                              where f.idfilial = c.idfilial
+                                                                                and f.pertencecomercialromance = 'S') )
+                                        or (c.idfilial = :P0_IDFILIAL) ) ;
+                  --
+                  return vidcampanhafilial;
+                  --
+                exception
+                  when others then
+                    null;
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P536_IDPREMIO (
+        type: selectList
+        label {
+            label: Prêmio
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select t.valor1
+                     , t.valor
+                  from(
+                select p.posicao||' - '||p.premio||' (Média de Venda: R$ '||case 
+                                                                              when f.idgrupo = 1 then
+                                                                                p.valorpremios1
+                                                                              when f.idgrupo = 2 then
+                                                                                p.valorpremios2
+                                                                              when f.idgrupo = 3 then
+                                                                                p.valorpremion1
+                                                                              when f.idgrupo = 4 then
+                                                                                p.valorpremion2                                         
+                                                                            end||')'  valor1 
+                     , case 
+                         when f.idgrupo = 1 then
+                           p.valorpremios1
+                         when f.idgrupo = 2 then
+                           p.valorpremios2
+                         when f.idgrupo = 3 then
+                           p.valorpremion1
+                         when f.idgrupo = 4 then
+                           p.valorpremion2                                         
+                       end valor
+                     , p.posicao
+                from premiacoescampanhas p
+                   , vw_filiais f
+                where f.idfilial = :P0_IDFILIAL
+                  AND P.ATIVO = 'S'
+                  and p.idcampanha = 14
+                  and f.ididioma = 1
+                  
+                union
+                select pp.posicao||' - '||pp.premio||' (Média de Venda: '||pp.valorpremio||')' valor1
+                     , pp.valorpremio valor
+                     , pp.posicao
+                from premiacoescampanhas_ext pp
+                   , vw_filiais f
+                where f.idfilial = :P0_IDFILIAL
+                  AND Pp.ATIVO = 'S'
+                  and pp.idcampanha = 14
+                  and pp.idpais = f.ididioma
+                  and f.ididioma != 1
+                ) t
+                order by t.posicao
+                ```
+            displayExtraValues: false
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P536_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(r.idrepresentante) d
+                     , idrepresentante r
+                from representantes r 
+                where ( :P0_IDFILIAL = -1 --Todos
+                                         --  Regionais
+                                         or (:P0_IDFILIAL in (1,2,3,4,5) and exists ( select 1
+                                                                                      from gerentes g
+                                                                                     where g.idgerente = r.idgerente
+                                                                                       and g.idfilial in (select f.idfilial
+                                                                                                            from catal.filiais f
+                                                                                                           where f.regional = :P0_IDFILIAL) ) )
+                                         -- Brasil
+                                         or (:P0_IDFILIAL = -2 and exists ( select 1
+                                                                              from gerentes g
+                                                                             where g.idgerente = r.idgerente
+                                                                               and g.idfilial in (select f.idfilial
+                                                                                                    from catal.filiais f
+                                                                                                   where f.ididioma = 1) ) )
+                                         -- America Latina
+                                         or (:P0_IDFILIAL = -3 and exists ( select 1
+                                                                              from gerentes g
+                                                                             where g.idgerente = r.idgerente
+                                                                               and g.idfilial in (select f.idfilial
+                                                                                                    from catal.filiais f
+                                                                                                   where f.ididioma in (2,3,4,6,7,8,13,14,15,16)) ) )
+                                         -- Comercial Romance
+                                         or (:P0_IDFILIAL = 1135 and exists ( select 1
+                                                                              from gerentes g
+                                                                             where g.idgerente = r.idgerente
+                                                                               and g.idfilial in (select f.idfilial
+                                                                                                    from catal.filiais f
+                                                                                                   where f.pertencecomercialromance = 'S')))
+                                        or (exists ( select 1
+                                                      from gerentes g
+                                                     where g.idgerente = r.idgerente
+                                                       and g.idfilial = :P0_IDFILIAL )) ) 
+                
+                
+                
+                /*r.idgerente = ( select idgerente
+                                      from gerentes 
+                                      where idfilial = :P0_IDFILIAL )*/
+                  and r.ativo = 'S'
+                order by 1
+                ```
+            nullDisplayValue: "- Mostrar Todos - "
+            nullReturnValue: 99999999999999
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Buscar
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        name: Go To Page 536
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 536
+                items: {
+                    P536_IDREPRESENTANTE: &P536_IDREPRESENTANTE.
+                    P536_IDPREMIO: &P536_IDPREMIO.
+                    P536_IDCAMPANHAFILIAL: &P536_IDCAMPANHAFILIAL.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @buscar
+            type: never
+        }
+    )
+
+)
+

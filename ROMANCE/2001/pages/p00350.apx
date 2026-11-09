@@ -1,0 +1,137 @@
+page 350 (
+    name: Integração de Cadastro em Lote
+    title: Integração de Cadastro em Lote
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region escolha-de-distribuidor (
+        name: Escolha de Distribuidor
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P350_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(idrepresentante) display_value
+                     , r.idrepresentante return_value
+                from representantes r
+                where r.ativo = 'S'
+                  and r.idgerente = ( select idgerente 
+                                      from gerentes g 
+                                      where g.idfilial = :P0_IDFILIAL )
+                order by 1 
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @escolha-de-distribuidor
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button integrar (
+        buttonName: INTEGRAR
+        label: Integrar
+        layout {
+            sequence: 20
+            region: @escolha-de-distribuidor
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process integra-lote-de-pessoas (
+        name: Integra Lote de Pessoas
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  for i in ( select p.idpessoa
+                                  , nvl(p.cpf,p.cnpj) documento
+                             from vendedoras v
+                                , pessoas p
+                             where v.idpessoa = p.idpessoa
+                               and v.idrepresentante = :P350_IDREPRESENTANTE 
+                               and v.ativo = 'S' 
+                               and not exists ( select 1
+                                                from favorita.codigospessoasvirtualage cpv
+                                                where ( cpv.cpfcnpj = p.cpf
+                                                     or cpv.cpfcnpj = p.cnpj ) ) )
+                  loop
+                    --
+                    insert into favorita.INTEGRACAOLOTEPESSOAS
+                    values ( favorita.SEQ_IDINTEGRACAOLOTEPESSOA.nextval , i.idpessoa , i.documento , sysdate );
+                    --
+                  end loop;
+                  --
+                  commit;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Lote enviado com sucesso! Aguarde a integração das pessoas.
+        }
+        advanced {
+            executionMappingIdentifier: 1376236488030714439
+        }
+        serverSideCondition {
+            whenButtonPressed: @integrar
+        }
+    )
+
+)
+

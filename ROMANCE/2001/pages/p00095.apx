@@ -1,0 +1,831 @@
+page 95 (
+    name: Relatório de Débitos
+    title: Relatório de Pepinos
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: Não há ajuda disponível para esta página.
+    }
+
+    region débitos-netbook (
+        name: Débitos Netbook
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select semana
+                     , ano
+                     , sum(debito) debito
+                     , sum(pago) pago
+                from ( 
+                        select substr(n.semanacobranca,1,2) semana
+                             , substr(n.semanacobranca,4,4) ano
+                             , sum(n.valortotalvendalqd - ( select sum(p.valorpago)
+                                                            from pagamentosnotasvendas p
+                                                             where p.idnotavenda = n.idnotavenda )) debito
+                             , sum(( select sum(p.valorpago)
+                                    from pagamentosnotasvendas p
+                                     where p.idnotavenda     = n.idnotavenda
+                                       and p.semanacobranca != n.semanacobranca )) pago
+                        from notasvendas n
+                        where n.idsituacaonotavenda = 4
+                          and n.idfilial = :P0_IDFILIAL
+                        group by n.semanacobranca
+                        union
+                        select substr(n.semanacobranca,1,2) semana
+                             , substr(n.semanacobranca,4,4) ano
+                             , 0
+                             , sum(p.valorpago)
+                        from pagamentosnotasvendas p
+                           , notasvendas n
+                        where p.idnotavenda     = n.idnotavenda 
+                          and n.idfilial        =  :P0_IDFILIAL
+                          and p.semanacobranca != n.semanacobranca 
+                        group by n.semanacobranca )
+                group by semana
+                     , ano
+                order by 2 desc, 1 desc
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        reportLayout {
+            numberOfRows: 52
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: " - "
+        }
+        messages {
+            whenNoDataFound: -
+        }
+        componentAdvanced {
+            stripHtml: true
+        }
+
+        column ANO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Ano
+                alignment: center
+            }
+            layout {
+                sequence: 1
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DEBITO (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Debito
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column PAGO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Pago
+                alignment: center
+            }
+            layout {
+                sequence: 3
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SEMANA (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region débitos-papel (
+        name: Débitos Papel
+        type: staticContent
+        layout {
+            sequence: 60
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+    )
+
+    region relatório-de-pepinos (
+        name: Relatório de Pepinos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select /*FIRST_ROWS(50)*/ r.idpepinosrepresentante
+                     , r.idfechamentorepres 
+                     , ( select initcap(p.nomepessoa)
+                         from pessoas p
+                         where p.idpessoa = ( select rr.idpessoa
+                                              from representantes rr
+                                              where rr.idrepresentante = r.idrepresentante ) ) Representante
+                     , r.nrpedido
+                     , r.valor
+                     , 'Semana:'||( select semana
+                                    from fechamentossemanais ff
+                                    where ff.idfechamento = ( select idfechamentopontuacao
+                                                                from fechamentorepresentantes  f
+                                                                where f.idfechamentorepres = r.idfechamentorepres ) ) semana
+                     , decode( r.situacao , 'N' , 'Novo'
+                                          , 'P' , 'Pago'
+                                          , 'D' , 'Devolução de Mercadoria'
+                                          , 'C' , 'Enviado para Cobrança' ) situacao
+                     , r.nomevendedora "Nome Consultora"
+                     , r.observacao
+                     , r.cpf
+                     , NVL(( select sum(pg.valor) 
+                             from pepinosrepresentantes pg
+                             where pg.nrpedido = r.nrpedido
+                               and pg.idrepresentante = r.idrepresentante
+                               and pg.situacao in ( 'P','D') ),0) valorpago /*pago,devolvido*/
+                     , r.valor - NVL(( select sum(pg.valor) 
+                                       from pepinosrepresentantes pg
+                                       where pg.nrpedido = r.nrpedido
+                                         and pg.idrepresentante = r.idrepresentante
+                                         and pg.situacao in ( 'P','D') ),0) saldo
+                     , ( select pck_romance.fnc_retornatelefones( idvendedora )
+                         from vendedoras v
+                            , pessoas p
+                         where v.idpessoa = p.idpessoa
+                           and p.cpf = r.cpf ) telefones 
+                from pepinosrepresentantes r 
+                where/* r.situacao in ('N','C')
+                  and*/ ( :P95_IDREPRESENTANTE is null or r.idrepresentante = :P95_IDREPRESENTANTE  )
+                  and pck_romance.fnc_filialrepresentante(pidrepresentante => r.idrepresentante) = :P0_IDFILIAL
+                  and ( (pck_romance.fnc_verificaacesso('PERM_ALTERAFECHA', v('APP_USER')) = 'S')
+                       or r.idfilial = pck_romance.fnc_filialusuario( v('APP_USER')))
+                ```
+        }
+        layout {
+            sequence: 10
+            parentRegion: @débitos-papel
+            slot: subRegions
+            startNewRow: false
+            newColumn: false
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 100000
+        }
+        messages {
+            whenNoDataFound: Dados não encontrados.
+            whenMoreDataFound: Esta consulta retorna mais de #MAX_ROW_COUNT# linhas. Filtre seus dados para garantir resultados completos.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            pivot: false
+            savePublicReport: true
+            subscription: false
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 1
+        }
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: CPF
+                endUserAlias: O
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDFECHAMENTOREPRES (
+            type: plainText
+            heading {
+                heading: Idfechamentorepres
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDFECHAMENTOREPRES
+                endUserAlias: B
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDPEPINOSREPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Idpepinosrepresentante
+                alignment: center
+            }
+            layout {
+                sequence: 1
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDPEPINOSREPRESENTANTE
+                endUserAlias: A
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column NRPEDIDO (
+            type: plainText
+            heading {
+                heading: Nr Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: NRPEDIDO
+                endUserAlias: D
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Nome Consultora" (
+            type: plainText
+            heading {
+                heading: Nome Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 14
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Nome_Consultora
+                endUserAlias: N
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: OBSERVACAO
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: REPRESENTANTE
+                endUserAlias: C
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 13
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: SALDO
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SEMANA (
+            type: plainText
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            appearance {
+                formatMask: 00"/"0000
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: SEMANA
+                endUserAlias: F
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SITUACAO (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: SITUACAO
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column TELEFONES (
+            type: plainText
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 16
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: TELEFONES
+                endUserAlias: P
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column VALOR (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VALOR
+                endUserAlias: E
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column VALORPAGO (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 12
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VALORPAGO
+                endUserAlias: L
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        savedReport 1536920 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CPF (
+                sequence: 10
+            )
+
+            displayColumn NRPEDIDO (
+                sequence: 2
+            )
+
+            displayColumn "Nome Consultora" (
+                sequence: 3
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 6
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 1
+            )
+
+            displayColumn SALDO (
+                sequence: 9
+            )
+
+            displayColumn SEMANA (
+                sequence: 4
+            )
+
+            displayColumn SITUACAO (
+                sequence: 5
+            )
+
+            displayColumn TELEFONES (
+                sequence: 11
+            )
+
+            displayColumn VALOR (
+                sequence: 7
+            )
+
+            displayColumn VALORPAGO (
+                sequence: 8
+            )
+
+            aggregate (
+                column: VALOR
+            )
+
+            aggregate (
+                column: VALORPAGO
+            )
+
+            aggregate (
+                column: SALDO
+            )
+
+            aggregate (
+                function: count
+                column: NRPEDIDO
+            )
+
+            controlBreak (
+                column: REPRESENTANTE
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region tipo (
+        name: Tipo
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+    )
+
+    pageItem P95_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            pageActionOnSelection: redirectSetValue
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap( p.nomepessoa ) display_value
+                     , rr.idrepresentante return_value
+                from pessoas p
+                   , representantes rr
+                where rr.idpessoa        = p.idpessoa
+                  and p.ativo = 'S'
+                  and rr.idgerente = ( select idgerente
+                                       from gerentes g
+                                       where idfilial = :P0_IDFILIAL)
+                order by 1
+                ```
+            nullDisplayValue: - Selecionar Todos -
+        }
+        layout {
+            sequence: 10
+            region: @débitos-papel
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P95_TIPO (
+        type: radioGroup
+        label {
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Papel;P,Netbook resumido por semana;N
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @tipo
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: P
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button enviar-pepinos-para-cobrança (
+        buttonName: ENVIAR_PEPINOS_PARA_COBRANÇA
+        label: Enviar Pepinos Para Cobrança
+        layout {
+            sequence: 10
+            region: @relatório-de-pepinos
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--iconRight
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 96
+                items: {
+                    P96_IDREPRESENTANTE: &P95_IDREPRESENTANTE.
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction tipo (
+        name: tipo
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P95_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P95_TIPO
+            value: N
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: region
+                region: @débitos-netbook
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: region
+                region: @débitos-papel
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: region
+                region: @débitos-netbook
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: region
+                region: @débitos-papel
+            }
+            execution {
+                sequence: 30
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+)
+

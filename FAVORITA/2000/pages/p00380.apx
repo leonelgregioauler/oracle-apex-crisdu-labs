@@ -1,0 +1,1328 @@
+page 380 (
+    name: Relatório Pedidos Loja
+    title: Relatório Pedidos Loja
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region opções (
+        name: Opções
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region relatório-pedidos-loja-detalhado (
+        name: Relatório Pedidos Loja - Detalhado
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.idpedido
+                     , pck_util_fav.fnc_nomevendedora(p.idvendedora) nomeconsultora
+                     , pck_util_fav.fnc_nomerepresentante(p.idrepresentante) nomerepresentante  
+                     , sum(p.valortotal) valortotal
+                     , sum(p.valorapagar) valorapagar
+                     , sum(p.valorpago) valorpago
+                     , pck_util_fav.fnc_nomefilialfavorita(p.idfilialfavorita) as "Filial"
+                     , case 
+                        when exists ( select 1
+                                         from favorita.classificacoespedidos cl
+                                        where cl.idpedido = p.idpedido
+                                          and cl.idcaracteristicapedido = 13
+                                          and cl.Idvalorcaracteristica = 4) then  nvl(( select t.valortaxa
+                                                                                          from favorita.taxasdelivery t
+                                                                                         where t.idfilialfavorita = p.idfilialfavorita
+                                                                                           and p.dataemissao between t.datainicio and t.datafim
+                                                                                           and p.valorapagar >= t.valorpedidominimo),0) 
+                                                        
+                        else 0
+                       end taxa_delivery
+                from vw_pedidos_fav p
+                where p.ididioma = 1
+                and (:P380_DISTRIBUIDOR    is null or p.idrepresentante = :P380_DISTRIBUIDOR)
+                and (:P380_IDFILIALROMANCE is null or p.idfilialromance = :P380_IDFILIALROMANCE)
+                and p.idfilialfavorita in ( select idfilialfavorita 
+                                            from filiaisfavorita ff
+                                            where ff.idfilialfavorita = p.idfilialfavorita
+                                            and ff.tipofilial = 'L')
+                and exists (select 1 /*Verifica o acesso a filial*/
+                           from usuariosfiliaisfavorita usf
+                           where usf.idfilialfavorita = p.idfilialfavorita 
+                           and usf.idusuario = :P0_IDUSUARIO)
+                and ( :P380_TIPOVALOR = 2
+                     or ( :P380_TIPOVALOR = 1 and p.valorapagar > 0 )
+                     or ( :P380_TIPOVALOR = 0 and p.valorapagar = 0 ) )
+                and p.datacancelamento is null
+                /*Filtra o tipo de entrega*/
+                and (:P380_TIPO_ENTREGA is null or :P380_TIPO_ENTREGA = (select clp.idvalorcaracteristica
+                                                                        from classificacoespedidos clp
+                                                                        where clp.idpedido = p.idpedido
+                                                                        and clp.idcaracteristicapedido = 13))
+                /**********************************/
+                and (:P380_FILTRARDATA = 'N' or (:P380_FILTRARDATA = 'S' and trunc(p.dataemissao) between to_date(:P380_DATAINICIAL, 'DD/MM/RRRR') and to_date(:P380_DATAFINAL, 'DD/MM/RRRR')) )               
+                and (:P380_PEDIDOFEITOPOR = 'T' 
+                 or (:P380_PEDIDOFEITOPOR = 'C' and not exists ( select 1
+                                                                 from classificacoespedidos cp
+                                                                 where cp.idpedido = p.idpedido
+                                                                 and cp.idcaracteristicapedido = 2 ))  -- Não listar pedidos que distribuidor fez para consultora
+                 or (:P380_PEDIDOFEITOPOR = 'D' and     exists ( select 1
+                                                                 from classificacoespedidos cp
+                                                                 where cp.idpedido = p.idpedido
+                                                                 and cp.idcaracteristicapedido = 2 ))) -- Listar pedidos que distribuidor fez para consultora     
+                and ( :P380_PEDIDOCREDEV is null or ( :P380_PEDIDOCREDEV = 'N' and not exists ( select 1
+                                                                                                  from classificacoespedidos c
+                                                                                                  where c.idpedido = p.idpedido
+                                                                                                    and c.idcaracteristicapedido = 8
+                                                                                                    and c.idvalorcaracteristica = 25 ) )
+                                                 or ( :P380_PEDIDOCREDEV = 'S' and exists ( select 1
+                                                                                              from classificacoespedidos c
+                                                                                              where c.idpedido = p.idpedido
+                                                                                                and c.idcaracteristicapedido = 8
+                                                                                                and c.idvalorcaracteristica = 25 ) )
+                                                 or ( :P380_PEDIDOCREDEV = 'C' ))
+                and (:P380_PRIMEIRAEXPRESS = 'N' or (:P380_PRIMEIRAEXPRESS = 'S' 
+                                                  and p.idpedido = (select ped.idpedido
+                                                           from favorita.classificacoespedidos clp
+                                                               ,favorita.pedidos               ped
+                                                           where clp.idpedido = ped.idpedido
+                                                             and clp.idcaracteristicapedido = 11
+                                                             and clp.idvalorcaracteristica  = 1
+                                                             and exists (select 1 from favorita.classificacoespedidos clp2
+                                                                         where clp2.idcaracteristicapedido in (84,85))
+                                                             and ped.idvendedora = p.idvendedora
+                                                             and ped.idpedido    = p.idpedido)))
+                group by p.idpedido
+                       , p.idvendedora
+                       , p.idrepresentante
+                       , p.idfilialfavorita
+                       , p.idpedido
+                       , p.dataemissao
+                       , p.valorapagar;
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P380_TIPORELATORIO = 'D'
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 100000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 52180330701020816
+        }
+
+        column Filial (
+            type: plainText
+            heading {
+                heading: Filial
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column IDPEDIDO (
+            type: plainText
+            heading {
+                heading: Número Pedido
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column NOMECONSULTORA (
+            type: plainText
+            heading {
+                heading: Consultora
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column NOMEREPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Representante
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column TAXA_DELIVERY (
+            type: plainText
+            heading {
+                heading: Taxa Delivery
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Vlr Pagar
+                alignment: end
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column VALORPAGO (
+            type: plainText
+            heading {
+                heading: Vlr Pago
+                alignment: end
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Vlr Total
+                alignment: end
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 574504 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100
+            }
+
+            displayColumn "Filial" (
+                sequence: 2
+            )
+
+            displayColumn IDPEDIDO (
+                sequence: 1
+            )
+
+            displayColumn NOMECONSULTORA (
+                sequence: 3
+            )
+
+            displayColumn NOMEREPRESENTANTE (
+                sequence: 4
+            )
+
+            displayColumn TAXA_DELIVERY (
+                sequence: 8
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 6
+            )
+
+            displayColumn VALORPAGO (
+                sequence: 7
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 5
+            )
+
+            aggregate (
+                column: VALORTOTAL
+            )
+
+            aggregate (
+                column: VALORAPAGAR
+            )
+
+            aggregate (
+                column: VALORPAGO
+            )
+
+            aggregate (
+                column: TAXA_DELIVERY
+            )
+
+        )
+
+    )
+
+    region relatório-pedidos-loja-resumido (
+        name: Relatório Pedidos Loja - Resumido
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select count(idpedido) quantidadepedidos
+                     , pck_util_fav.fnc_nomevendedora(p.idvendedora) nomeconsultora
+                     , pck_util_fav.fnc_nomerepresentante(p.idrepresentante) nomerepresentante  
+                     , sum(p.valortotal) valortotal
+                     , sum(p.valorapagar) valorapagar
+                     , sum(p.valorpago) valorpago
+                     , pck_util_fav.fnc_nomefilialfavorita(p.idfilialfavorita) as "Filial"
+                     , case 
+                        when exists ( select 1
+                                         from favorita.classificacoespedidos cl
+                                        where cl.idpedido = p.idpedido
+                                          and cl.idcaracteristicapedido = 13
+                                          and cl.Idvalorcaracteristica = 4) then count(idpedido) * nvl(( select t.valortaxa
+                                                                                                        from favorita.taxasdelivery t
+                                                                                                       where t.idfilialfavorita = p.idfilialfavorita
+                                                                                                         and p.dataemissao between t.datainicio and t.datafim
+                                                                                                         and p.valorapagar >= t.valorpedidominimo),0) 
+                                                        
+                      else 0
+                        end taxa_delivery 
+                from vw_pedidos_fav p
+                where p.ididioma = 1
+                  and (:P380_DISTRIBUIDOR    is null or p.idrepresentante = :P380_DISTRIBUIDOR)
+                  and (:P380_IDFILIALROMANCE is null or p.idfilialromance = :P380_IDFILIALROMANCE)
+                  and p.idfilialfavorita in ( select idfilialfavorita 
+                                              from filiaisfavorita ff
+                                              where ff.idfilialfavorita = p.idfilialfavorita
+                                                and ff.tipofilial = 'L')
+                  and exists ( select 1 /*Verifica o acesso a filial*/
+                               from usuariosfiliaisfavorita usf
+                               where usf.idfilialfavorita = p.idfilialfavorita 
+                                 and usf.idusuario = :P0_IDUSUARIO)
+                  and p.datacancelamento is null
+                  and ( :P380_TIPOVALOR = 2
+                     or ( :P380_TIPOVALOR = 1 and p.valorapagar > 0 )
+                     or ( :P380_TIPOVALOR = 0 and p.valorapagar = 0 ) )
+                  /*Filtra o tipo de entrega*/
+                  and (:P380_TIPO_ENTREGA is null or :P380_TIPO_ENTREGA = ( select clp.idvalorcaracteristica
+                                                                            from classificacoespedidos clp
+                                                                            where clp.idpedido = p.idpedido
+                                                                              and clp.idcaracteristicapedido = 13 ) )
+                  /**********************************/
+                  and ( :P380_FILTRARDATA = 'N' 
+                    or ( :P380_FILTRARDATA = 'S' and trunc(p.dataemissao) between to_date(:P380_DATAINICIAL, 'DD/MM/RRRR') and to_date(:P380_DATAFINAL, 'DD/MM/RRRR') ) )               
+                  and (:P380_PEDIDOFEITOPOR = 'T' 
+                    or (:P380_PEDIDOFEITOPOR = 'C' and not exists ( select 1
+                                                                    from classificacoespedidos cp
+                                                                    where cp.idpedido = p.idpedido
+                                                                      and cp.idcaracteristicapedido = 2 ) )  -- Não listar pedidos que distribuidor fez para consultora
+                    or (:P380_PEDIDOFEITOPOR = 'D' and exists ( select 1
+                                                                from classificacoespedidos cp
+                                                                where cp.idpedido = p.idpedido
+                                                                  and cp.idcaracteristicapedido = 2 ) ) ) -- Listar pedidos que distribuidor fez para consultora 
+                  and ( :P380_PEDIDOCREDEV is null or ( :P380_PEDIDOCREDEV = 'N' and not exists ( select 1
+                                                                                                  from classificacoespedidos c
+                                                                                                  where c.idpedido = p.idpedido
+                                                                                                    and c.idcaracteristicapedido = 8
+                                                                                                    and c.idvalorcaracteristica = 25 ) )
+                                                   or ( :P380_PEDIDOCREDEV = 'S' and exists ( select 1
+                                                                                              from classificacoespedidos c
+                                                                                              where c.idpedido = p.idpedido
+                                                                                                and c.idcaracteristicapedido = 8
+                                                                                                and c.idvalorcaracteristica = 25 ) )
+                                                   or ( :P380_PEDIDOCREDEV = 'C' ))
+                group by p.idvendedora
+                       , p.idrepresentante
+                       , p.idfilialfavorita
+                       , p.idpedido
+                       , p.dataemissao
+                       , p.valorapagar;
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P380_TIPORELATORIO = 'R'
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 100000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 52181038778020823
+        }
+
+        column Filial (
+            type: plainText
+            heading {
+                heading: Filial
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column NOMECONSULTORA (
+            type: plainText
+            heading {
+                heading: Consultora
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column NOMEREPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Representante
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column QUANTIDADEPEDIDOS (
+            type: plainText
+            heading {
+                heading: Qtd Pedidos
+                alignment: end
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column TAXA_DELIVERY (
+            type: plainText
+            heading {
+                heading: Taxa Delivery
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Vlr Pagar
+                alignment: end
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column VALORPAGO (
+            type: plainText
+            heading {
+                heading: Vlr Pago
+                alignment: end
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Vlr Total
+                alignment: end
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 574604 (
+            visibility: primaryDefault
+            view {
+                groupBy: true
+                default: groupBy
+                rowsPerPage: 100000
+            }
+
+            displayColumn "Filial" (
+                sequence: 1
+            )
+
+            displayColumn NOMECONSULTORA (
+                sequence: 2
+            )
+
+            displayColumn NOMEREPRESENTANTE (
+                sequence: 3
+            )
+
+            displayColumn QUANTIDADEPEDIDOS (
+                sequence: 4
+            )
+
+            displayColumn TAXA_DELIVERY (
+                sequence: 8
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 7
+            )
+
+            displayColumn VALORPAGO (
+                sequence: 6
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 5
+            )
+
+            aggregate (
+                column: QUANTIDADEPEDIDOS
+            )
+
+            aggregate (
+                column: VALORAPAGAR
+            )
+
+            aggregate (
+                column: VALORTOTAL
+            )
+
+            aggregate (
+                column: VALORPAGO
+            )
+
+            aggregate (
+                function: countDistinct
+                column: NOMECONSULTORA
+            )
+
+            aggregate (
+                function: countDistinct
+                column: NOMEREPRESENTANTE
+            )
+
+            aggregate (
+                function: countDistinct
+                column: "Filial"
+            )
+
+            groupByColumn (
+                column: "Filial"
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: Qtd Pedidos
+                aggregate {
+                    column: QUANTIDADEPEDIDOS
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: Valor Total
+                aggregate {
+                    column: VALORTOTAL
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByAggregate (
+                heading: Valor Pago
+                aggregate {
+                    column: VALORPAGO
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 3
+                }
+            )
+
+            groupByAggregate (
+                heading: Valor a Pagar
+                aggregate {
+                    column: VALORAPAGAR
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 4
+                }
+            )
+
+            groupBySort (
+                column: "Filial"
+                sort {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P380_DATAFINAL (
+        type: datePickerJquery
+        label {
+            label: Data Final
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P380_DATAINICIAL (
+        type: datePickerJquery
+        label {
+            label: Data Inicial
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P380_DISTRIBUIDOR (
+        type: popupLov
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomerepresentante(r.idrepresentante) display_value
+                     , r.idrepresentante return_value
+                from representantes r
+                where r.ativo = 'S'
+                  and r.idgerente = ( select idgerente
+                                      from gerentes 
+                                      where idfilial = nvl(:P380_IDFILIALROMANCE, roman.pck_romance.fnc_filialusuario(v('APP_USER')) ) )
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P380_IDFILIALROMANCE
+        }
+        layout {
+            sequence: 60
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P380_FILTRARDATA (
+        type: radioGroup
+        label {
+            label: Filtrar Data
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 70
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: static
+            staticValue: S
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P380_IDFILIALROMANCE (
+        type: popupLov
+        label {
+            label: Filial Romance
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomefilialromance(f.idfilial) display_value
+                     , f.idfilial
+                from roman.vw_filiais f
+                where f.idfilial in ( select afr.idfilialdestino
+                                      from atendimentosfiliaisrmc afr
+                                      where afr.idfilialfavoritaorigem = pck_util_fav.fnc_retornaidfilialfavusuario(pck_util_fav.fnc_idusuario(v('APP_USER'))) )
+                                      
+                                      
+                union 
+                /*
+                    Maicon Aimi - 23/05/2024 - 9076126
+                    criado a opção para exibir todas as filiais
+                    
+                    Questionei no grupo do desenvolvimento, não tive resposta, então criei temporariamente esse union, se tiver errado arrumamos depois 
+                */
+                
+                select favorita.pck_util_fav.fnc_nomefilialromance(f.idfilial) display_value
+                     , f.idfilial
+                from roman.vw_filiais f
+                where v('APP_USER') in ('HAYANES','MAICONAIMI','EDUARDAZOTTI')
+                order by 1
+                
+                ```
+        }
+        layout {
+            sequence: 50
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P380_PEDIDOCREDEV (
+        type: radioGroup
+        label {
+            label: Pedido Credev
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sem Credev;N,Somente Credev;S,Credev Com Valor;C
+            displayExtraValues: false
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 110
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P380_PEDIDOFEITOPOR (
+        type: radioGroup
+        label {
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Pedido feito pela consultora;C,Pedido feito pelo distribuidor;D
+            displayExtraValues: false
+            nullDisplayValue: Todos
+            nullReturnValue: T
+        }
+        layout {
+            sequence: 40
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P380_PRIMEIRAEXPRESS (
+        type: radioGroup
+        label {
+            label: Primeira Compra Express
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 120
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P380_TIPORELATORIO (
+        type: radioGroup
+        label {
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Resumido;R,Detalhado;D
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: R
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P380_TIPOVALOR (
+        type: radioGroup
+        label {
+            label: Valor a Pagar
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Valor Zerado;0,Valor Maior que Zero;1,Todos;2
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 100
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: 2
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P380_TIPO_ENTREGA (
+        type: radioGroup
+        label {
+            label: Tipo Entrega
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.descricao d,
+                       f.idformaentrega r
+                from formasentregas f
+                order by f.idformaentrega
+                ```
+            displayExtraValues: false
+            nullDisplayValue: Todos
+        }
+        layout {
+            sequence: 90
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtro (
+        buttonName: FILTRO
+        label: Filtro
+        layout {
+            sequence: 130
+            region: @opções
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+            icon: fa-filter
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction filtro-por-data (
+        name: Filtro por Data
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P380_FILTRARDATA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P380_FILTRARDATA
+            value: S
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P380_DATAINICIAL
+                    P380_DATAFINAL
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P380_DATAINICIAL
+                    P380_DATAFINAL
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    validation data-final-obrigatória (
+        name: Data Final obrigatória
+        execution {
+            sequence: 20
+        }
+        validation {
+            type: itemIsNotNull
+            item: P380_DATAFINAL
+        }
+        error {
+            errorMessage: Data Final deve ser informada.
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P380_FILTRARDATA = 'S';
+        }
+    )
+
+    validation data-inicial-obrigatório (
+        name: Data Inicial Obrigatório
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: itemIsNotNull
+            item: P380_DATAINICIAL
+        }
+        error {
+            errorMessage: Data Inicial deve ser informada.
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P380_FILTRARDATA = 'S';
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 380
+                items: {
+                    P380_TIPORELATORIO: &P380_TIPORELATORIO.
+                    P380_PEDIDOFEITOPOR: &P380_PEDIDOFEITOPOR.
+                    P380_IDFILIALROMANCE: &P380_IDFILIALROMANCE.
+                    P380_DISTRIBUIDOR: &P380_DISTRIBUIDOR.
+                    P380_FILTRARDATA: &P380_FILTRARDATA.
+                    P380_TIPO_ENTREGA: &P380_TIPO_ENTREGA.
+                    P380_TIPOVALOR: &P380_TIPOVALOR.
+                    P380_DATAINICIAL: &P380_DATAINICIAL.
+                    P380_DATAFINAL: &P380_DATAFINAL.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtro
+        }
+    )
+
+)
+

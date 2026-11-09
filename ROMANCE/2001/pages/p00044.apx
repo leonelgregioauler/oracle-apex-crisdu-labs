@@ -1,0 +1,1678 @@
+page 44 (
+    name: Relatório de Negociações
+    title: Negociações Realizadas
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region negociações-notas-novas (
+        name: Negociações Notas Novas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select n.numeronota "Nota"
+                     , pck_romance.fnc_nomerepresentante(n.idrepresentante) "Distribuidor"
+                     , pck_romance.fnc_nomevendedora(n.idvendedora) "Vendedora"
+                     , pck_romance.fnc_nomefilial(n.idfilial) "Filial"
+                     , (select c.beneficiario||' - '||c.agencia
+                        from contasbancarias c
+                        where c.idcontabanc = p.idcontabancariafilial) "Conta"
+                     , p.comprovante "Comprovante"
+                     , p.valorapagar "Valor a Pagar"
+                     , p.valororiginal "Valor Original"
+                     , ( select decode(nvl(v.spc,'N'),'S','Sim','N','Não')
+                         from vendedoras v
+                         where v.idvendedora = n.idvendedora ) "Enviada SPC"
+                     , p.datavencimento "Vencimento"
+                     , p.databaixa "Data Baixa"
+                     , null "Ir P/ Nota"
+                     , n.idfilial
+                     , n.idnotavenda
+                     , decode(p.situacao,'A','Aberta','E','Em Espera','V','Vencida','Q','Quitada') "Situação Parcela"
+                     , (select l.dataalteracao
+                        from logroman.log_parcelamentosnotasvend l
+                        where l.idparcnotavenda = p.idparcnotavenda
+                          and l.tipoalteracao = 'INSERT') "Data Inclusão"
+                     , n.responsavelcobranca "Responsável Cobrança"
+                     , ( select nvl(cpf,documentoestrangeiro)
+                         from pessoas p
+                         where p.idpessoa = (select idpessoa
+                                             from vendedoras v
+                                             where v.idvendedora = n.idvendedora)) "Cpf"
+                     , decode(p.bonificacaopaga,'S','Sim','Não') "Bonificação Paga"
+                     , pck_romance.fnc_retornatelefones(n.idvendedora) "Telefones"
+                from notasvendas n
+                   , parcelamentosnotasvendas p
+                where p.idnotavenda = n.idnotavenda
+                  and p.idnegociacaoparceiro is null
+                  and n.responsavelcobranca is not null
+                  and exists ( select 1
+                               from vw_filiais f
+                               where f.idfilial = n.idfilial
+                                 and f.idgrupo != 5 )
+                  and ( :P44_IDFILIAL is null or n.idfilial = :P44_IDFILIAL )
+                  and ( :P44_DISTRIBUIDOR is null or n.idrepresentante = :P44_DISTRIBUIDOR )
+                  and ( :P44_IDVENDEDORA is null or n.idvendedora = :P44_IDVENDEDORA )
+                  and ( :P44_SITUACAO is null or p.situacao = :P44_SITUACAO )
+                  and ( :P44_BONIFICACAO is null or nvl(p.bonificacaopaga,'N') = :P44_BONIFICACAO )
+                  and ( :P44_RESPONSAVELCOBRANCA is null or n.responsavelcobranca = :P44_RESPONSAVELCOBRANCA )
+                  and ( :P44_CPF is null or exists ( select 1
+                                                     from pessoas pes 
+                                                        , vendedoras vend
+                                                     where pes.idpessoa = vend.idpessoa
+                                                       and vend.idvendedora = n.idvendedora
+                                                       and ( pes.cpf = :P44_CPF 
+                                                          or pes.documentoestrangeiro = :P44_CPF ) ) )
+                  and ( :P44_NRDOCUMENTO is null or p.comprovante like '%'||:P44_NRDOCUMENTO||'%' )
+                  and ( :P44_DATAINI is null  or ( :P44_TIPODATA = 'B' and trunc(p.databaixa )   between :P44_DATAINI and :P44_DATAFIM )
+                                              or ( :P44_TIPODATA = 'V' and trunc(p.datavencimento) between :P44_DATAINI and :P44_DATAFIM ) )
+                  and ( :P44_DATAINI is not null 
+                      or :P44_TIPODATA is not null )
+                                              
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P44_TIPOPARCELAMENTO
+            value: N
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado obtido. Verifique os Filtros!
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            subscription: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 203767615082759268
+        }
+
+        column "Bonificação Paga" (
+            type: plainText
+            heading {
+                heading: Bonificação paga
+                alignment: center
+            }
+            layout {
+                sequence: 109
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column Comprovante (
+            type: plainText
+            heading {
+                heading: Comprovante
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column Conta (
+            type: plainText
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column Cpf (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 99
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "Data Baixa" (
+            type: plainText
+            heading {
+                heading: Data baixa
+                alignment: center
+            }
+            layout {
+                sequence: 29
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column "Data Inclusão" (
+            type: plainText
+            heading {
+                heading: Data inclusão
+                alignment: center
+            }
+            layout {
+                sequence: 39
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Enviada SPC" (
+            type: plainText
+            heading {
+                heading: Enviada Spc
+                alignment: center
+            }
+            layout {
+                sequence: 9
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column Filial (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column IDFILIAL (
+            type: hidden
+            heading {
+                heading: Idfilial
+            }
+            layout {
+                sequence: 59
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDNOTAVENDA (
+            type: hidden
+            heading {
+                heading: Idnotavenda
+            }
+            layout {
+                sequence: 69
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Ir P/ Nota" (
+            type: link
+            heading {
+                heading: Ir P/ Nota
+                alignment: center
+            }
+            layout {
+                sequence: 49
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 37
+                    items: {
+                        P37_IDNOTAVENDA: #IDNOTAVENDA#
+                        P0_IDFILIAL: #IDFILIAL#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil.png" class="apex-edit-pencil" alt="">
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column Nota (
+            type: plainText
+            heading {
+                heading: Nota
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Responsável Cobrança" (
+            type: plainText
+            heading {
+                heading: Responsável cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 89
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column "Situação Parcela" (
+            type: plainText
+            heading {
+                heading: Situação parcela
+                alignment: center
+            }
+            layout {
+                sequence: 79
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column Telefones (
+            type: plainText
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 119
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column "Valor Original" (
+            type: plainText
+            heading {
+                heading: Valor Original
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Valor a Pagar" (
+            type: plainText
+            heading {
+                heading: Valor A Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column Vencimento (
+            type: plainText
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 19
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column Vendedora (
+            type: plainText
+            heading {
+                heading: Vendedora
+                alignment: center
+            }
+            layout {
+                sequence: 3
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 2038004 (
+            visibility: primaryDefault
+            view {
+                groupBy: true
+                default: groupBy
+                rowsPerPage: 50
+            }
+
+            displayColumn "Bonificação Paga" (
+                sequence: 19
+            )
+
+            displayColumn "Comprovante" (
+                sequence: 6
+            )
+
+            displayColumn "Conta" (
+                sequence: 5
+            )
+
+            displayColumn "Cpf" (
+                sequence: 18
+            )
+
+            displayColumn "Data Baixa" (
+                sequence: 11
+            )
+
+            displayColumn "Data Inclusão" (
+                sequence: 16
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 2
+            )
+
+            displayColumn "Enviada SPC" (
+                sequence: 9
+            )
+
+            displayColumn "Filial" (
+                sequence: 4
+            )
+
+            displayColumn IDFILIAL (
+                sequence: 13
+            )
+
+            displayColumn IDNOTAVENDA (
+                sequence: 14
+            )
+
+            displayColumn "Ir P/ Nota" (
+                sequence: 12
+            )
+
+            displayColumn "Nota" (
+                sequence: 1
+            )
+
+            displayColumn "Responsável Cobrança" (
+                sequence: 17
+            )
+
+            displayColumn "Situação Parcela" (
+                sequence: 15
+            )
+
+            displayColumn "Telefones" (
+                sequence: 20
+            )
+
+            displayColumn "Valor Original" (
+                sequence: 8
+            )
+
+            displayColumn "Valor a Pagar" (
+                sequence: 7
+            )
+
+            displayColumn "Vencimento" (
+                sequence: 10
+            )
+
+            displayColumn "Vendedora" (
+                sequence: 3
+            )
+
+            groupByColumn (
+                column: "Filial"
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: A Pagar
+                aggregate {
+                    column: "Valor a Pagar"
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: FML999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupBySort (
+                column: "Filial"
+                sort {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region negociações-pepinos-antigos (
+        name: Negociações Pepinos Antigos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.nrpedido "Número"
+                  , pck_romance.fnc_nomerepresentante(p.idrepresentante) "Distribuidor"
+                  , ( select initcap(nomepessoa)
+                      from pessoas 
+                      where cpf = p.cpf ) "Cliente"
+                  , pck_romance.fnc_nomefilial(p.idfilial) "Filial"
+                  , ( select c.beneficiario||' - '||c.agencia
+                      from contasbancarias c
+                      where c.idcontabanc = pp.idcontabancariafilial ) "Conta"
+                  , pp.comprovante "Comprovante"
+                  , pp.valorapagar "Valor a Pagar"
+                  , pp.valororiginal "Valor Original"
+                  , pp.datavencimento "Vencimento"
+                  , pp.databaixa "Data Baixa"
+                  , null "Ir P/ Débito"
+                  , decode(p.situacao,'S','SPC','C','Cobrança','N','Novo','P','Pago') "Situação Pepino"
+                  , decode(pp.situacao,'A','Aberta','E','Em Espera','V','Vencida','Q','Quitada') "Situação Parcela"
+                  , ( select lp.dataalteracao
+                      from logroman.log_parcelamentospepinosre lp
+                      where lp.idparcpepinosrepres = pp.idparcpepinosrepres
+                        and lp.tipoalteracao = 'INSERT' ) "Data Inclusão"
+                  , p.responsavelcobranca "Resp. Cobrança"
+                  , p.idpepinosrepresentante
+                  , p.cpf "Cpf"
+                  , decode(pp.bonificacaopaga,'S','Sim','Não') "Bonificação Paga"
+                from pepinosrepresentantes p
+                   , PARCELAMENTOSPEPINOSREPRES pp
+                where p.idpepinosrepresentante = pp.idpepinorepresentante
+                  and ( :P44_IDFILIAL is null or p.idfilial = :P44_IDFILIAL )
+                  and ( :P44_DISTRIBUIDOR is null or p.idrepresentante = :P44_DISTRIBUIDOR )
+                 -- and ( :P44_IDVENDEDORA is null or n.idvendedora = :P44_IDVENDEDORA )
+                  and ( :P44_SITUACAO is null or pp.situacao = :P44_SITUACAO )
+                  and ( :P44_BONIFIcaCAO is null or nvl(pp.bonificacaopaga,'N') = :P44_BONIFICACAO)
+                  and ( :P44_CPF is null or p.cpf = replace(replace(:P44_CPF,'-',''),'.','') )
+                  and ( :P44_NRDOCUMENTO is null or pp.comprovante like '%'||:P44_NRDOCUMENTO||'%')
+                  and ( :P44_RESPONSAVELCOBRANCA is null or p.responsavelcobranca = :P44_RESPONSAVELCOBRANCA )
+                  and ( :P44_DATAINI is null  or ( :P44_TIPODATA = 'B' and trunc(pp.databaixa )   between :P44_DATAINI and :P44_DATAFIM )
+                                              or ( :P44_TIPODATA = 'V' and trunc(pp.datavencimento) between :P44_DATAINI and :P44_DATAFIM ) )
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P44_TIPOPARCELAMENTO
+            value: P
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado obtido. Verifique os Filtros!
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            subscription: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 216117479927876163
+        }
+
+        column "Bonificação Paga" (
+            type: plainText
+            heading {
+                heading: Bonificação paga
+                alignment: center
+            }
+            layout {
+                sequence: 45
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column Cliente (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column Comprovante (
+            type: plainText
+            heading {
+                heading: Comprovante
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column Conta (
+            type: plainText
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column Cpf (
+            type: plainText
+            heading {
+                heading: Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 35
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column "Data Baixa" (
+            type: plainText
+            heading {
+                heading: Data Baixa
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "Data Inclusão" (
+            type: plainText
+            heading {
+                heading: Data Inclusão
+                alignment: center
+            }
+            layout {
+                sequence: 14
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column Filial (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column IDPEPINOSREPRESENTANTE (
+            type: hidden
+            heading {
+                heading: Idpepinosrepresentante
+            }
+            layout {
+                sequence: 25
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Ir P/ Débito" (
+            type: link
+            heading {
+                heading: Ir P/ Débito
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            link {
+                target: {
+                    page: 149
+                    items: {
+                        P149_IDPEPINOSREPRESENTANTE: #IDPEPINOSREPRESENTANTE#
+                    }
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil.png" class="apex-edit-pencil" alt="">
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column Número (
+            type: plainText
+            heading {
+                heading: Número
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Resp. Cobrança" (
+            type: plainText
+            heading {
+                heading: Resp. Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column "Situação Parcela" (
+            type: plainText
+            heading {
+                heading: Situação Parcela
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "Situação Pepino" (
+            type: plainText
+            heading {
+                heading: Situação Pepino
+                alignment: center
+            }
+            layout {
+                sequence: 12
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column "Valor Original" (
+            type: plainText
+            heading {
+                heading: Valor Original
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Valor a Pagar" (
+            type: plainText
+            heading {
+                heading: Valor A Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column Vencimento (
+            type: plainText
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 2161583 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Bonificação Paga" (
+                sequence: 18
+            )
+
+            displayColumn "Cliente" (
+                sequence: 3
+            )
+
+            displayColumn "Comprovante" (
+                sequence: 6
+            )
+
+            displayColumn "Conta" (
+                sequence: 5
+            )
+
+            displayColumn "Cpf" (
+                sequence: 17
+            )
+
+            displayColumn "Data Baixa" (
+                sequence: 10
+            )
+
+            displayColumn "Data Inclusão" (
+                sequence: 14
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 2
+            )
+
+            displayColumn "Filial" (
+                sequence: 4
+            )
+
+            displayColumn IDPEPINOSREPRESENTANTE (
+                sequence: 16
+            )
+
+            displayColumn "Ir P/ Débito" (
+                sequence: 11
+            )
+
+            displayColumn "Número" (
+                sequence: 1
+            )
+
+            displayColumn "Resp. Cobrança" (
+                sequence: 15
+            )
+
+            displayColumn "Situação Parcela" (
+                sequence: 13
+            )
+
+            displayColumn "Situação Pepino" (
+                sequence: 12
+            )
+
+            displayColumn "Valor Original" (
+                sequence: 8
+            )
+
+            displayColumn "Valor a Pagar" (
+                sequence: 7
+            )
+
+            displayColumn "Vencimento" (
+                sequence: 9
+            )
+
+        )
+
+    )
+
+    pageItem P44_BONIFICACAO (
+        type: radioGroup
+        label {
+            label: Bonificação Paga
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 140
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from usuarios u
+                where usuario = v('APP_USER') 
+                  and u.ididioma = 1;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P44_CPF (
+        type: textField
+        label {
+            label: Documento
+            alignment: left
+        }
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P44_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: até
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P44_DATAINI (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P44_DISTRIBUIDOR (
+        type: popupLov
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(idrepresentante) display_value
+                     , idrepresentante return_value
+                from representantes
+                where (:P44_IDFILIAL is null or
+                    ( :P44_IDFILIAL is not null and idgerente in ( select idgerente from gerentes where idfilial = :P44_IDFILIAL) ))
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P44_IDFILIAL
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P44_IDFILIAL (
+        type: popupLov
+        label {
+            label: Filial
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome display_value
+                     , u.idfilial return_value
+                from usuariosfiliais u
+                   , vw_filiais f
+                where u.usuario = v('APP_USER') 
+                  and u.idfilial = f.idfilial
+                  and f.tipofilial = 'D'
+                  and f.ativo = 'S'
+                ```
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 20
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P44_IDVENDEDORA (
+        type: popupLov
+        label {
+            label: Cliente
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(nomepessoa)||' - '||nvl(p.cpf,p.documentoestrangeiro) display_value
+                     , idvendedora return_value
+                from vendedoras v
+                   , pessoas p
+                where p.idpessoa = v.idpessoa 
+                  and (:P44_IDREPRESENTANTE is null or v.idrepresentante = :P44_IDREPRESENTANTE)
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P44_DISTRIBUIDOR
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P44_NRDOCUMENTO (
+        type: textField
+        label {
+            label: Nr Doc/Comprovante
+            alignment: left
+        }
+        layout {
+            sequence: 120
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 20
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P44_RESPONSAVELCOBRANCA (
+        type: selectList
+        label {
+            label: Responsável Cobrança
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select usuario display_value   
+                     , usuario return_value
+                from usuarios u
+                where pck_util.fnc_verificaacesso(3540,u.usuario) = 'S'
+                  and ativo = 'S'
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P44_SITUACAO (
+        type: selectList
+        label {
+            label: Situação
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC: Quitado;Q,Vencido;V,Aberto;A,Em Espera;E
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P44_TIPODATA (
+        type: radioGroup
+        label {
+            label: Tipo
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Baixa;B,Vencimento;V
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P44_TIPOPARCELAMENTO (
+        type: radioGroup
+        label {
+            label: Tipo Parcelamento
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Notas Novas;N,Pepinos Antigos;P
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 130
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        readOnly {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from usuarios u
+                where usuario = v('APP_USER') 
+                  and u.ididioma != 1;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: Filtrar
+        label: Filtrar
+        layout {
+            sequence: 150
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button pagarbonificacao (
+        buttonName: PAGARBONIFICACAO
+        label: Pagar Bonificação
+        layout {
+            sequence: 160
+            region: @filtros
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    process pagar-bonificação (
+        name: Pagar bonificação
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  if :P44_TIPOPARCELAMENTO = 'P' then
+                    --
+                    update parcelamentospepinosrepres p
+                    set p.bonificacaopaga = 'S'
+                    where exists ( select 1
+                                   from pepinosrepresentantes pp
+                                   where pp.idpepinosrepresentante = p.idpepinorepresentante
+                                     and ( :P44_IDFILIAL is null or pp.idfilial = :P44_IDFILIAL )
+                                     and ( :P44_DISTRIBUIDOR is null or pp.idrepresentante = :P44_DISTRIBUIDOR ) 
+                                     and ( :P44_CPF is null or pp.cpf = :P44_CPF )
+                                     and ( :P44_RESPONSAVELCOBRANCA is null or pp.responsavelcobranca = :P44_RESPONSAVELCOBRANCA ) )
+                      and ( :P44_SITUACAO is null or p.situacao = :P44_SITUACAO )
+                      and ( :P44_BONIFICACAO is null or nvl(p.bonificacaopaga,'N') = :P44_BONIFICACAO)
+                      and ( :P44_DATAINI is null  or ( :P44_TIPODATA = 'B' and trunc(p.databaixa )   between :P44_DATAINI and :P44_DATAFIM )
+                                                  or ( :P44_TIPODATA = 'V' and trunc(p.datavencimento) between :P44_DATAINI and :P44_DATAFIM ) );
+                      --
+                  elsif :P44_TIPOPARCELAMENTO = 'N' then
+                    --
+                    update parcelamentosnotasvendas p
+                    set p.bonificacaopaga = 'S'
+                    where exists ( select 1
+                                   from notasvendas n
+                                   where n.idnotavenda = p.idnotavenda
+                                     and ( :P44_IDFILIAL is null or n.idfilial = :P44_IDFILIAL )
+                                     and ( :P44_DISTRIBUIDOR is null or n.idrepresentante = :P44_DISTRIBUIDOR )
+                                     and ( :P44_IDVENDEDORA is null or n.idvendedora = :P44_IDVENDEDORA )
+                                     and ( :P44_RESPONSAVELCOBRANCA is null or n.responsavelcobranca = :P44_RESPONSAVELCOBRANCA ) )
+                      and ( :P44_SITUACAO is null or p.situacao = :P44_SITUACAO )
+                      and ( :P44_BONIFICACAO is null or nvl(p.bonificacaopaga,'N') = :P44_BONIFICACAO )
+                      and ( :P44_DATAINI is null  or ( :P44_TIPODATA = 'B' and trunc(p.databaixa )   between :P44_DATAINI and :P44_DATAFIM )
+                                                  or ( :P44_TIPODATA = 'V' and trunc(p.datavencimento) between :P44_DATAINI and :P44_DATAFIM ) );
+                    --
+                  end if;
+                  --
+                  commit;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Bonificação Paga
+        }
+        advanced {
+            executionMappingIdentifier: 231222649064716545
+        }
+        serverSideCondition {
+            whenButtonPressed: @pagarbonificacao
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where v('APP_USER') = 'ADINA'
+                ```
+        }
+    )
+
+    branch (
+        name: Go To Page 44
+        execution {
+            sequence: 20
+        }
+        behavior {
+            target: {
+                page: 44
+                items: {
+                    P44_IDFILIAL: &P44_IDFILIAL.
+                    P44_DISTRIBUIDOR: &P44_DISTRIBUIDOR.
+                    P44_IDVENDEDORA: &P44_IDVENDEDORA.
+                    P44_SITUACAO: &P44_SITUACAO.
+                    P44_TIPODATA: &P44_TIPODATA.
+                    P44_DATAINI: &P44_DATAINI.
+                    P44_DATAFIM: &P44_DATAFIM.
+                    P44_RESPONSAVELCOBRANCA: &P44_RESPONSAVELCOBRANCA.
+                    P44_TIPOPARCELAMENTO: &P44_TIPOPARCELAMENTO.
+                    P44_BONIFICACAO: &P44_BONIFICACAO.
+                    P44_CPF: &P44_CPF.
+                    P44_NRDOCUMENTO: &P44_NRDOCUMENTO.
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

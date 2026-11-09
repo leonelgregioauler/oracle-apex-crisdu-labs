@@ -1,0 +1,935 @@
+page 844 (
+    name: Atualizar Preço e Comissão da Franquia
+    title: Atualizar Preço e Comissão da Franquia
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    css {
+        inline:
+            ```css
+            .c844-sub{margin:0 0 12px;color:#5f6870}
+            .c844-cards{display:grid;grid-template-columns:repeat(7,minmax(110px,1fr));gap:12px}
+            .c844-card{border:1px solid #dfe4e8;border-radius:6px;padding:12px 14px;background:#fafbfc}
+            .c844-card b{display:block;font-size:11px;font-weight:600;color:#7a838c;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+            .c844-card span{display:block;font-size:24px;font-weight:700}
+            .c844-card em{display:block;font-style:normal;font-size:12px;color:#7a838c;margin-top:2px}
+            .c844-ok span{color:#2f6b1f}.c844-chg span{color:#3b3a68}.c844-bad span{color:#b3261e}
+            .c844-alert{margin-top:12px;border:1px solid #f0c27a;background:#fff6e5;border-radius:6px;padding:10px 14px;color:#6b4300}
+            .c844-alert-bad{border-color:#e8a19c;background:#fdecea;color:#7a1d17}
+            .c844-old{color:#8a9199}
+            .c844-pill{display:inline-block;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:600;margin:1px 0}
+            .c844-preco{background:#e7e6f5;color:#3b3a68}.c844-com{background:#e6f1e0;color:#2f6b1f}
+            .c844-ambos{background:#dcd9f3;color:#2c2b57}.c844-igual{background:#eef1f4;color:#7a838c}
+            .c844-alta{background:#ffe7c2;color:#8a5200}.c844-erro{background:#fdecea;color:#b3261e}
+            .c844-ativa{background:#d8efe0;color:#1e6b3a}
+            @media (max-width:900px){.c844-cards{grid-template-columns:repeat(2,1fr)}}
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region 1-carga-da-planilha (
+        name: 1. Carga da planilha
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region 2-conferência (
+        name: 2. Conferência
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  n_linhas  number;  n_ok      number;  n_prob    number;
+                  n_preco   number;  n_sobe    number;  n_desce   number;
+                  n_com     number;  n_igual   number;  n_var     number;  n_dobra number;
+                  n_ativa   number;
+                  vfilial   varchar2(200);
+                
+                  function card ( plab in varchar2, pval in number, psub in varchar2, pcls in varchar2 default null )
+                    return varchar2 is
+                  begin
+                    return '<div class="c844-card ' || pcls || '"><b>' || plab || '</b><span>'
+                        || to_char(pval, 'FM999G999G990') || '</span><em>' || psub || '</em></div>';
+                  end card;
+                begin
+                  select count(*)
+                       , count(distinct case when status = 'OK' then ref end)
+                       , count(distinct case when status <> 'OK' then ref end)
+                       , count(distinct case when status = 'OK' and nvl(vlr_atual, -1) <> vlr_novo then ref end)
+                       , count(distinct case when status = 'OK' and vlr_novo > vlr_atual then ref end)
+                       , count(distinct case when status = 'OK' and vlr_novo < vlr_atual then ref end)
+                       , count(distinct case when status = 'OK' and nvl(com_atual, '-') <> com_nova then ref end)
+                       , count(distinct case when status = 'OK' and nvl(vlr_atual, -1) = vlr_novo
+                                              and nvl(com_atual, '-') = com_nova
+                                              and nvl(ativo_atual, 'N') = 'S' then ref end)
+                       , count(distinct case when status = 'OK' and vlr_atual > 0
+                                              and abs(vlr_novo - vlr_atual) / vlr_atual > 0.5 then ref end)
+                       , count(distinct case when status = 'OK' and vlr_atual > 0
+                                              and abs(vlr_novo - vlr_atual) / vlr_atual > 1 then ref end)
+                       , count(distinct case when status = 'OK' and nvl(ativo_atual, 'N') <> 'S' then ref end)
+                    into n_linhas, n_ok, n_prob, n_preco, n_sobe, n_desce, n_com, n_igual, n_var, n_dobra, n_ativa
+                    from (
+                          select x.ref, x.linha, x.vlr_novo, x.com_nova, x.com_lida
+                               , p.idproduto, p.nomeproduto
+                               , e.idestoquefilial, e.idfilial, e.idcor
+                               , e.vlrvenda vlr_atual, e.comissao com_atual, e.ativo ativo_atual
+                               , e.dataultimaalteracaopreco dtalt_atual
+                               , case when x.repetida > 1                     then 'REPETIDA'
+                                      when x.qtd_prod = 0                     then 'SEM_PRODUTO'
+                                      when x.qtd_prod > 1                     then 'PRODUTO_DUPLICADO'
+                                      when e.idestoquefilial is null          then 'SEM_ESTOQUE'
+                                      when nvl(x.vlr_novo, 0) <= 0            then 'PRECO_INVALIDO'
+                                      when x.com_nova is null                 then 'COMISSAO_INVALIDA'
+                                      else 'OK' end status
+                            from ( select c.c001 ref, c.n002 linha, c.n001 vlr_novo, c.c002 com_nova, c.c003 com_lida
+                                        , count(*) over (partition by c.c001) repetida
+                                        , (select count(*) from roman.produtos pp where pp.codigosisdist = c.c001) qtd_prod
+                                     from apex_collections c
+                                    where c.collection_name = 'P844_CARGA' ) x
+                            left join roman.produtos p
+                                   on p.codigosisdist = x.ref
+                                  and x.qtd_prod = 1
+                            left join roman.estoquefilial e
+                                   on e.idproduto = p.idproduto
+                                  and e.idfilial  = to_number(:P844_IDFILIAL_CONF)
+                         );
+                
+                  select max(f.nome) into vfilial from roman.vw_filiais f where f.idfilial = to_number(:P844_IDFILIAL_CONF);
+                
+                  htp.p('<p class="c844-sub">Franquia <b>' || apex_escape.html(vfilial) || '</b> (' || :P844_IDFILIAL_CONF
+                     || ') &middot; arquivo <b>' || apex_escape.html(:P844_NOMEARQUIVO) || '</b> &middot; nada foi gravado ainda.</p>');
+                  htp.p('<div class="c844-cards">'
+                     || card('Na planilha', n_linhas, 'linhas lidas')
+                     || card('Encontradas', n_ok, 'no estoque da franquia', 'c844-ok')
+                     || card('Com problema', n_prob, 'ficam de fora', case when n_prob > 0 then 'c844-bad' end)
+                     || card('Preço muda', n_preco, n_sobe || ' sobem &middot; ' || n_desce || ' descem', 'c844-chg')
+                     || card('Comissão muda', n_com, 'passam a S ou a N', 'c844-chg')
+                     || card('Reativa', n_ativa, 'ativo N &rarr; S', 'c844-chg')
+                     || card('Sem alteração', n_igual, 'preço, comissão e ativo iguais')
+                     || '</div>');
+                  if n_var > 0 then
+                    htp.p('<div class="c844-alert">&#9888; <b>' || n_var || ' preço(s) mudam mais de 50%</b>, e ' || n_dobra
+                       || ' deles mais que dobram. Confira no filtro "Variação acima de 50%" antes de aplicar.</div>');
+                  end if;
+                  if n_prob > 0 then
+                    htp.p('<div class="c844-alert c844-alert-bad">&#9888; <b>' || n_prob || ' referência(s) com problema</b> não serão'
+                       || ' atualizadas. Veja o motivo no filtro "Com problema".</div>');
+                  end if;
+                end;
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P844_IDFILIAL_CONF
+        }
+    )
+
+    region 3-antes-depois (
+        name: 3. Antes × depois
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select k.ref                                   referencia
+                     , k.nomeproduto                           produto
+                     , k.idcor                                 cor
+                     , k.vlr_atual                             preco_atual
+                     , k.vlr_novo                              preco_novo
+                     , case when k.status = 'OK' and k.vlr_atual > 0 and k.vlr_novo <> k.vlr_atual
+                            then case when k.vlr_novo > k.vlr_atual then '+' end
+                                 || to_char(round((k.vlr_novo - k.vlr_atual) / k.vlr_atual * 100)) || '%'
+                       end                                     variacao
+                     , case when k.status <> 'OK' then nvl(k.com_nova, k.com_lida)
+                            when nvl(k.com_atual, '-') <> k.com_nova
+                            then '<span class="c844-old">' || nvl(k.com_atual, '-') || '</span> &rarr; ' || k.com_nova
+                            else k.com_nova end                comissao
+                     , case k.status
+                         when 'REPETIDA'          then '<span class="c844-pill c844-erro">Repetida na planilha</span>'
+                         when 'SEM_PRODUTO'       then '<span class="c844-pill c844-erro">Referência não cadastrada</span>'
+                         when 'PRODUTO_DUPLICADO' then '<span class="c844-pill c844-erro">Referência em mais de um produto</span>'
+                         when 'SEM_ESTOQUE'       then '<span class="c844-pill c844-erro">Sem estoque na franquia</span>'
+                         when 'PRECO_INVALIDO'    then '<span class="c844-pill c844-erro">Preço inválido</span>'
+                         when 'COMISSAO_INVALIDA' then '<span class="c844-pill c844-erro">Comissão inválida</span>'
+                         else case when k.vlr_atual > 0 and abs(k.vlr_novo - k.vlr_atual) / k.vlr_atual > 0.5
+                                   then '<span class="c844-pill c844-alta">Variação alta</span> ' end
+                           || case when nvl(k.ativo_atual, 'N') <> 'S'
+                                   then '<span class="c844-pill c844-ativa">Reativa N &rarr; S</span> ' end
+                           || case when nvl(k.vlr_atual, -1) <> k.vlr_novo and nvl(k.com_atual, '-') <> k.com_nova
+                                   then '<span class="c844-pill c844-ambos">Preço e comissão</span>'
+                                   when nvl(k.vlr_atual, -1) <> k.vlr_novo
+                                   then '<span class="c844-pill c844-preco">Preço</span>'
+                                   when nvl(k.com_atual, '-') <> k.com_nova
+                                   then '<span class="c844-pill c844-com">Comissão</span>'
+                                   when nvl(k.ativo_atual, 'N') = 'S' then '<span class="c844-pill c844-igual">Sem alteração</span>' end
+                       end                                     situacao
+                  from (
+                        select x.ref, x.linha, x.vlr_novo, x.com_nova, x.com_lida
+                             , p.idproduto, p.nomeproduto
+                             , e.idestoquefilial, e.idfilial, e.idcor
+                             , e.vlrvenda vlr_atual, e.comissao com_atual, e.ativo ativo_atual
+                             , e.dataultimaalteracaopreco dtalt_atual
+                             , case when x.repetida > 1                     then 'REPETIDA'
+                                    when x.qtd_prod = 0                     then 'SEM_PRODUTO'
+                                    when x.qtd_prod > 1                     then 'PRODUTO_DUPLICADO'
+                                    when e.idestoquefilial is null          then 'SEM_ESTOQUE'
+                                    when nvl(x.vlr_novo, 0) <= 0            then 'PRECO_INVALIDO'
+                                    when x.com_nova is null                 then 'COMISSAO_INVALIDA'
+                                    else 'OK' end status
+                          from ( select c.c001 ref, c.n002 linha, c.n001 vlr_novo, c.c002 com_nova, c.c003 com_lida
+                                      , count(*) over (partition by c.c001) repetida
+                                      , (select count(*) from roman.produtos pp where pp.codigosisdist = c.c001) qtd_prod
+                                   from apex_collections c
+                                  where c.collection_name = 'P844_CARGA' ) x
+                          left join roman.produtos p
+                                 on p.codigosisdist = x.ref
+                                and x.qtd_prod = 1
+                          left join roman.estoquefilial e
+                                 on e.idproduto = p.idproduto
+                                and e.idfilial  = to_number(:P844_IDFILIAL_CONF)
+                       ) k
+                 where ( :P844_FILTRO = 'TODOS'
+                      or ( :P844_FILTRO = 'PROBLEMA' and k.status <> 'OK' )
+                      or ( k.status = 'OK'
+                           and ( ( nvl(:P844_FILTRO, 'ALTERA') = 'ALTERA'
+                                   and ( nvl(k.vlr_atual, -1) <> k.vlr_novo or nvl(k.com_atual, '-') <> k.com_nova
+                                         or nvl(k.ativo_atual, 'N') <> 'S' ) )
+                              or ( :P844_FILTRO = 'ATIVA'    and nvl(k.ativo_atual, 'N') <> 'S' )
+                              or ( :P844_FILTRO = 'PRECO'    and nvl(k.vlr_atual, -1) <> k.vlr_novo )
+                              or ( :P844_FILTRO = 'COMISSAO' and nvl(k.com_atual, '-') <> k.com_nova )
+                              or ( :P844_FILTRO = 'VARIACAO' and k.vlr_atual > 0
+                                   and abs(k.vlr_novo - k.vlr_atual) / k.vlr_atual > 0.5 ) ) ) )
+                 order by case when k.status <> 'OK' then 0 else 1 end
+                        , case when k.vlr_atual > 0 then abs(k.vlr_novo - k.vlr_atual) / k.vlr_atual else 0 end desc
+                        , k.ref
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P844_IDFILIAL_CONF
+        }
+        reportLayout {
+            numberOfRows: 50
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToYOfZWithPagination
+        }
+        performance {
+            maxRowsToProcess: 20000
+        }
+        messages {
+            whenNoDataFound: Nenhum produto neste filtro.
+        }
+        download {
+            csvExportEnabled: true
+            linkText: Download para CSV
+        }
+
+        column COMISSAO (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column COR (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Cor
+                alignment: center
+            }
+            layout {
+                sequence: 3
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column PRECO_ATUAL (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Preço atual
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column PRECO_NOVO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Preço novo
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column PRODUTO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column REFERENCIA (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Referência
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SITUACAO (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column VARIACAO (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Variação
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    pageItem P844_ARQUIVO (
+        type: fileUpload
+        label {
+            label: Planilha (*)
+            alignment: left
+        }
+        display {
+            displayAs: nativeFileBrowse
+        }
+        storage {
+            type: appTempFiles
+            purgeFileAt: endOfRequest
+            fileTypes: .xlsx
+        }
+        layout {
+            sequence: 20
+            region: @1-carga-da-planilha
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 60
+        }
+        help {
+            inlineHelpText: Arquivo .xlsx com as colunas REFERENCIA, Vlrvenda e Comissao. As demais colunas são ignoradas.
+        }
+    )
+
+    pageItem P844_FILTRO (
+        type: selectList
+        label {
+            label: Mostrar
+            alignment: left
+        }
+        settings {
+            pageActionOnSelection: redirectSetValue
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Com alteração;ALTERA,Todos;TODOS,Preço muda;PRECO,Comissão muda;COMISSAO,Reativa (N para S);ATIVA,Variação acima de 50%;VARIACAO,Com problema;PROBLEMA
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 5
+            region: @3-antes-depois
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: ALTERA
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P844_IDFILIAL (
+        type: selectList
+        label {
+            label: Franquia (*)
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome || ' (' || f.idfilial || ')' d
+                     , f.idfilial r
+                  from roman.vw_filiais f
+                 where f.ativo = 'S'
+                   and f.idgrupo < 5
+                   and f.tipofilial = 'D'
+                 order by f.nome
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Selecione a franquia -"
+        }
+        layout {
+            sequence: 10
+            region: @1-carga-da-planilha
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+        help {
+            inlineHelpText: Filiais ativas, distribuidoras (tipo D), grupo menor que 5.
+        }
+    )
+
+    pageItem P844_IDFILIAL_CONF (
+        type: hidden
+        layout {
+            sequence: 30
+            region: @1-carga-da-planilha
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P844_MSG (
+        type: hidden
+        layout {
+            sequence: 50
+            region: @1-carga-da-planilha
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P844_NOMEARQUIVO (
+        type: hidden
+        layout {
+            sequence: 40
+            region: @1-carga-da-planilha
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button aplicar (
+        buttonName: APLICAR
+        label: Aplicar alterações
+        layout {
+            sequence: 10
+            region: @3-antes-depois
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+            requiresConfirmation: true
+        }
+        confirmation {
+            message: Confirma a atualização de preço e comissão da franquia? O backup é gravado antes.
+            style: danger
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P844_IDFILIAL_CONF
+        }
+    )
+
+    button cancelar (
+        buttonName: CANCELAR
+        label: Cancelar
+        layout {
+            sequence: 20
+            region: @3-antes-depois
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P844_IDFILIAL_CONF
+        }
+    )
+
+    button conferir (
+        buttonName: CONFERIR
+        label: Conferir planilha
+        layout {
+            sequence: 40
+            region: @1-carga-da-planilha
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process aplicar-alteracoes (
+        name: Aplicar alteracoes
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vcarga number;
+                  vqtd   number;
+                  vreat  number;
+                  vdif   number;
+                  vrefs  varchar2(4000);
+                begin
+                  if :P844_IDFILIAL_CONF is null or apex_collection.collection_exists('P844_CARGA') = false then
+                    apex_error.add_error( p_message => 'Confira a planilha antes de aplicar.'
+                                        , p_display_location => apex_error.c_inline_in_notification );
+                    return;
+                  end if;
+                  if nvl(:P844_IDFILIAL, '-') <> :P844_IDFILIAL_CONF then
+                    apex_error.add_error( p_message => 'A franquia foi trocada depois da conferência. Clique em Conferir planilha de novo.'
+                                        , p_display_location => apex_error.c_inline_in_notification );
+                    return;
+                  end if;
+                
+                  vcarga := roman.seq_carga_preco_franquia.nextval;
+                
+                  -- 1) Backup de todos os registros encontrados, com os valores de antes.
+                  insert into roman.estoquefilial_bkp_preco
+                       ( idcarga, usuario, arquivo, idfilial, idestoquefilial, idproduto, idcor, referencia
+                       , vlrvenda_ant, comissao_ant, ativo_ant, dtaltpreco_ant, vlrvenda_novo, comissao_nova )
+                  select vcarga, :APP_USER, :P844_NOMEARQUIVO, k.idfilial, k.idestoquefilial, k.idproduto, k.idcor, k.ref
+                       , k.vlr_atual, k.com_atual, k.ativo_atual, k.dtalt_atual, k.vlr_novo, k.com_nova
+                    from (
+                          select x.ref, x.linha, x.vlr_novo, x.com_nova, x.com_lida
+                               , p.idproduto, p.nomeproduto
+                               , e.idestoquefilial, e.idfilial, e.idcor
+                               , e.vlrvenda vlr_atual, e.comissao com_atual, e.ativo ativo_atual
+                               , e.dataultimaalteracaopreco dtalt_atual
+                               , case when x.repetida > 1                     then 'REPETIDA'
+                                      when x.qtd_prod = 0                     then 'SEM_PRODUTO'
+                                      when x.qtd_prod > 1                     then 'PRODUTO_DUPLICADO'
+                                      when e.idestoquefilial is null          then 'SEM_ESTOQUE'
+                                      when nvl(x.vlr_novo, 0) <= 0            then 'PRECO_INVALIDO'
+                                      when x.com_nova is null                 then 'COMISSAO_INVALIDA'
+                                      else 'OK' end status
+                            from ( select c.c001 ref, c.n002 linha, c.n001 vlr_novo, c.c002 com_nova, c.c003 com_lida
+                                        , count(*) over (partition by c.c001) repetida
+                                        , (select count(*) from roman.produtos pp where pp.codigosisdist = c.c001) qtd_prod
+                                     from apex_collections c
+                                    where c.collection_name = 'P844_CARGA' ) x
+                            left join roman.produtos p
+                                   on p.codigosisdist = x.ref
+                                  and x.qtd_prod = 1
+                            left join roman.estoquefilial e
+                                   on e.idproduto = p.idproduto
+                                  and e.idfilial  = to_number(:P844_IDFILIAL_CONF)
+                         ) k
+                   where k.status = 'OK';
+                  vqtd := sql%rowcount;
+                
+                  if vqtd = 0 then
+                    apex_error.add_error( p_message => 'Nenhum produto da planilha foi encontrado no estoque da franquia.'
+                                        , p_display_location => apex_error.c_inline_in_notification );
+                    return;
+                  end if;
+                
+                  -- 2) Atualiza exatamente o que foi para o backup. Quantidade nao e tocada.
+                  merge into roman.estoquefilial e
+                  using ( select b.idestoquefilial, b.vlrvenda_novo, b.comissao_nova
+                            from roman.estoquefilial_bkp_preco b
+                           where b.idcarga = vcarga ) b
+                     on ( e.idestoquefilial = b.idestoquefilial )
+                   when matched then update
+                        set e.vlrvenda                 = b.vlrvenda_novo
+                          , e.comissao                 = b.comissao_nova
+                          , e.ativo                    = 'S'
+                          , e.dataultimaalteracaopreco = sysdate;
+                
+                  -- 3) Confere o que ficou gravado: preco, comissao e ativo = S em todos.
+                  --    estoquefilial tem triggers; se alguma mudar o valor, nada e gravado.
+                  select count(*)
+                       , substr(listagg(b.referencia, ', ') within group (order by b.referencia), 1, 200)
+                    into vdif, vrefs
+                    from roman.estoquefilial_bkp_preco b
+                    join roman.estoquefilial e on e.idestoquefilial = b.idestoquefilial
+                   where b.idcarga = vcarga
+                     and ( nvl(e.vlrvenda, -1) <> b.vlrvenda_novo
+                        or nvl(e.comissao, '-') <> b.comissao_nova
+                        or nvl(e.ativo, '-') <> 'S' );
+                
+                  if vdif > 0 then
+                    rollback;
+                    apex_error.add_error( p_message => vdif || ' registro(s) não ficaram com o preço, a comissão ou o ativo da planilha'
+                                                    || ' depois de gravar (referências: ' || vrefs || '). Nada foi alterado.'
+                                        , p_display_location => apex_error.c_inline_in_notification );
+                    return;
+                  end if;
+                
+                  select count(*) into vreat
+                    from roman.estoquefilial_bkp_preco b
+                   where b.idcarga = vcarga
+                     and nvl(b.ativo_ant, 'N') <> 'S';
+                
+                  apex_collection.delete_collection( p_collection_name => 'P844_CARGA' );
+                  :P844_IDFILIAL_CONF := null;
+                  :P844_MSG := 'Carga nº ' || vcarga || ' aplicada: ' || vqtd || ' registro(s) atualizados, ' || vreat
+                            || ' reativado(s) (N para S). Preço, comissão e ativo conferidos depois de gravar. Backup em roman.estoquefilial_bkp_preco.';
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: &P844_MSG.
+        }
+        advanced {
+            executionMappingIdentifier: 9911844000844023
+        }
+        serverSideCondition {
+            whenButtonPressed: @aplicar
+        }
+    )
+
+    process cancelar-conferencia (
+        name: Cancelar conferencia
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  if apex_collection.collection_exists('P844_CARGA') then
+                    apex_collection.delete_collection( p_collection_name => 'P844_CARGA' );
+                  end if;
+                  :P844_IDFILIAL_CONF := null;
+                  :P844_NOMEARQUIVO   := null;
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        advanced {
+            executionMappingIdentifier: 9911844000844024
+        }
+        serverSideCondition {
+            whenButtonPressed: @cancelar
+        }
+    )
+
+    process conferir-planilha (
+        name: Conferir planilha
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vblob   blob;
+                  vnome   varchar2(400);
+                  type t_h is table of varchar2(4000) index by pls_integer;
+                  h       t_h;
+                  iref    pls_integer;
+                  ivlr    pls_integer;
+                  icom    pls_integer;
+                  vfalta  varchar2(200);
+                  vqtd    pls_integer := 0;
+                  vref    varchar2(100);
+                  vcom    varchar2(1);
+                
+                  -- Cabecalho sem diferenca de acento nem de caixa: REFERENCIA = Referência
+                  function eh ( ptexto in varchar2, pnome in varchar2 ) return boolean is
+                  begin
+                    return nlssort(upper(trim(ptexto)), 'NLS_SORT=BINARY_AI') = nlssort(pnome, 'NLS_SORT=BINARY_AI');
+                  end eh;
+                
+                  -- Planilha grava numero com ponto; aceita virgula tambem. Duas casas.
+                  function num ( ptexto in varchar2 ) return number is
+                    v varchar2(100) := replace(trim(ptexto), ',', '.');
+                  begin
+                    if v is null then
+                      return null;
+                    end if;
+                    return round(to_number(v, '999999999999990D99999999999999999999', 'NLS_NUMERIC_CHARACTERS=''.,'''), 2);
+                  exception
+                    when value_error or invalid_number then
+                      return null;
+                  end num;
+                begin
+                  if :P844_IDFILIAL is null then
+                    apex_error.add_error( p_message => 'Selecione a franquia.'
+                                        , p_display_location => apex_error.c_inline_in_notification );
+                    return;
+                  end if;
+                  if :P844_ARQUIVO is null then
+                    apex_error.add_error( p_message => 'Escolha a planilha.'
+                                        , p_display_location => apex_error.c_inline_in_notification );
+                    return;
+                  end if;
+                
+                  select f.blob_content, f.filename
+                    into vblob, vnome
+                    from apex_application_temp_files f
+                   where f.name = :P844_ARQUIVO;
+                
+                  if lower(vnome) not like '%.xlsx' then
+                    apex_error.add_error( p_message => 'Envie a planilha no formato .xlsx.'
+                                        , p_display_location => apex_error.c_inline_in_notification );
+                    return;
+                  end if;
+                
+                  -- Linha 1 = cabecalho. As colunas sao achadas pelo nome, nao pela posicao.
+                  begin
+                    select col001, col002, col003, col004, col005, col006, col007, col008
+                         , col009, col010, col011, col012, col013, col014, col015
+                      into h(1), h(2), h(3), h(4), h(5), h(6), h(7), h(8)
+                         , h(9), h(10), h(11), h(12), h(13), h(14), h(15)
+                      from table( apex_data_parser.parse( p_content => vblob, p_file_name => vnome ) )
+                     where line_number = 1;
+                  exception
+                    when no_data_found then
+                      apex_error.add_error( p_message => 'A planilha está vazia.'
+                                          , p_display_location => apex_error.c_inline_in_notification );
+                      return;
+                  end;
+                
+                  for i in 1 .. 15 loop
+                    if    iref is null and eh(h(i), 'REFERENCIA') then iref := i;
+                    elsif ivlr is null and eh(h(i), 'VLRVENDA')   then ivlr := i;
+                    elsif icom is null and eh(h(i), 'COMISSAO')   then icom := i;
+                    end if;
+                  end loop;
+                
+                  vfalta := rtrim( case when iref is null then 'REFERENCIA, ' end
+                                || case when ivlr is null then 'Vlrvenda, ' end
+                                || case when icom is null then 'Comissao, ' end, ', ');
+                  if vfalta is not null then
+                    apex_error.add_error( p_message => 'A planilha precisa ter as colunas REFERENCIA, Vlrvenda e Comissao na primeira linha. Faltou: ' || vfalta || '.'
+                                        , p_display_location => apex_error.c_inline_in_notification );
+                    return;
+                  end if;
+                
+                  apex_collection.create_or_truncate_collection( p_collection_name => 'P844_CARGA' );
+                
+                  for r in ( select line_number
+                                  , case iref when 1 then col001 when 2 then col002 when 3 then col003 when 4 then col004 when 5 then col005 when 6 then col006 when 7 then col007 when 8 then col008 when 9 then col009 when 10 then col010 when 11 then col011 when 12 then col012 when 13 then col013 when 14 then col014 when 15 then col015 end vref
+                                  , case ivlr when 1 then col001 when 2 then col002 when 3 then col003 when 4 then col004 when 5 then col005 when 6 then col006 when 7 then col007 when 8 then col008 when 9 then col009 when 10 then col010 when 11 then col011 when 12 then col012 when 13 then col013 when 14 then col014 when 15 then col015 end vvlr
+                                  , case icom when 1 then col001 when 2 then col002 when 3 then col003 when 4 then col004 when 5 then col005 when 6 then col006 when 7 then col007 when 8 then col008 when 9 then col009 when 10 then col010 when 11 then col011 when 12 then col012 when 13 then col013 when 14 then col014 when 15 then col015 end vcom
+                               from table( apex_data_parser.parse( p_content => vblob, p_file_name => vnome ) )
+                              where line_number > 1 )
+                  loop
+                    vref := regexp_replace(trim(r.vref), '\.0+$');
+                    if vref is not null then
+                      -- No banco a comissao e sempre S ou N: Sim/S -> S, Nao/N -> N, o resto fica invalido.
+                      vcom := case upper(substr(trim(r.vcom), 1, 1)) when 'S' then 'S' when 'N' then 'N' end;
+                      apex_collection.add_member( p_collection_name => 'P844_CARGA'
+                                                , p_c001 => vref
+                                                , p_c002 => vcom
+                                                , p_c003 => substr(r.vcom, 1, 50)
+                                                , p_n001 => num(r.vvlr)
+                                                , p_n002 => r.line_number );
+                      vqtd := vqtd + 1;
+                    end if;
+                  end loop;
+                
+                  if vqtd = 0 then
+                    apex_error.add_error( p_message => 'A planilha não tem linhas com REFERENCIA preenchida.'
+                                        , p_display_location => apex_error.c_inline_in_notification );
+                    return;
+                  end if;
+                
+                  -- A conferencia vale para esta franquia: se trocar depois, precisa conferir de novo.
+                  :P844_IDFILIAL_CONF := :P844_IDFILIAL;
+                  :P844_NOMEARQUIVO   := vnome;
+                  :P844_FILTRO        := 'ALTERA';
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 9911844000844022
+        }
+        serverSideCondition {
+            whenButtonPressed: @conferir
+        }
+    )
+
+    branch (
+        name: Volta para a 844
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 844
+            }
+        }
+    )
+
+)
+

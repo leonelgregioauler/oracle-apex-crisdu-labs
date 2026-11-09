@@ -1,0 +1,159 @@
+plugin slideTooltip (
+    name: Slide Tooltip
+    staticId: COM_ORACLE_APEX_SLIDETOOLTIP
+    type: region
+    component {
+        standardAttributes: [
+            regionSourceIsSqlQuery
+            regionColumns
+            headingColumnAttr
+        ]
+    }
+    source {
+        plsqlCode:
+            ```plsql
+            function render_slide_tooltip (
+                p_region              in apex_plugin.t_region,
+                p_plugin              in apex_plugin.t_plugin,
+                p_is_printer_friendly in boolean )
+                return apex_plugin.t_region_render_result
+            is
+                c_slide_tooltip constant varchar2(255) := p_region.attribute_04;
+            begin
+                if apex_application.g_debug then
+                    apex_plugin_util.debug_region (
+                        p_plugin => p_plugin,
+                        p_region => p_region );
+                end if;
+            
+                sys.htp.p( '<div' || apex_plugin_util.get_html_attr( 'id', p_region.static_id || '_slideTooltip' ) || '></div>' );
+            
+                apex_javascript.add_onload_code (
+                    p_code =>
+                        'com_oracle_apex_slide_tooltip(' ||
+                        apex_javascript.add_value( p_region.static_id ) ||
+                        '{' ||
+                        apex_javascript.add_attribute( 'pageitems',       apex_plugin_util.page_item_names_to_jquery( p_region.ajax_items_to_submit )) ||
+                        apex_javascript.add_attribute( 'slideTooltipOpt', c_slide_tooltip ) ||
+                        apex_javascript.add_attribute( 'ajaxIdentifier',  apex_plugin.get_ajax_identifier, false, false ) ||
+                        '});' );
+            
+                return null;
+            end render_slide_tooltip;
+            
+            function ajax_slide_tooltip (
+                p_region in apex_plugin.t_region,
+                p_plugin in apex_plugin.t_plugin )
+                return apex_plugin.t_region_ajax_result
+            is
+                c_item_icon  constant varchar2(255) := p_region.attribute_01;
+                c_item_title constant varchar2(255) := p_region.attribute_02;
+                c_item_badge constant varchar2(255) := p_region.attribute_03;
+                c_label_link constant varchar2(255) := p_region.attribute_05;
+            
+                l_column_value_list apex_plugin_util.t_column_value_list2;
+                l_link    varchar2(4000);
+                l_icon    varchar2(4000);
+                l_title   varchar2(4000);
+                l_badge   varchar2(4000);
+                l_content varchar2(4000);
+            begin
+                if apex_application.g_debug then
+                    apex_plugin_util.debug_region (
+                        p_plugin => p_plugin,
+                        p_region => p_region
+                    );
+                end if;
+            
+                l_column_value_list := apex_plugin_util.get_data2(
+                                           p_sql_statement => p_region.source,
+                                           p_region        => p_region );
+            
+                apex_json.initialize_output( p_http_cache => false );
+                apex_json.open_array;
+            
+                for l_row_number in 1 .. l_column_value_list( 1 ).value_list.count
+                loop
+                    begin
+                        apex_plugin_util.set_component_values (
+                            p_column_value_list => l_column_value_list,
+                            p_row_num           => l_row_number );
+            
+                        l_link :=
+                            case when c_label_link is not null then
+                                apex_util.prepare_url (
+                                    apex_plugin_util.replace_substitutions (
+                                        p_value  => c_label_link,
+                                        p_escape => false )
+                                    )
+                            end;
+            
+                        l_icon  := apex_escape.html( v( c_item_icon ));
+                        l_title := apex_escape.html( v( c_item_title ));
+                        l_badge := apex_escape.html( v( c_item_badge ));
+            
+                        apex_json.open_object;
+                        apex_json.  write( 'icon',  l_icon );
+                        apex_json.  write( 'title', l_title );
+                        apex_json.  write( 'badge', l_badge );
+                        apex_json.  write( 'link',  l_link );
+                        apex_json.  open_array( 'content' );
+            
+                        for l_column_no in 1 .. p_region.region_columns.count
+                        loop
+                            if p_region.region_columns( l_column_no ).is_displayed then
+                                if p_region.region_columns( l_column_no ).name not in ( c_item_icon, c_item_title, c_item_badge ) then
+                                    l_content := apex_escape.html( v( p_region.region_columns( l_column_no ).name ));
+                                    apex_json.open_object;
+                                    apex_json.  write( 'content', l_content );
+                                    apex_json.  write( 'label',   p_region.region_columns( l_column_no ).heading );
+                                    apex_json.close_object;
+                                end if;
+                            end if;
+                        end loop;
+            
+                        apex_json.  close_array;
+                        apex_json.close_object;
+                        wwv_flow_plugin_util.clear_component_values;
+                    exception when others then
+                        wwv_flow_plugin_util.clear_component_values;
+                        raise;
+                    end;
+                end loop;
+                apex_json.close_array;
+            
+                return null;
+            end ajax_slide_tooltip;
+            ```
+    }
+    callbacks {
+        apiInterface: function
+        renderProcedureName: render_slide_tooltip
+        ajaxProcedureName: ajax_slide_tooltip
+    }
+    advanced {
+        filePrefix: #IMAGE_PREFIX#plugins/com.oracle.apex.slidetooltip/
+    }
+    css {
+        fileUrls: #PLUGIN_FILES#a-DetailedContentList.css
+    }
+    javaScript {
+        fileUrls: [
+            #PLUGIN_FILES#slideTooltipList.js
+            #PLUGIN_FILES#com_oracle_apex_slide_tooltip.js
+        ]
+    }
+    information {
+        version: 5.0.1
+        helpText: This region plug-in is useful for displaying a report with additional fields either inline or in an expanded tooltip.
+    }
+
+    standardAttributeConfig (
+        name: regionSourceIsSqlQuery
+        sqlQuery {
+            minColumns: 1
+        }
+    )
+
+)
+

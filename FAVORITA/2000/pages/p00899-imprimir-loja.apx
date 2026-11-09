@@ -1,0 +1,373 @@
+page 899 (
+    name: Imprimir Loja
+    alias: IMPRIMIR-LOJA
+    title: Imprimir Loja
+    appearance {
+        pageTemplate: @/minimal-no-navigation
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    css {
+        inline:
+            ```css
+            @page {
+              size: A4;
+              margin: 0;
+            }
+            
+            html, body {
+              margin: 0 !important;
+              padding: 0 !important;
+              width: 210mm;
+              height: 297mm;
+              overflow: hidden;
+            }
+            
+            body {
+              display: block;
+            }
+            
+            .t-Header{
+                display: none;
+            }
+            
+            .t-Footer{
+                display: none;
+            }
+            ```
+    }
+    security {
+        authentication: public
+        pageAccessProtection: unrestricted
+    }
+    sessionManagement {
+        rejoinSessions: false
+    }
+
+    region impressão-de-pedido (
+        name: Impressão de Pedido
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  -- Variáveis de controle da procedure
+                  vsysdate                  date;
+                  vobs                      varchar2(100);
+                  vnull                     number;
+                  vid                       number := 9;
+                  vnullvar                  varchar2(100);
+                  vidsituacaoentrega        number;
+                  vcancelado                varchar2(1);
+                  vboleto                   number := 1;
+                  vidgerente                number;
+                  vidpais                   number;
+                  vidpedido                 number := :P899_IDPEDIDO;
+                  vretorno                  varchar2(1);  
+                  vpromissoria              varchar2(1);
+                  vidfilialfavorita         number;
+                  vidusuario                number;
+                  vusuario                  varchar2(100);
+                  --
+                begin
+                  --
+                  select p.idusuario
+                       , p.idpais
+                       , p.idfilialfavorita
+                       , ( select u.usuario
+                           from usuarios u
+                           where u.idusuario = p.idusuario ) usuario
+                  into vidusuario
+                     , vidpais
+                     , vidfilialfavorita
+                     , vusuario
+                  from pedidos p
+                  where p.idpedido = :P899_IDPEDIDO;
+                  --
+                  vcancelado := pck_util_fav.fnc_retornapedidocancelado(pidpedido => :P899_IDPEDIDO);
+                  --
+                  select p.idsituacaoentrega
+                  into vidsituacaoentrega
+                  from pedidos p
+                  where p.idpedido = :P899_IDPEDIDO;
+                  --
+                  if vidpais = 2 then
+                    --
+                    vboleto := 2;
+                    --
+                    begin
+                        select distinct 1
+                          into vpromissoria
+                          from vw_vencimentospedidos_fav ww
+                             , vw_pagamentospedidos_fav w
+                          where idpedido              = :P899_IDPEDIDO
+                            and ww.idvencimentopedido = w.idvencimentopedido
+                            and w.idformapagamento    in (select idformapagamento
+                                                            from formaspagamentos
+                                                           where boleto = 'S');
+                    exception
+                      when others then
+                        vpromissoria := 2;
+                    end;
+                    --
+                  else
+                    --        
+                    -- VERIFICA SE É BOLETO 
+                    --
+                    begin
+                      --
+                      select distinct 1,1
+                      into vpromissoria, vboleto
+                      from vw_vencimentospedidos_fav ww
+                         , vw_pagamentospedidos_fav w
+                      where idpedido              = :P899_IDPEDIDO
+                        and ww.idvencimentopedido = w.idvencimentopedido
+                        and w.idformapagamento    in (select idformapagamento
+                                                        from formaspagamentos
+                                                       where boleto = 'S');-- boleto
+                      --
+                    exception
+                      when others then
+                        vboleto       := null;
+                    end;
+                    --    
+                    --        
+                    -- VERIFICA SE É PARA IMIPRIMIR A PROMISSORIA 
+                    --
+                    begin
+                      -- SE SIM, É PARA IMPRIMIR A PROMISSORIA
+                      select distinct 1
+                      into vpromissoria
+                      from vw_vencimentospedidos_fav ww
+                         , vw_pagamentospedidos_fav w
+                         , formaspagamentos fp
+                      where idpedido              = :P899_IDPEDIDO
+                        and ww.idvencimentopedido = w.idvencimentopedido
+                        and w.ididioma            = 1
+                        and fp.idformapagamento   = w.idformapagamento
+                        and ( fp.boleto = 'S' or  w.idformapagamento IN (11,16,1,26,27,34,36,39,37,43,44) ); -- retirada de ponto e boleto e crediario
+                      --
+                    exception
+                      when others then
+                        vpromissoria  := null;
+                    end;
+                    --            
+                  end if;
+                  --
+                  if vcancelado = 'N' then
+                    --
+                    if vidpais = 6 then -- ticket 10682549 - osiel ( impressão dupla )
+                      --
+                      pck_imprime_fav.prc_pedidos_adapto( pidpedido    => :P899_IDPEDIDO,
+                                                          ppromissoria => vpromissoria,
+                                                          pboleto      => vboleto,
+                                                          pididioma    => vidpais,
+                                                          pimprimirpedido => :P899_IMPRIMIRPEDIDO,
+                                                          pimprimirboleto => :P899_IMPRIMIRBOLETO,
+                                                          pimprimirpromissoria => :P899_IMPRIMIRPROMISSORIA,
+                                                          pimprimirtermo => :P899_IMPRIMIRTERMO);
+                      --
+                      pck_imprime_fav.prc_pedidos_adapto( pidpedido    => :P899_IDPEDIDO,
+                                                          ppromissoria => vpromissoria,
+                                                          pboleto      => vboleto,
+                                                          pididioma    => vidpais,
+                                                          pimprimirpedido => :P899_IMPRIMIRPEDIDO,
+                                                          pimprimirboleto => :P899_IMPRIMIRBOLETO,
+                                                          pimprimirpromissoria => :P899_IMPRIMIRPROMISSORIA,
+                                                          pimprimirtermo => :P899_IMPRIMIRTERMO);
+                      --
+                      vobs := 'Impressão do Pedido realiazada';
+                      --
+                    elsif vidusuario = 9027 then
+                
+                    pck_imprime_fav.prc_pedidos_adapto_testes( pidpedido    => :P899_IDPEDIDO,
+                                                          ppromissoria => vpromissoria,
+                                                          pboleto      => vboleto,
+                                                          pididioma    => vidpais,
+                                                          pusuario     => vusuario,
+                                                          pimprimirpedido => :P899_IMPRIMIRPEDIDO,
+                                                          pimprimirboleto => :P899_IMPRIMIRBOLETO,
+                                                          pimprimirpromissoria => :P899_IMPRIMIRPROMISSORIA,
+                                                          pimprimirtermo => :P899_IMPRIMIRTERMO );
+                
+                      --
+                      pck_pedidos_fav.prc_classificacoespedidos(pidclassificacaopedido  => vnull,
+                                                                pidpedido               => :P899_IDPEDIDO,
+                                                                    pdataclassificado       => vsysdate,
+                                                                    pidusuario              => vidusuario,
+                                                                    pidcaracteristicapedido => vid,
+                                                                    pidvalorcaracteristica  => vnull,
+                                                                    pobservacao             => vobs,
+                                                                    poperacao_dml           => 'I',
+                                                                    pmd5                    => vnullvar);
+                
+                    else --Se não for do Chile segue impressão normal
+                      --
+                      pck_imprime_fav.prc_pedidos_adapto( pidpedido    => :P899_IDPEDIDO,
+                                                          ppromissoria => vpromissoria,
+                                                          pboleto      => vboleto,
+                                                          pididioma    => vidpais,
+                                                          pusuario     => vusuario,
+                                                          pimprimirpedido => :P899_IMPRIMIRPEDIDO,
+                                                          pimprimirboleto => :P899_IMPRIMIRBOLETO,
+                                                          pimprimirpromissoria => :P899_IMPRIMIRPROMISSORIA,
+                                                          pimprimirtermo => :P899_IMPRIMIRTERMO );
+                
+                      --
+                      pck_pedidos_fav.prc_classificacoespedidos(pidclassificacaopedido  => vnull,
+                                                                pidpedido               => :P899_IDPEDIDO,
+                                                                    pdataclassificado       => vsysdate,
+                                                                    pidusuario              => vidusuario,
+                                                                    pidcaracteristicapedido => vid,
+                                                                    pidvalorcaracteristica  => vnull,
+                                                                    pobservacao             => vobs,
+                                                                    poperacao_dml           => 'I',
+                                                                    pmd5                    => vnullvar);
+                        --
+                      end if;
+                      --
+                  elsif vcancelado = 'S' then 
+                    --
+                    pck_imprime_fav.prc_pedidocancelado(pidpedido  => :P899_IDPEDIDO,
+                                                        pidusuario => vidusuario,
+                                                        pididioma  => vidpais);
+                    --
+                    vobs := 'Impressão de Aviso de Cancelamento!';
+                    --
+                    pck_pedidos_fav.prc_classificacoespedidos(pidclassificacaopedido  => vnull,
+                                                              pidpedido               => :P899_IDPEDIDO,
+                                                              pdataclassificado       => vsysdate,
+                                                              pidusuario              => vidusuario,
+                                                              pidcaracteristicapedido => vid,
+                                                              pidvalorcaracteristica  => vnull,
+                                                              pobservacao             => vobs,
+                                                              poperacao_dml           => 'I',
+                                                              pmd5                    => vnullvar);
+                  --
+                  end if;
+                  --
+                  pck_movimentarpedidos_fav.prc_confirmaentregapedido_loja(pidpedido => :P899_IDPEDIDO,
+                                                                           pidusuario => vidusuario);
+                  --
+                  EXCEPTION
+                   WHEN OTHERS THEN 
+                      NULL;
+                end;
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/blank-with-attributes
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P899_IDCOMPRATRANSFERENCIA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 50
+            region: @impressão-de-pedido
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P899_IDPEDIDO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @impressão-de-pedido
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P899_IMPRIMIRBOLETO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 70
+            region: @impressão-de-pedido
+            slot: regionBody
+        }
+    )
+
+    pageItem P899_IMPRIMIRPEDIDO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 60
+            region: @impressão-de-pedido
+            slot: regionBody
+        }
+    )
+
+    pageItem P899_IMPRIMIRPROMISSORIA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 80
+            region: @impressão-de-pedido
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P899_IMPRIMIRTERMO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 90
+            region: @impressão-de-pedido
+            slot: regionBody
+        }
+    )
+
+    pageItem P899_PAGINA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 30
+            region: @impressão-de-pedido
+            slot: regionBody
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+)
+

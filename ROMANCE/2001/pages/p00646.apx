@@ -1,0 +1,1362 @@
+page 646 (
+    name: Visualização/Manutenção das Negociações
+    title: Visualização/Manutenção das Negociações
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region ações-filtros (
+        name: Ações/Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region negociações-realizadas (
+        name: Negociações Realizadas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select np.idnegociacaoparceiro
+                     , np.idfilial
+                     , roman.pck_romance.fnc_nomefilial(np.idfilial) filial
+                     , np.idvendedora
+                     , roman.pck_romance.fnc_nomevendedora(np.idvendedora) consultora
+                     , np.datanegociacao
+                     , (select fp.descricao
+                        from roman.formaspagamentosnegociacoes fp
+                        where fp.idformapagamento = np.formapagamento) formapagamento
+                     , np.qtdparcelas
+                     , np.valornegociacao
+                     , np.observacao
+                     , nvl(np.valorpago,0) valorpago
+                     , nvl(np.saldo,0) saldo
+                     -- Maicon Aimi - 18/06/2025 - Jeny pediu por que visualmente não fica bom quando é PIX
+                     , case 
+                         when np.formapagamento != 'P' then
+                           np.linknegociacao
+                         else
+                           '-'
+                       end as link_da_negociacao
+                     , np.idnegociacaoparceiro id
+                     , np.valordesconto
+                     , (select listagg(distinct(to_char(pnp.datapagamento,'dd/mm/yyyy')),' - ') within group (order by pnp.datapagamento)
+                          from pagamentosnegociacoesparceiros pnp
+                         where pnp.idnegociacaoparceiro = np.idnegociacaoparceiro
+                           and pnp.situacao = 'Q') datapagamento
+                     , ( select initcap(nomepessoa)
+                          from pessoas p
+                             , usuarios u
+                          where p.idpessoa = u.idpessoa
+                            and u.idusuario = np.idusuarioresponsavel ) usuario 
+                     , pck_romance.fnc_nomerepresentante(np.idrepresentante) distribuidor
+                     , nvl(( select sum(pn.valorparcela)
+                             from pagamentosnegociacoesparceiros pn
+                             where pn.idnegociacaoparceiro = np.idnegociacaoparceiro
+                               and pn.situacao             = 'V' ),0) valorvencido
+                     , nvl(( select sum(pn.valorparcela)
+                             from pagamentosnegociacoesparceiros pn
+                             where pn.idnegociacaoparceiro = np.idnegociacaoparceiro
+                               and pn.situacao             = 'A' 
+                               and trunc(pn.datavencimento) between :P646_DATAINI and :P646_DATAFIM),0) valorvencerperiodo
+                     , (select nvl(p.documentoestrangeiro,cpf)
+                        from catal.pessoas p
+                           , catal.vendedoras v
+                        where p.idpessoa = v.idpessoa
+                          and v.idvendedora = np.idvendedora) documento
+                     , nvl(( select sum(pnp.valorparcela)
+                             from pagamentosnegociacoesparceiros pnp
+                             where pnp.idnegociacaoparceiro = np.idnegociacaoparceiro
+                               and pnp.situacao             = 'E' ),0) valoremespera
+                     , ( select c.beneficiario||' ('||b.nomebanco||' - Ag: '||c.agencia||'- CC: '||c.conta||')'
+                         from roman.contasbancarias c
+                            , roman.bancos b
+                         where b.idbanco = c.idbanco
+                           and c.idcontabanc = np.idcontabancaria ) conta
+                from roman.negociacoesparceiros np
+                where np.origem = 'P' -- Gestão de Perda
+                  and ( :P646_IDFILIAL is null or np.idfilial = :P646_IDFILIAL )
+                  and ( :P646_IDREPRESENTANTE is null or np.idrepresentante = :P646_IDREPRESENTANTE )
+                  and ( :P646_PESQUISAR_POR = 'T'
+                   or ( :P646_PESQUISAR_POR = 'N' and trunc(np.datanegociacao) between :P646_DATAINI and :P646_DATAFIM )
+                   or ( :P646_PESQUISAR_POR = 'P' and exists (select 1 
+                                                                from pagamentosnegociacoesparceiros t
+                                                               where t.idnegociacaoparceiro = np.idnegociacaoparceiro
+                                                                 and trunc(t.datapagamento) between :P646_DATAINI and :P646_DATAFIM))
+                   or ( :P646_PESQUISAR_POR = 'V' and exists (select 1 
+                                                                from pagamentosnegociacoesparceiros t
+                                                               where t.idnegociacaoparceiro = np.idnegociacaoparceiro
+                                                                 and trunc(t.datavencimento) between :P646_DATAINI and :P646_DATAFIM))
+                  )
+                  and ( :P646_IDVENDEDORA is null or np.idvendedora = :P646_IDVENDEDORA )
+                  and ( :P646_FILTRAR = 'S')
+                  and ( :P646_IDNEGOCIACAO is null or np.idnegociacaoparceiro = :P646_IDNEGOCIACAO)
+                  and ( :P646_FORMAPGTO = 'A' or np.formapagamento = :P646_FORMAPGTO )
+                  and ( :P646_IDRESPONSAVEL is null or np.idusuarioresponsavel = :P646_IDRESPONSAVEL)
+                  and ( :P646_TIPO = 'X' 
+                      or ( :P646_TIPO = 'T' and not exists ( select 1
+                                                             from classificacoesnegociacoesparc cn
+                                                             where cn.idnegociacaoparceiro = np.idnegociacaoparceiro ) )
+                      or ( :P646_TIPO = 'C' and exists ( select 1
+                                                         from classificacoesnegociacoesparc cn
+                                                         where cn.idnegociacaoparceiro = np.idnegociacaoparceiro
+                                                           and cn.idcaracteristicanegociacao = 5 ) ) -- Negociação Cruzeiro
+                      or ( :P646_TIPO = 'D' and exists ( select 1
+                                                         from classificacoesnegociacoesparc cn
+                                                         where cn.idnegociacaoparceiro = np.idnegociacaoparceiro
+                                                           and cn.idcaracteristicanegociacao = 4 ) ) ) -- Negociação de Distribuidor
+                  --< T9775421
+                  and ( :P646_SITUACAO is null
+                   or ( :P646_SITUACAO = 'Q' and exists (select 1 -- Onde esteja todo quitado
+                                                           from pagamentosnegociacoesparceiros p
+                                                          where p.idnegociacaoparceiro = np.idnegociacaoparceiro
+                                                            and p.situacao = 'Q'
+                                                            and not exists (select 1 
+                                                                              from pagamentosnegociacoesparceiros pnp 
+                                                                             where pnp.idnegociacaoparceiro = np.idnegociacaoparceiro
+                                                                               and pnp.situacao in ('A','C','E','V'))))
+                   or ( :P646_SITUACAO <> 'Q' and exists (select 1
+                                                            from pagamentosnegociacoesparceiros p
+                                                           where p.idnegociacaoparceiro = np.idnegociacaoparceiro
+                                                             and p.situacao = :P646_SITUACAO)))
+                  -- T9775421 >
+                
+                  union
+                
+                  select np.idnegociacaoparceiro
+                     , np.idfilial
+                     , roman.pck_romance.fnc_nomefilial(np.idfilial) filial
+                     , np.idvendedora
+                     , roman.pck_romance.fnc_nomevendedora(np.idvendedora) consultora
+                     , np.datanegociacao
+                     , (select fp.descricao
+                        from roman.formaspagamentosnegociacoes fp
+                        where fp.idformapagamento = np.formapagamento) formapagamento
+                     , np.qtdparcelas
+                     , np.valornegociacao
+                     , np.observacao
+                     , nvl(np.valorpago,0) valorpago
+                     , nvl(np.saldo,0) saldo
+                     , np.linknegociacao link_da_negociacao
+                     , np.idnegociacaoparceiro id
+                     , np.valordesconto
+                     , (select listagg(distinct(to_char(pnp.datapagamento,'dd/mm/yyyy')),' - ') within group (order by pnp.datapagamento)
+                          from pagamentosnegociacoesparceiros pnp
+                         where pnp.idnegociacaoparceiro = np.idnegociacaoparceiro
+                           and pnp.situacao = 'Q') datapagamento
+                     , ( select initcap(nomepessoa)
+                          from pessoas p
+                             , usuarios u
+                          where p.idpessoa = u.idpessoa
+                            and u.idusuario = np.idusuarioresponsavel ) usuario 
+                     , pck_romance.fnc_nomerepresentante(np.idrepresentante) distribuidor
+                     , nvl(( select sum(pn.valorparcela)
+                             from pagamentosnegociacoesparceiros pn
+                             where pn.idnegociacaoparceiro = np.idnegociacaoparceiro
+                               and pn.situacao             = 'V' ),0) valorvencido
+                     , nvl(( select sum(pn.valorparcela)
+                             from pagamentosnegociacoesparceiros pn
+                             where pn.idnegociacaoparceiro = np.idnegociacaoparceiro
+                               and pn.situacao             = 'A' 
+                               and trunc(pn.datavencimento) between :P646_DATAINI and :P646_DATAFIM),0) valorvencerperiodo
+                     , (select nvl(p.documentoestrangeiro,cpf)
+                        from catal.pessoas p
+                           , catal.vendedoras v
+                        where p.idpessoa = v.idpessoa
+                          and v.idvendedora = np.idvendedora) documento
+                     , nvl(( select sum(pnp.valorparcela)
+                             from pagamentosnegociacoesparceiros pnp
+                             where pnp.idnegociacaoparceiro = np.idnegociacaoparceiro
+                               and pnp.situacao             = 'E' ),0) valoremespera
+                     , ( select c.beneficiario||' ('||b.nomebanco||' - Ag: '||c.agencia||'- CC: '||c.conta||')'
+                         from roman.contasbancarias c
+                            , roman.bancos b
+                         where b.idbanco = c.idbanco
+                           and c.idcontabanc = np.idcontabancaria ) conta
+                from roman.negociacoesparceiros np
+                where idnegociacaoparceiro = 271689
+                  and v('APP_USER') = 'MAICONAIMI'
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            searchField: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 32787457093319216
+        }
+
+        column CONSULTORA (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column CONTA (
+            type: plainText
+            heading {
+                heading: Conta Bancária
+                alignment: center
+            }
+            layout {
+                sequence: 230
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column DATANEGOCIACAO (
+            type: plainText
+            heading {
+                heading: Data Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column DATAPAGAMENTO (
+            type: plainText
+            heading {
+                heading: Data Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 170
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 190
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column DOCUMENTO (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 210
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column FORMAPAGAMENTO (
+            type: plainText
+            heading {
+                heading: Forma de Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column ID (
+            type: plainText
+            heading {
+                heading: ID
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column IDFILIAL (
+            type: plainText
+            heading {
+                heading: Idfilial
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column IDNEGOCIACAOPARCEIRO (
+            type: link
+            heading {
+                heading: Ver/Editar
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 650
+                    items: {
+                        P650_IDNEGOCIACAOPARCEIRO: #IDNEGOCIACAOPARCEIRO#
+                    }
+                    clearCache: 650
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil.png" class="apex-edit-pencil" alt="">
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column IDVENDEDORA (
+            type: plainText
+            heading {
+                heading: Idvendedora
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column LINK_DA_NEGOCIACAO (
+            type: plainText
+            heading {
+                heading: Link Da Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column QTDPARCELAS (
+            type: plainText
+            heading {
+                heading: Nr Parcelas
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column USUARIO (
+            type: plainText
+            heading {
+                heading: Responsável PAP
+                alignment: center
+            }
+            layout {
+                sequence: 180
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column VALORDESCONTO (
+            type: plainText
+            heading {
+                heading: Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column VALOREMESPERA (
+            type: plainText
+            heading {
+                heading: Valor Em Espera
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column VALORNEGOCIACAO (
+            type: plainText
+            heading {
+                heading: Valor Negociado
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column VALORPAGO (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column VALORVENCERPERIODO (
+            type: plainText
+            heading {
+                heading: Valor Vencer no Período
+                alignment: end
+            }
+            layout {
+                sequence: 240
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column VALORVENCIDO (
+            type: plainText
+            heading {
+                heading: Valor Vencido
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 328638 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CONSULTORA (
+                sequence: 4
+            )
+
+            displayColumn CONTA (
+                sequence: 12
+            )
+
+            displayColumn DATANEGOCIACAO (
+                sequence: 6
+            )
+
+            displayColumn DATAPAGAMENTO (
+                sequence: 20
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 3
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 5
+            )
+
+            displayColumn FILIAL (
+                sequence: 2
+            )
+
+            displayColumn FORMAPAGAMENTO (
+                sequence: 11
+            )
+
+            displayColumn ID (
+                sequence: 18
+            )
+
+            displayColumn IDNEGOCIACAOPARCEIRO (
+                sequence: 1
+            )
+
+            displayColumn LINK_DA_NEGOCIACAO (
+                sequence: 19
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 13
+            )
+
+            displayColumn QTDPARCELAS (
+                sequence: 10
+            )
+
+            displayColumn SALDO (
+                sequence: 15
+            )
+
+            displayColumn USUARIO (
+                sequence: 14
+            )
+
+            displayColumn VALORDESCONTO (
+                sequence: 21
+            )
+
+            displayColumn VALOREMESPERA (
+                sequence: 9
+            )
+
+            displayColumn VALORNEGOCIACAO (
+                sequence: 7
+            )
+
+            displayColumn VALORPAGO (
+                sequence: 8
+            )
+
+            displayColumn VALORVENCERPERIODO (
+                sequence: 16
+            )
+
+            displayColumn VALORVENCIDO (
+                sequence: 17
+            )
+
+            sort (
+                column: DATANEGOCIACAO
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: VALORNEGOCIACAO
+            )
+
+            aggregate (
+                column: VALORPAGO
+            )
+
+            aggregate (
+                column: VALOREMESPERA
+            )
+
+            aggregate (
+                column: VALORVENCERPERIODO
+            )
+
+            aggregate (
+                column: SALDO
+            )
+
+            aggregate (
+                column: VALORVENCIDO
+            )
+
+        )
+
+    )
+
+    region placar-do-dia (
+        name: Placar do Dia
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select descricao
+                     , quantidade
+                from ( select 'Acordos Formalizados' descricao
+                            , count(1) quantidade
+                       from negociacoesparceiros np
+                       where np.origem = 'P'
+                         and trunc(np.datanegociacao) = trunc(sysdate)
+                       union
+                       select 'Boletos Registrados'
+                            , count(1)
+                       from favorita.controlearquivosbanco ca
+                       where trunc(ca.dataprocessado) = trunc(sysdate)
+                         and ca.idconveniobanco = 3
+                         and exists ( select 1
+                                      from pagamentosnegociacoesparceiros pp
+                                      where pp.idpagamentonegociacaoparceiro = ca.idpagamentonegociacao
+                                        and exists ( select 1
+                                                     from negociacoesparceiros np
+                                                     where np.idnegociacaoparceiro = pp.idnegociacaoparceiro
+                                                       and np.origem = 'P'
+                                                       and trunc(np.datanegociacao) = trunc(sysdate)))
+                       union
+                       select 'Acordos Quitados'
+                            , count(1)
+                       from pagamentosnegociacoesparceiros pp
+                       where trunc(pp.databaixa) = trunc(sysdate)
+                         and exists ( select 1
+                                      from negociacoesparceiros np
+                                      where np.idnegociacaoparceiro = pp.idnegociacaoparceiro
+                                        and np.origem               = 'P'
+                                        and np.saldo = 0 )
+                       union
+                       select 'Débitos Diversos' descricao
+                            , count(1) quantidade
+                       from negociacoesparceiros np
+                       where np.origem = 'P'
+                         and trunc(np.datanegociacao) = trunc(sysdate)
+                         and exists ( select 1
+                                      from documentosnegociacao dc
+                                      where dc.idnegociacaoparceiro = np.idnegociacaoparceiro
+                                        and dc.iddiverso is not null)
+                       union
+                       select 'Cedência de Débitos'
+                            , count(1) quantidade
+                       from negociacoesparceiros np
+                       where np.origem = 'P'
+                         and trunc(np.datanegociacao) = trunc(sysdate)
+                         and exists ( select 1
+                                      from documentosnegociacao dc
+                                      where dc.idnegociacaoparceiro = np.idnegociacaoparceiro
+                                        and (exists ( select 1
+                                                     from classificacoesnotasvendas cl
+                                                     where cl.idnotavenda = dc.idnotavenda
+                                                       and cl.idcaracteristicanotavenda = 59)
+                                          or exists ( select 1
+                                                      from favorita.classificacoespedidos cp
+                                                      where cp.idpedido = dc.idpedido
+                                                        and cp.idcaracteristicapedido = 104 ))) )
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: breadcrumbBar
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            labelColumn: DESCRICAO
+            valueColumn: QUANTIDADE
+        }
+    )
+
+    pageItem P646_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até:
+            alignment: left
+        }
+        layout {
+            sequence: 60
+            region: @ações-filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P646_DATAINI (
+        type: datePickerJquery
+        label {
+            label: De:
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @ações-filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P646_FILTRAR (
+        type: hidden
+        layout {
+            sequence: 10
+            region: @negociações-realizadas
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P646_FORMAPGTO (
+        type: radioGroup
+        label {
+            label: Forma Pagto
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Cartão Crédito;C,Depósito;D,Boleto ;B,PIX ;P,Giro de Pago;G,Giro de Tigo;T,Ambos;A,MBWAY;M
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 70
+            region: @ações-filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P646_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nome
+                     , idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                ```
+        }
+        layout {
+            sequence: 80
+            region: @ações-filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P646_IDNEGOCIACAO (
+        type: textField
+        label {
+            label: Id Negociação
+            alignment: left
+        }
+        layout {
+            sequence: 130
+            region: @ações-filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P646_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(r.idrepresentante) d
+                     , idrepresentante r
+                from representantes r
+                where r.idgerente = ( select idgerente 
+                                      from gerentes g
+                                      where g.idfilial = :P646_IDFILIAL )
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P646_IDFILIAL
+        }
+        layout {
+            sequence: 90
+            region: @ações-filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P646_IDRESPONSAVEL (
+        type: selectList
+        label {
+            label: Responsável PAP
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(nomepessoa) d
+                     , u.idusuario r
+                from pessoas p
+                   , usuarios u
+                where p.idpessoa = u.idpessoa
+                  and u.idgerente = 364
+                  and u.ativo = 'S'
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 110
+            region: @ações-filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P646_IDVENDEDORA (
+        type: popupLov
+        label {
+            label: Consultora
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(p.nomepessoa)||' CPF: '||p.cpf d
+                     , v.idvendedora r
+                from catal.vendedoras v
+                   , catal.pessoas p
+                where p.idpessoa = v.idpessoa
+                  and ( :P646_IDREPRESENTANTE is null or v.idrepresentante = :P646_IDREPRESENTANTE )
+                  and ( :P646_IDFILIAL is null or v.idfilial = :P646_IDFILIAL )
+                order by 1
+                ```
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 100
+            region: @ações-filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P646_PESQUISAR_POR (
+        type: radioGroup
+        label {
+            label: Pesquisar Por:
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Todos;T,Data Vencimento;V,Data Pagamento;P,Data Negociação;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @ações-filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+    )
+
+    pageItem P646_SITUACAO (
+        type: selectList
+        label {
+            label: Situação
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Em Aberto;A,Em Espera;E,Cancelado;C,Quitado;Q,Vencido;V
+            nullDisplayValue: Todos
+        }
+        layout {
+            sequence: 30
+            region: @ações-filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+    )
+
+    pageItem P646_TIPO (
+        type: radioGroup
+        label {
+            label: Tipo de Negociação
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Tradicional;T,Cruzeiro;C,Distribuidor;D,Todas;X
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 120
+            region: @ações-filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: X
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 140
+            region: @ações-filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--primary
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button nova-negociacao (
+        buttonName: NOVA_NEGOCIACAO
+        label: Nova Negociação
+        layout {
+            sequence: 10
+            region: @ações-filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 647
+                items: {
+                    P647_IDFILIAL:
+                    P647_IDNEGOCIACAO:
+                    P647_IDREPRESENTANTE:
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    branch (
+        name: Go To Page 646
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 646
+                items: {
+                    P646_IDFILIAL: &P646_IDFILIAL.
+                    P646_IDREPRESENTANTE: &P646_IDREPRESENTANTE.
+                    P646_FILTRAR: S
+                    P646_TIPO: &P646_TIPO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

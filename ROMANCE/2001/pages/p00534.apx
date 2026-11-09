@@ -1,0 +1,315 @@
+page 534 (
+    name: Resgates Incluídos no Fechamento
+    title: Resgates Incluídos no Fechamento
+    appearance {
+        pageTemplate: @/minimal-no-navigation
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region pagamentos-de-resgates (
+        name: "Pagamentos de Resgates "
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(d.idrepresentante) distribuidor
+                     , sum( nvl(i.qtd_pp,0)
+                              + nvl(i.qtd_p,0)
+                              + nvl(i.qtd_m,0)
+                              + nvl(i.qtd_g,0)
+                              + nvl(i.qtd_gg,0)
+                              + nvl(i.qtd_egg,0)
+                              + nvl(i.qtd_exgg,0)
+                              + nvl(i.qtd_u,0) ) qtd
+                     , case 
+                         when :P0_IDFILIAL not in (1041,1095,1094,1081) then
+                           sum((( nvl(i.qtd_pp,0)
+                              + nvl(i.qtd_p,0)
+                              + nvl(i.qtd_m,0)
+                              + nvl(i.qtd_g,0)
+                              + nvl(i.qtd_gg,0)
+                              + nvl(i.qtd_egg,0)
+                              + nvl(i.qtd_exgg,0)
+                              + nvl(i.qtd_u,0) ) * i.valorproduto)*decode( i.comissao,'S',0.6 /*tira 40% da vendedora*/
+                                                                                         , 1  /* produto sem comissao */)) 
+                                                                                         /* comissao do representante é retirada depois no acerto*/
+                         when :P0_IDFILIAL in (1041,1095,1094,1081) then
+                           sum((( nvl(i.qtd_pp,0)
+                              + nvl(i.qtd_p,0)
+                              + nvl(i.qtd_m,0)
+                              + nvl(i.qtd_g,0)
+                              + nvl(i.qtd_gg,0)
+                              + nvl(i.qtd_egg,0)
+                              + nvl(i.qtd_exgg,0)
+                              + nvl(i.qtd_u,0) ) * i.valorproduto)*decode( i.comissao,'S',0.7 /*tira 40% da vendedora*/
+                                                                                         , 1  /* produto sem comissao */)) 
+                                                                                         /* comissao do representante é retirada depois no acerto*/
+                       end vlrtotalpagar
+                from itensdevolucaorepres i
+                   , devolucoesrepresentantes d
+                where d.idfilial = :P0_IDFILIAL
+                  and i.iddevolucaorepres = d.iddevolucaorepres
+                  and i.situacaodefeito = 'P'
+                  and i.idfechamentoreprespago in ( select fr.idfechamentorepres
+                                                     from fechamentorepresentantes fr
+                                                     where fr.idfechamento = :P534_IDFECHAMENTO )
+                group by idrepresentante
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: "Nenhum pagamento de venda direta da romance encontrado. "
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 964305767961838829
+        }
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column QTD (
+            type: plainText
+            heading {
+                heading: Quantidade
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column VLRTOTALPAGAR (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        savedReport 59048 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 1
+            )
+
+            displayColumn QTD (
+                sequence: 2
+            )
+
+            displayColumn VLRTOTALPAGAR (
+                sequence: 3
+            )
+
+            aggregate (
+                column: VALORPAGO
+            )
+
+            aggregate (
+                column: QTD
+            )
+
+            aggregate (
+                column: VLRTOTALPAGAR
+            )
+
+        )
+
+    )
+
+    pageItem P534_IDFECHAMENTO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @pagamentos-de-resgates
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    process confirmar-assinatura (
+        name: Confirmar Assinatura
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidcaracteristica number := 24;
+                  vidclassificacaonotavenda number;
+                  vdataclassificado date := sysdate;
+                  vidusuario number;
+                  vidvalorcaracteristica number;
+                  vobservacao varchar2(1000);
+                  vidnotavenda number := :P534_IDRECEBIDO;
+                  --
+                begin 
+                  --
+                  select idusuario
+                  into vidusuario
+                  from usuarios
+                  where usuario = v('APP_USER');
+                  --
+                  pck_cadastros_rmc.prc_classificacoesnotasvendas(pidclassificacaonotavenda => vidclassificacaonotavenda,
+                                                                  pidnotavenda => :P534_IDRECEBIDO,
+                                                                  pidcaracteristicanotavenda => vidcaracteristica,
+                                                                  pdataclassificado => vdataclassificado,
+                                                                  pidusuario => vidusuario,
+                                                                  pidvalorcaracteristica => vidvalorcaracteristica,
+                                                                  pobservacao => vobservacao,
+                                                                  poperacao_dml => 'I');
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: Assinatura Confirmada!
+        }
+        advanced {
+            executionMappingIdentifier: 5906087881513958
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ASSINATURACONFIRMADA
+        }
+    )
+
+    process confirmar-promissoria (
+        name: Confirmar Promissoria
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidcaracteristica number := 3;
+                  vidclassificacaonotavenda number;
+                  vdataclassificado date := sysdate;
+                  vidusuario number;
+                  vidvalorcaracteristica number;
+                  vobservacao varchar2(1000);
+                  vidnotavenda number := :P534_IDRECEBIDO;
+                  --
+                begin 
+                  --
+                  update notasvendas n
+                  set n.promissoriarecuperada = 'S'
+                  where n.idnotavenda = :P534_IDRECEBIDO;
+                  --
+                  select idusuario
+                  into vidusuario
+                  from usuarios
+                  where usuario = v('APP_USER');
+                  --
+                  pck_cadastros_rmc.prc_classificacoesnotasvendas(pidclassificacaonotavenda => vidclassificacaonotavenda,
+                                                                  pidnotavenda => :P534_IDRECEBIDO,
+                                                                  pidcaracteristicanotavenda => vidcaracteristica,
+                                                                  pdataclassificado => vdataclassificado,
+                                                                  pidusuario => vidusuario,
+                                                                  pidvalorcaracteristica => vidvalorcaracteristica,
+                                                                  pobservacao => vobservacao,
+                                                                  poperacao_dml => 'I');
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Promissória Recebida
+        }
+        advanced {
+            executionMappingIdentifier: 5905609757513957
+        }
+        serverSideCondition {
+            type: request=Value
+            value: PROMISSORIARECEBIDA
+        }
+    )
+
+)
+

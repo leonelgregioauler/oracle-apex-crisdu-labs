@@ -1,0 +1,351 @@
+page 630 (
+    name: Acessos do Sistema Favorita
+    title: Acessos do Sistema Favorita
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region aplicações (
+        name: Aplicações
+        type: tabform
+        source {
+            sqlQuery:
+                ```sql
+                select idaplicacao
+                      ,descricao
+                      ,hierarquia
+                      ,decode( hierarquia , null , '<b>'||LPAD('* ', 3 * (level - 1)) || TO_CHAR(replace(descricao,'?','a')) ||'</b>'
+                                                 , DECODE(LEVEL , 2 , '<i>'||LPAD('* ', 3 * (level - 1)) || TO_CHAR(replace(descricao,'?','a'))||'</i>'
+                                                                , 3 , '<i>'||LPAD('-> ', 3 * (level - 1)) || TO_CHAR(replace(descricao,'?','a'))||'</i>') ) nivel_hierarquico
+                      ,nvl((select count(*)
+                              from roman.acessos b 
+                             where b.idaplicacao = a.idaplicacao),0) usuarios_liberados
+                      ,pagina
+                      ,idaplicacao id
+                  from ( select a.idaplicacao
+                              , a.descricao
+                              , a.hierarquia
+                              , nvl(a.pagina,0) pagina
+                         from roman.aplicacoes a 
+                         where a.idsistema = 2000
+                         union
+                         select a.idaplicacao
+                              , a.descricao
+                              , a.hierarquia
+                              , nvl(a.pagina,0) pagina
+                         from roman.aplicacoes a 
+                         where a.idsistema = 2000
+                           and a.hierarquia is null
+                         ORDER BY IDAPLICACAO) a
+                 start with hierarquia is null
+                connect by prior idaplicacao = hierarquia
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        reportLayout {
+            numberOfRows: 800
+        }
+        componentAppearance {
+            template: @/standard
+            showNullValuesAs: (null)
+        }
+        pagination {
+            type: showAll
+            partialPageRefresh: false
+        }
+        performance {
+            maxRowsToProcess: 500
+        }
+        messages {
+            whenNoDataFound: Usuário com acesso total.
+        }
+        componentAdvanced {
+            stripHtml: true
+        }
+
+        column CHECK$01 (
+            reportColumnQueryId: 8
+            derivedColumn: Y
+            type: hidden
+            layout {
+                sequence: 1
+            }
+        )
+
+        column DESCRICAO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 3
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column HIERARQUIA (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 4
+            }
+        )
+
+        column ID (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: ID
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: center
+            }
+        )
+
+        column IDAPLICACAO (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 2
+            }
+            primaryKeySource {
+                type: existingTrigger
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column NIVEL_HIERARQUICO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Aplicação
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column PAGINA (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Pagina
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column USUARIOS_LIBERADOS (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            type: link
+            heading {
+                heading: Usuarios Liberados
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            link {
+                target: {
+                    page: 631
+                    items: {
+                        P631_IDAPLICACAO: #IDAPLICACAO#
+                    }
+                    action: resetPagination
+                }
+                linkText: #USUARIOS_LIBERADOS#
+            }
+        )
+
+    )
+
+    process copiar-os-acessos (
+        name: Copiar os Acessos
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  insert into roman.acessos ( idacesso,
+                                        usuario,
+                                        idaplicacao,
+                                        ativo )
+                  select roman.seq_idacessos.nextval
+                       , :P630_USUARIOS
+                       , a.idaplicacao
+                       , 'S'
+                  from roman.acessos a
+                  where a.usuario = :P630_USUARIO_COPIAR
+                    and not exists ( select 1
+                                     from roman.acessos aa
+                                     where aa.usuario = :P630_USUARIOS
+                                       and aa.idaplicacao = a.idaplicacao )
+                    and exists ( select 1
+                                 from roman.aplicacoes ap
+                                 where ap.idaplicacao = a.idaplicacao
+                                   and ap.idsistema   = 2000 );
+                  --
+                  commit;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 40
+        }
+        successMessage {
+            successMessage: Acessos Copiados.
+        }
+        advanced {
+            executionMappingIdentifier: 2433857121349346516
+        }
+        serverSideCondition {
+            type: request=Value
+            value: COPIAR
+        }
+    )
+
+    process deletar-acessos (
+        name: Deletar Acessos
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                DECLARE
+                vpedido number;
+                begin
+                 FOR i IN 1.. HTMLDB_APPLICATION.G_F01.COUNT 
+                 loop
+                   --
+                   --RAISE_APPLICATION_ERROR(-20000,'TESTE');
+                   delete roman.acessos
+                   where idaplicacao = HTMLDB_APPLICATION.G_F02(HTMLDB_APPLICATION.G_F01(i))
+                     and usuario = :P630_USUARIOS;
+                   --
+                  END LOOP;
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        successMessage {
+            successMessage: Acessos removidos com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 2433856759899346517
+        }
+    )
+
+    process liberaracesso (
+        name: liberaracesso
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                DECLARE
+                  vpedido number;
+                begin
+                  FOR i IN 1.. HTMLDB_APPLICATION.G_F01.COUNT 
+                  loop
+                    insert into roman.acessos (idacesso, usuario, idaplicacao, ativo)
+                    values (roman.seq_idacessos.nextval, :P630_USUARIOS, HTMLDB_APPLICATION.G_F02(HTMLDB_APPLICATION.G_F01(i)), 'S');
+                  END LOOP;
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: Acessos Liberados com sucesso!
+        }
+        error {
+            displayLocation: onErrorPage
+        }
+        advanced {
+            executionMappingIdentifier: 2433856302930346517
+        }
+        serverSideCondition {
+            type: request=Value
+            value: LIBERARACESSO
+        }
+    )
+
+    branch (
+        name: Go To Page 630
+        execution {
+            sequence: 1
+        }
+        behavior {
+            target: {
+                page: 630
+            }
+            saveStateBeforeBranching: true
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 11
+        }
+        behavior {
+            target: {
+                page: 630
+                items: {
+                    P630_USUARIOS: &P630_USUARIOS.
+                    P630_USUARIO_COPIAR: &P630_USUARIO_COPIAR.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: COPIAR
+        }
+    )
+
+)
+

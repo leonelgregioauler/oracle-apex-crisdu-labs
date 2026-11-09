@@ -1,0 +1,1976 @@
+page 737 (
+    name: Relatorio Metas Romance - Franquias
+    title: Relatorio Metas Romance - Franquias
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region ideal-até-o-momento (
+        name: Ideal até o momento
+        type: chart
+        layout {
+            sequence: 10
+            parentRegion: @totais
+            slot: regionBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        chart {
+            type: statusMeterGauge
+        }
+        title {
+            title: Ideal até o momento
+        }
+        chartLayout {
+            maxWidth: 600
+        }
+        performance {
+            lazyLoading: true
+        }
+        gauge {
+            orientation: horizontal
+        }
+        value {
+            position: center
+            format: decimal
+            formatScaling: million
+        }
+
+        series ideal-até-o-momento (
+            name: Ideal até o momento
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select nome
+                         , totalcobranca atingido
+                         , ideal
+                         , 'Ideal: ' || to_char(ideal, '999G999G999G999G990D00') ideal_tooltip
+                         , ideal - 100 ideal_abaixo
+                         , ideal + 100 ideal_acima
+                         , cor_ideal_abaixo
+                         , cor_ideal_acima
+                    from (
+                        select 'Ideal até o momento' nome
+                             , trunc(sum(ideal)) ideal
+                             , trunc(sum(totalcobranca), 2) totalcobranca
+                             , '#ff7755' cor_ideal_abaixo
+                             , '#99ff99' cor_ideal_acima
+                             
+                          from (
+                                select  ( nvl(m.desafiocalculadoatual,0) / (select count(*)
+                                                                              from roman.semana_dias s
+                                                                             where s.cicloromance = :P737_CICLOROMANCE))
+                                            * ( case
+                                                    when trunc(sysdate) > (select max(dt_fim)
+                                                                             from roman.semana_dias
+                                                                            where cicloromance = :P737_CICLOROMANCE)
+                                                    then
+                                                         (select count(*)
+                                                            from roman.semana_dias
+                                                           where cicloromance = :P737_CICLOROMANCE)
+                                                    else
+                                                         (select greatest(count(1), 1)
+                                                            from roman.semana_dias
+                                                           where cicloromance = :P737_CICLOROMANCE
+                                                             and dt_fim <= trunc(sysdate))
+                                                  end) ideal
+                    
+                                      , nvl(tf.totalcobranca,0) totalcobranca
+                                   from metasdesafiodistribuidores m
+                                      , catal.filiais fi
+                                      , (select f.idfilial
+                                              , fr.idrepresentante
+                                              , nvl(sum(fr.totalgeral),0) totalcobranca
+                                           from fechamentossemanais f
+                                              , fechamentorepresentantes fr
+                                          where fr.idfechamento = f.idfechamento
+                                            and f.idsemana in (select idsemana
+                                                                 from roman.semana_dias 
+                                                                where semanacompleta in (select semanacompleta anterior
+                                                                                           from roman.semana_dias s
+                                                                                          where cicloromance = :P737_CICLOROMANCE) )
+                                       group by f.idfilial, fr.idrepresentante ) tf
+                                  where m.cicloromance = :P737_CICLOROMANCE
+                                    and m.idfilial = fi.idfilial
+                                    and m.idfilial = tf.idfilial(+)
+                                    and m.idrepresentante = tf.idrepresentante(+)
+                                    and m.idfilial = :P737_IDFILIAL
+                                    and :P737_PERIODO = 'C'
+                                    and m.idrepresentante not in (select idrepresentante
+                                                                    from representantes
+                                                                   where idpessoa = (select idpessoa
+                                                                                       from gerentes
+                                                                                      where idfilial = :P0_IDFILIAL) )
+                                union all
+                    
+                                select round(sum(case
+                                                    when b.dt_ini <= trunc(sysdate) then 
+                                                        b.desafio_semanal
+                                                    else 0
+                                                  end), 2) ideal
+                                     , nvl(sum(b.totalcobranca), 0) totalcobranca
+                                 from (
+                                    select m.idfilial
+                                         , m.idrepresentante
+                                         , s.dt_ini
+                                         , ( m.desafiocalculadoatual / sc.total_semanas ) desafio_semanal
+                                         , nvl(tf.totalcobranca, 0) totalcobranca
+                                         , m.mediasemanal
+                                      from roman.metasdesafiodistribuidores m
+                                         , catal.filiais fi
+                                         , roman.semana_dias s
+                                         , ( select cicloromance
+                                                  , count(*) total_semanas
+                                               from roman.semana_dias
+                                              group by cicloromance ) sc
+                                         , ( select f.idfilial
+                                                  , fr.idrepresentante
+                                                  , f.idsemana
+                                                  , sum(fr.totalgeral) totalcobranca
+                                               from roman.fechamentossemanais f
+                                                  , roman.fechamentorepresentantes fr
+                                                  , roman.semana_dias s
+                                              where fr.idfechamento = f.idfechamento
+                                                and f.idsemana = s.idsemana
+                                                and s.idsemana between :P737_SEMANAINICIAL and :P737_SEMANAFINAL
+                                             group by f.idfilial
+                                                    , fr.idrepresentante
+                                                    , f.idsemana ) tf
+                                    where m.idfilial = fi.idfilial
+                                    and m.cicloromance = s.cicloromance
+                                    and m.cicloromance = sc.cicloromance
+                                    and s.idsemana between :P737_SEMANAINICIAL and :P737_SEMANAFINAL
+                                    and m.idfilial = tf.idfilial(+)
+                                    and m.idrepresentante = tf.idrepresentante(+)
+                                    and s.idsemana = tf.idsemana(+)
+                                    and m.idfilial = :P737_IDFILIAL
+                                    and :P737_PERIODO = 'S'
+                                    and m.idrepresentante not in (
+                                                                    select r.idrepresentante
+                                                                      from catal.representantes r
+                                                                     where r.idpessoa in ( select g.idpessoa
+                                                                                            from catal.gerentes g
+                                                                                           where g.idfilial = :P0_IDFILIAL ) )
+                                ) b
+                                group by b.idfilial
+                                       , b.idrepresentante
+                            )
+                    )
+                    where totalcobranca is not null
+                    ```
+                pageItemsToSubmit: [
+                    P737_CICLOROMANCE
+                    P737_REGIONAL
+                    P737_SEMANASRESTANTES
+                    P737_IDFILIAL
+                ]
+            }
+            columnMapping {
+                label: ATINGIDO
+                value: ATINGIDO
+                maxValue: IDEAL
+                customTooltip: IDEAL_TOOLTIP
+            }
+            thresholds {
+                values: &IDEAL_ABAIXO.,&IDEAL_ACIMA.
+                colors: &COR_IDEAL_ABAIXO.,&COR_IDEAL_ACIMA.
+                display: onIndicator
+            }
+        )
+
+    )
+
+    region relatorio-de-metas-romance-gestores (
+        name: Relatorio de Metas Romance - Gestores
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select idfilial
+                     , representante
+                     , desafiocalculadoatual
+                     , idealateomomento
+                     , totalcobranca
+                     , previa
+                     , realizado as "%Realizado"
+                     , case when valorfaltanteporsemana < 0
+                            then 0
+                            else valorfaltanteporsemana
+                       end valorfaltanteporsemana
+                     , mediasemanal
+                     , case when desafiocalculadoatual = 0 then
+                                'WHITE'
+                           when SEMREST = 5 and realizado < 16.67 or
+                                SEMREST = 4 and realizado < 33.33 or
+                                SEMREST = 3 and realizado < 50 or
+                                SEMREST = 2 and realizado < 66.67 or
+                                SEMREST = 1 and realizado < 83.33 or
+                                SEMREST = 0 and realizado < 100 then
+                               'RED'
+                            else
+                              'GREEN'
+                       end css_color
+                  from (
+                       select m.idfilial
+                            , m.idrepresentante
+                            , favorita.pck_util_fav.fnc_nomerepresentante(m.idrepresentante) representante
+                            , m.desafiocalculadoatual desafiocalculadoatual
+                            , ( nvl(m.desafiocalculadoatual,0) / (select count(*)
+                                                                    from roman.semana_dias s
+                                                                   where s.cicloromance = :P737_CICLOROMANCE))
+                                * ( case
+                                        when trunc(sysdate) > (select max(dt_fim)
+                                                                 from roman.semana_dias
+                                                                where cicloromance = :P737_CICLOROMANCE)
+                                        then
+                                             (select count(*)
+                                                from roman.semana_dias
+                                               where cicloromance = :P737_CICLOROMANCE)
+                                        else
+                                             (select greatest(count(1), 1)
+                                                from roman.semana_dias
+                                               where cicloromance = :P737_CICLOROMANCE
+                                                 and dt_fim <= trunc(sysdate))
+                                      end) idealateomomento
+                            , nvl(tf.totalcobranca,0) totalcobranca
+                            -- PRÉVIA: cobranca em tempo real da semana aberta atual do representante, restrita ao ciclo selecionado
+                            , nvl(
+                                ( select sum(p.valorpago)
+                                    from pagamentosnotasvendas p
+                                   where p.semanacobranca = pv.previasemana
+                                     and p.origem        not in ('C','E')
+                                     and p.idnotavenda in ( select n.idnotavenda
+                                                              from notasvendas n
+                                                             where n.idrepresentante = m.idrepresentante
+                                                               and nvl(n.tiponota,'R') = 'R'
+                                                               and n.idsemanacobranca  = pv.previaidsemana )
+                                ) + nvl(
+                                ( select sum(p.valorpago)
+                                    from pagamentosnotasvendas p
+                                   where p.semanacobranca = pv.previasemana
+                                     and p.origem        not in ('C','E')
+                                     and p.idnotavenda in ( select n.idnotavenda
+                                                              from notasvendas n
+                                                             where n.idrepresentanteatende = m.idrepresentante
+                                                               and n.idsemanacobranca      = pv.previaidsemana
+                                                               and nvl(n.tiponota,'R')     = 'R'
+                                                               and exists ( select 1
+                                                                            from catal.representantes r
+                                                                           where r.idrepresentante = n.idrepresentante
+                                                                             and r.ativo = 'N'
+                                                                             and r.semanaparou < roman.pck_util.fnc_idsemana(psemana => pv.previasemana) ) )
+                                ), 0)
+                              , 0)
+                            + nvl(
+                                ( select sum(p.valorpago)
+                                    from pagamentosnotasvendas p
+                                   where p.semanacobranca = pv.previasemana
+                                     and p.origem        = 'R'
+                                     and p.idnotavenda in ( select n.idnotavenda
+                                                              from notasvendas n
+                                                             where n.idrepresentante = m.idrepresentante
+                                                               and n.idsemanacobranca != pv.previaidsemana )
+                                ), 0)
+                            + nvl(
+                                ( select sum(p.valorpago)
+                                    from pagamentosnotasvendas p
+                                   where p.semanacobranca = pv.previasemana
+                                     and p.origem        = 'R'
+                                     and p.idnotavenda in ( select n.idnotavenda
+                                                              from notasvendas n
+                                                             where n.idrepresentanteatende = m.idrepresentante
+                                                               and n.idsemanacobranca      != pv.previaidsemana
+                                                               and exists ( select 1
+                                                                            from catal.representantes r
+                                                                           where r.idrepresentante = n.idrepresentante
+                                                                             and r.ativo           = 'N' ) )
+                                ), 0) previa
+                            , case
+                                when m.desafiocalculadoatual > 0 then
+                                    round( (nvl(tf.totalcobranca,0) / m.desafiocalculadoatual) * 100,2)
+                                else
+                                    0
+                                end realizado
+                            , case
+                                when
+                                    (select count(*)
+                                       from semana_dias
+                                      where cicloromance = :P737_CICLOROMANCE
+                                        and dt_fim > trunc(sysdate) ) = 0 then
+                                    0
+                                 else
+                                    (m.desafiocalculadoatual - nvl(tf.totalcobranca,0))  /
+                                    (select count(*)
+                                       from semana_dias
+                                      where cicloromance = :P737_CICLOROMANCE
+                                        and dt_fim > trunc(sysdate) )
+                                end valorfaltanteporsemana
+                            , (select count(*)
+                                 from semana_dias
+                                where cicloromance = :P737_CICLOROMANCE
+                                  and dt_fim > trunc(sysdate)) SEMREST
+                            , m.mediasemanal
+                         from metasdesafiodistribuidores m
+                            , catal.filiais fi
+                            , (select f.idfilial
+                                    , fr.idrepresentante
+                                    , nvl(sum(fr.totalgeral),0) totalcobranca
+                                 from fechamentossemanais f
+                                    , fechamentorepresentantes fr
+                                where fr.idfechamento = f.idfechamento
+                                  and f.idsemana in (select idsemana
+                                                      from roman.semana_dias
+                                                      where semanacompleta in (select semanacompleta anterior
+                                                                                 from roman.semana_dias s
+                                                                                where cicloromance = :P737_CICLOROMANCE) )
+                                group by f.idfilial, fr.idrepresentante ) tf
+                            -- >>> pv ajustado: restrito ao ciclo selecionado (:P737_CICLOROMANCE) <<<
+                            , (select i.idrepresentante
+                                    , i.semana   previasemana
+                                    , i.idsemana previaidsemana
+                                 from roman.preacertorepresentantes i
+                                where i.idsemana >= 615
+                                  and i.idsemana in ( select sd.idsemana
+                                                        from roman.semana_dias sd
+                                                       where sd.cicloromance = :P737_CICLOROMANCE )
+                                  and not exists ( select 1
+                                                     from roman.impnettoservidor imp
+                                                    where imp.idrepresentante = i.idrepresentante
+                                                      and imp.semana          = i.semana )
+                                  and i.idsemana = ( select max(i2.idsemana)
+                                                       from roman.preacertorepresentantes i2
+                                                      where i2.idrepresentante = i.idrepresentante
+                                                        and i2.idsemana >= 615
+                                                        and i2.idsemana in ( select sd2.idsemana
+                                                                                from roman.semana_dias sd2
+                                                                               where sd2.cicloromance = :P737_CICLOROMANCE )
+                                                        and not exists ( select 1
+                                                                           from roman.impnettoservidor imp2
+                                                                          where imp2.idrepresentante = i2.idrepresentante
+                                                                            and imp2.semana          = i2.semana ) )
+                              ) pv
+                        where m.cicloromance = :P737_CICLOROMANCE
+                        and m.idfilial = fi.idfilial
+                        and m.idfilial = tf.idfilial(+)
+                        and m.idrepresentante = tf.idrepresentante(+)
+                        and m.idrepresentante = pv.idrepresentante(+)
+                        and m.idfilial = :P737_IDFILIAL
+                        and :P737_PERIODO = 'C'
+                        and m.idrepresentante not in (select idrepresentante
+                                                        from representantes
+                                                       where idpessoa = (select idpessoa
+                                                                           from gerentes
+                                                                          where idfilial = :P0_IDFILIAL) )
+                       union all
+                
+                       select x.idfilial
+                            , x.idrepresentante
+                            , x.representante
+                            , x.desafiocalculadoatual
+                            , x.idealateomomento
+                            , x.totalcobranca
+                            , x.previa
+                            , x.realizado as "%Realizado"
+                            , case
+                                when x.valorfaltanteporsemana < 0 then
+                                    0
+                                else x.valorfaltanteporsemana
+                              end valorfaltanteporsemana
+                            , x.semrest
+                            , x.mediasemanal
+                        from (
+                             select b.idfilial
+                                  , b.idrepresentante
+                                  , favorita.pck_util_fav.fnc_nomerepresentante(b.idrepresentante) representante
+                                  , round(sum(b.desafio_semanal), 2) desafiocalculadoatual
+                                  , round(sum(case when b.dt_ini <= trunc(sysdate) then b.desafio_semanal else 0 end), 2) idealateomomento
+                                  , nvl(sum(b.totalcobranca), 0) totalcobranca
+                                  , max(b.previa) previa
+                                  , case
+                                        when sum(b.desafio_semanal) > 0
+                                        then round((nvl(sum(b.totalcobranca), 0) / sum(b.desafio_semanal)) * 100, 2)
+                                        else 0
+                                    end realizado
+                                  , sum(case when b.dt_fim > trunc(sysdate) then 1 else 0 end) semrest
+                                  , case
+                                        when sum(case when b.dt_fim > trunc(sysdate) then 1 else 0 end) = 0 then 0
+                                        else
+                                            ( sum(b.desafio_semanal) - nvl(sum(b.totalcobranca), 0) ) / sum(case when b.dt_fim > trunc(sysdate) then 1 else 0 end)
+                                    end valorfaltanteporsemana
+                                  , max(b.mediasemanal) mediasemanal
+                             from (
+                                select m.idfilial
+                                     , m.idrepresentante
+                                     , s.dt_ini
+                                     , s.dt_fim
+                                     , ( m.desafiocalculadoatual / sc.total_semanas ) desafio_semanal
+                                     , nvl(tf.totalcobranca, 0) totalcobranca
+                                     -- PRÉVIA: mesma lógica do bloco 'C', restrita ao intervalo de semanas selecionado
+                                     , nvl(
+                                         ( select sum(p.valorpago)
+                                             from pagamentosnotasvendas p
+                                            where p.semanacobranca = pv.previasemana
+                                              and p.origem        not in ('C','E')
+                                              and p.idnotavenda in ( select n.idnotavenda
+                                                                       from notasvendas n
+                                                                      where n.idrepresentante = m.idrepresentante
+                                                                        and nvl(n.tiponota,'R') = 'R'
+                                                                        and n.idsemanacobranca  = pv.previaidsemana )
+                                         ) + nvl(
+                                         ( select sum(p.valorpago)
+                                             from roman.pagamentosnotasvendas p
+                                            where p.semanacobranca = pv.previasemana
+                                              and p.origem        not in ('C','E')
+                                              and p.idnotavenda in ( select n.idnotavenda
+                                                                       from roman.notasvendas n
+                                                                      where n.idrepresentanteatende = m.idrepresentante
+                                                                        and n.idsemanacobranca      = pv.previaidsemana
+                                                                        and nvl(n.tiponota,'R')     = 'R'
+                                                                        and exists ( select 1
+                                                                                     from catal.representantes r
+                                                                                    where r.idrepresentante = n.idrepresentante
+                                                                                      and r.ativo = 'N'
+                                                                                      and r.semanaparou < roman.pck_util.fnc_idsemana(psemana => pv.previasemana) ) )
+                                         ), 0)
+                                       , 0)
+                                     + nvl(
+                                         ( select sum(p.valorpago)
+                                             from pagamentosnotasvendas p
+                                            where p.semanacobranca = pv.previasemana
+                                              and p.origem        = 'R'
+                                              and p.idnotavenda in ( select n.idnotavenda
+                                                                       from notasvendas n
+                                                                      where n.idrepresentante = m.idrepresentante
+                                                                        and n.idsemanacobranca != pv.previaidsemana )
+                                         ), 0)
+                                     + nvl(
+                                         ( select sum(p.valorpago)
+                                             from pagamentosnotasvendas p
+                                            where p.semanacobranca = pv.previasemana
+                                              and p.origem        = 'R'
+                                              and p.idnotavenda in ( select n.idnotavenda
+                                                                       from notasvendas n
+                                                                      where n.idrepresentanteatende = m.idrepresentante
+                                                                        and n.idsemanacobranca      != pv.previaidsemana
+                                                                        and exists ( select 1
+                                                                                     from catal.representantes r
+                                                                                    where r.idrepresentante = n.idrepresentante
+                                                                                      and r.ativo           = 'N' ) )
+                                         ), 0) previa
+                                     , m.mediasemanal
+                                  from roman.metasdesafiodistribuidores m
+                                     , catal.filiais fi
+                                     , roman.semana_dias s
+                                     , ( select cicloromance
+                                              , count(*) total_semanas
+                                           from roman.semana_dias
+                                          group by cicloromance ) sc
+                                     , ( select f.idfilial
+                                              , fr.idrepresentante
+                                              , f.idsemana
+                                              , sum(fr.totalgeral) totalcobranca
+                                           from roman.fechamentossemanais f
+                                              , roman.fechamentorepresentantes fr
+                                              , roman.semana_dias s
+                                          where fr.idfechamento = f.idfechamento
+                                            and f.idsemana = s.idsemana
+                                            and s.idsemana between :P737_SEMANAINICIAL and :P737_SEMANAFINAL
+                                         group by f.idfilial
+                                                , fr.idrepresentante
+                                                , f.idsemana ) tf
+                                     -- >>> pv ajustado: restrito ao intervalo de semanas selecionado <<<
+                                     , ( select i.idrepresentante
+                                              , i.semana   previasemana
+                                              , i.idsemana previaidsemana
+                                           from roman.preacertorepresentantes i
+                                          where i.idsemana >= 615
+                                            and i.idsemana between :P737_SEMANAINICIAL and :P737_SEMANAFINAL
+                                            and not exists ( select 1
+                                                               from roman.impnettoservidor imp
+                                                              where imp.idrepresentante = i.idrepresentante
+                                                                and imp.semana          = i.semana )
+                                            and i.idsemana = ( select max(i2.idsemana)
+                                                                 from roman.preacertorepresentantes i2
+                                                                where i2.idrepresentante = i.idrepresentante
+                                                                  and i2.idsemana >= 615
+                                                                  and i2.idsemana between :P737_SEMANAINICIAL and :P737_SEMANAFINAL
+                                                                  and not exists ( select 1
+                                                                                     from roman.impnettoservidor imp2
+                                                                                    where imp2.idrepresentante = i2.idrepresentante
+                                                                                      and imp2.semana          = i2.semana ) )
+                                       ) pv
+                                where m.idfilial = fi.idfilial
+                                and m.cicloromance = s.cicloromance
+                                and m.cicloromance = sc.cicloromance
+                                and s.idsemana between :P737_SEMANAINICIAL and :P737_SEMANAFINAL
+                                and m.idfilial = tf.idfilial(+)
+                                and m.idrepresentante = tf.idrepresentante(+)
+                                and s.idsemana = tf.idsemana(+)
+                                and m.idrepresentante = pv.idrepresentante(+)
+                                and m.idfilial = :P737_IDFILIAL
+                                and :P737_PERIODO = 'S'
+                                and m.idrepresentante not in (
+                                                                select r.idrepresentante
+                                                                  from catal.representantes r
+                                                                 where r.idpessoa in ( select g.idpessoa
+                                                                                        from catal.gerentes g
+                                                                                       where g.idfilial = :P0_IDFILIAL ) )
+                            ) b
+                            group by b.idfilial
+                                   , b.idrepresentante
+                        ) x
+                    )
+                order by 2
+                ```
+            pageItemsToSubmit: [
+                P737_CICLOROMANCE
+                P737_SEMANASRESTANTES
+                P737_IDFILIAL
+            ]
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        messages {
+            whenNoDataFound: No data found.
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            subscription: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 4869578915120437201
+        }
+
+        column %Realizado (
+            type: plainText
+            heading {
+                heading: % Realizado
+                alignment: center
+            }
+            layout {
+                sequence: 67
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column CSS_COLOR (
+            type: plainText
+            heading {
+                heading: Css Color
+                alignment: center
+            }
+            layout {
+                sequence: 77
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column DESAFIOCALCULADOATUAL (
+            type: plainText
+            heading {
+                heading: Desafio &P737_LABEL.
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column IDEALATEOMOMENTO (
+            type: plainText
+            heading {
+                heading: Ideal até o momento
+                alignment: center
+            }
+            layout {
+                sequence: 17
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column IDFILIAL (
+            type: hidden
+            heading {
+                heading: Franquia
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column MEDIASEMANAL (
+            type: plainText
+            heading {
+                heading: Média Semanal
+                alignment: center
+            }
+            layout {
+                sequence: 47
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column PREVIA (
+            type: plainText
+            heading {
+                heading: Prévia
+                alignment: center
+            }
+            layout {
+                sequence: 87
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+            }
+            layout {
+                sequence: 57
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column TOTALCOBRANCA (
+            type: plainText
+            heading {
+                heading: Realizado Até o Momento
+                alignment: center
+            }
+            layout {
+                sequence: 27
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column VALORFALTANTEPORSEMANA (
+            type: plainText
+            heading {
+                heading: Vlr. Faltante P/ Sem
+                alignment: center
+            }
+            layout {
+                sequence: 37
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 24348149 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn "%Realizado" (
+                sequence: 7
+            )
+
+            displayColumn DESAFIOCALCULADOATUAL (
+                sequence: 2
+            )
+
+            displayColumn IDEALATEOMOMENTO (
+                sequence: 3
+            )
+
+            displayColumn MEDIASEMANAL (
+                sequence: 4
+            )
+
+            displayColumn PREVIA (
+                sequence: 8
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 1
+            )
+
+            displayColumn TOTALCOBRANCA (
+                sequence: 5
+            )
+
+            displayColumn VALORFALTANTEPORSEMANA (
+                sequence: 6
+            )
+
+            aggregate (
+                column: TOTALCOBRANCA
+            )
+
+            aggregate (
+                column: DESAFIOCALCULADOATUAL
+            )
+
+            aggregate (
+                column: IDEALATEOMOMENTO
+            )
+
+            highlight ir-condition (
+                name: Desafio Atingido
+                condition {
+                    column: CSS_COLOR
+                    value: GREEN
+                }
+                colors {
+                    background: #99ff99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Desafio Não Atingido
+                condition {
+                    column: CSS_COLOR
+                    value: RED
+                }
+                colors {
+                    background: #ff7755
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    region totais (
+        name: Totais
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P737_ANO (
+        type: selectList
+        label {
+            label: Ano
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT ANO D
+                     , ANO R
+                  FROM ( 
+                        SELECT EXTRACT(YEAR FROM SYSDATE)  ANO FROM DUAL 
+                        UNION
+                        SELECT EXTRACT(YEAR FROM SYSDATE)-1  ANO FROM DUAL 
+                        UNION
+                        SELECT EXTRACT(YEAR FROM SYSDATE) + 1
+                          FROM DUAL
+                         WHERE EXTRACT(MONTH FROM SYSDATE) > 10  )
+                 ORDER BY 1
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P737_CICLOROMANCE (
+        type: selectList
+        label {
+            label: Ciclo Romance
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT CICLOROMANCE || ' - De   ' ||
+                       (select semanacompleta semanaini
+                          from semana_dias 
+                         where idsemana = (select min(idsemana)
+                                             from semana_dias
+                                            where cicloromance = sd.cicloromance)) 
+                       || ' Até ' ||
+                       (select semanacompleta semanaini
+                          from semana_dias 
+                         where idsemana = (select max(idsemana)
+                                             from semana_dias
+                                            where cicloromance = sd.cicloromance))   D
+                     --
+                     , CICLOROMANCE R
+                  FROM (
+                        SELECT distinct s.cicloromance
+                          FROM semana_dias s
+                             , metasdesafiodistribuidores m
+                         WHERE s.cicloromance is not null
+                           AND s.cicloromance = m.cicloromance
+                           AND m.datacongelado is not null
+                           AND s.ano = :P737_ANO ) sd
+                     
+                 ORDER BY to_number(substr(cicloromance,4,4)), 
+                           to_number(substr(cicloromance,1,2))
+                ```
+        }
+        cascadingLov {
+            parentItems: [
+                P737_ANO
+                P737_IDFILIAL
+            ]
+            itemsToSubmit: [
+                P737_ANO
+                P737_CICLOROMANCE
+            ]
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P737_IDFILIAL (
+        type: selectList
+        label {
+            label: Franquia
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                WITH usuario_id AS (
+                    -- Calcula o ID do usuário uma única vez
+                    SELECT favorita.pck_util_fav.fnc_idusuario(v('APP_USER')) AS id_usuario
+                      FROM dual
+                ),
+                base_filiais AS (
+                    -- Base comum reutilizada em todos os UNIONs
+                    SELECT f.idfilial
+                         , initcap(nvl(p.apelido, p.nomepessoa)) AS display_value
+                         , f.regional
+                         , f.pertencecomercialromance
+                         , f.ididioma
+                    FROM   filiais  f
+                    JOIN   pessoas  p ON p.idpessoa = f.idpessoa
+                    WHERE  f.tipofilial = 'D'
+                      AND  f.ativo      = 'S'
+                )
+                -- Gerente da filial
+                SELECT bf.display_value
+                     , bf.idfilial
+                FROM   base_filiais bf
+                WHERE  EXISTS (
+                           SELECT 1
+                           FROM   gerentes  g
+                           JOIN   usuarios  u ON u.idpessoa = g.idpessoa
+                           WHERE  g.idfilial = bf.idfilial
+                             AND  u.usuario  = v('APP_USER')
+                       )
+                
+                UNION
+                
+                -- Regional 7: usuáriosfiliais
+                SELECT bf.display_value
+                     , bf.idfilial
+                FROM   base_filiais bf
+                WHERE  :P737_REGIONAL = 7
+                  AND  EXISTS (
+                           SELECT 1
+                           FROM   usuariosfiliais  uf
+                           JOIN   usuarios         u  ON u.usuario  = uf.usuario
+                           JOIN   gerentes         g  ON g.idpessoa = u.idpessoa
+                           WHERE  uf.idfilial = bf.idfilial
+                             AND  u.usuario   = v('APP_USER')
+                       )
+                
+                UNION
+                
+                -- Comercial Romance
+                SELECT bf.display_value
+                     , bf.idfilial
+                FROM   base_filiais bf
+                     , usuario_id   ui
+                WHERE  bf.pertencecomercialromance = 'S'
+                  AND  (   favorita.pck_util_fav.fnc_verificagrupoatendimento(58, ui.id_usuario) = 'S'
+                        OR favorita.pck_util_fav.fnc_verificagrupoatendimento(0,  ui.id_usuario) = 'S')
+                
+                UNION
+                
+                -- Regionais 1–5
+                SELECT bf.display_value
+                     , bf.idfilial
+                FROM   base_filiais bf
+                     , usuario_id   ui
+                WHERE  (bf.regional = 1 AND favorita.pck_util_fav.fnc_verificagrupoatendimento(90, ui.id_usuario) = 'S')
+                    OR (bf.regional = 2 AND favorita.pck_util_fav.fnc_verificagrupoatendimento(91, ui.id_usuario) = 'S')
+                    OR (bf.regional = 3 AND favorita.pck_util_fav.fnc_verificagrupoatendimento(92, ui.id_usuario) = 'S')
+                    OR (bf.regional = 4 AND favorita.pck_util_fav.fnc_verificagrupoatendimento(93, ui.id_usuario) = 'S')
+                    OR (bf.regional = 5 AND favorita.pck_util_fav.fnc_verificagrupoatendimento(94, ui.id_usuario) = 'S')
+                    OR favorita.pck_util_fav.fnc_verificagrupoatendimento(0, ui.id_usuario) = 'S'  -- labs (acesso total)
+                
+                UNION
+                
+                -- Comércio Exportação
+                SELECT bf.display_value
+                     , bf.idfilial
+                FROM   base_filiais bf
+                     , usuario_id   ui
+                WHERE  bf.ididioma > 1
+                  AND  ( exists (select 1
+                        from usuarios u
+                        join gerentes ge on u.idgerente = ge.idgerente
+                        where u.idusuario = ui.id_usuario
+                          and ge.idfilial = 1086
+                          and rownum = 1)  -- correção do parêntese
+                        OR favorita.pck_util_fav.fnc_verificagrupoatendimento(0, ui.id_usuario) = 'S')
+                
+                ORDER BY 1;
+                ```
+            nullDisplayValue: -- Selecionar --
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P737_LABEL (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+        }
+    )
+
+    pageItem P737_PERCREALIZADO (
+        type: displayOnly
+        label {
+            label: % Realizado
+            alignment: left
+        }
+        layout {
+            sequence: 80
+            region: @totais
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+            column: 8
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: 990D00
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P737_PERIODO (
+        type: radioGroup
+        label {
+            label: Período
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Semanal;S,Ciclo;C
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: C
+        }
+    )
+
+    pageItem P737_REALIZADO (
+        type: displayOnly
+        label {
+            label: Realizado
+            alignment: left
+        }
+        layout {
+            sequence: 60
+            region: @totais
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P737_REGIONAL (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+        }
+    )
+
+    pageItem P737_SEMANAFINAL (
+        type: selectList
+        label {
+            label: Semana Final
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT SEMANACOMPLETA D
+                     , IDSEMANA R
+                  FROM (
+                        SELECT distinct s.semanacompleta
+                                      , s.idsemana
+                          FROM semana_dias s
+                             , metasdesafioromance m
+                         WHERE s.cicloromance = m.cicloromance
+                           AND s.ano = :P737_ANO
+                           AND m.idfilial = :P737_IDFILIAL
+                           AND s.idsemana between (SELECT idsemana FROM semana_dias WHERE idsemana = :P737_SEMANAINICIAL) and (SELECT max(idsemana) FROM semana_dias WHERE dt_ini < trunc(sysdate))
+                           AND s.cicloromance is not null
+                           AND m.datacongelado is not null ) sd
+                 ORDER BY idsemana
+                ```
+        }
+        cascadingLov {
+            parentItems: [
+                P737_ANO
+                P737_IDFILIAL
+                P737_SEMANAINICIAL
+            ]
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P737_SEMANAINICIAL (
+        type: selectList
+        label {
+            label: Semana Início
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT SEMANACOMPLETA D
+                     , IDSEMANA R
+                  FROM (
+                        SELECT distinct s.semanacompleta
+                                      , s.idsemana
+                          FROM semana_dias s
+                             , metasdesafioromance m
+                         WHERE s.cicloromance = m.cicloromance
+                           AND s.ano = :P737_ANO
+                           AND m.idfilial = :P737_IDFILIAL
+                           AND s.cicloromance is not null
+                           AND m.datacongelado is not null ) sd
+                 ORDER BY idsemana
+                ```
+        }
+        cascadingLov {
+            parentItems: [
+                P737_ANO
+                P737_IDFILIAL
+            ]
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P737_SEMANASRESTANTES (
+        type: displayOnly
+        label {
+            label: Semanas Restantes
+            alignment: left
+        }
+        layout {
+            sequence: 100
+            region: @totais
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P737_TOTALDESAFIODIST (
+        type: displayOnly
+        label {
+            label: Total Desafio Distribuidores
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @totais
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P737_TOTALDESAFIOFRAN (
+        type: displayOnly
+        label {
+            label: Total Desafio Franquia
+            alignment: left
+        }
+        layout {
+            sequence: 90
+            region: @totais
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P737_VALORFALTANTE (
+        type: displayOnly
+        label {
+            label: Faltante
+            alignment: left
+        }
+        layout {
+            sequence: 110
+            region: @totais
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+            column: 8
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    dynamicAction carrega-regional-do-gestor (
+        name: Carrega Regional do Gestor
+        execution {
+            sequence: 70
+        }
+        when {
+            event: ready
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select f.regional
+                  from filiais f
+                     , gerentes g
+                     , usuarios u
+                  where g.idpessoa = u.idpessoa
+                  and f.idfilial = g.idfilial
+                  and u.usuario = v('APP_USER')
+                ```
+        }
+
+        action native-set-value (
+            action: setValue
+            settings {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select f.regional
+                      from filiais f
+                         , gerentes g
+                         , usuarios u
+                      where g.idpessoa = u.idpessoa
+                      and f.idfilial = g.idfilial
+                      and u.usuario = v('APP_USER')
+                    ```
+                itemsToSubmit: P737_REGIONAL
+            }
+            affectedElements {
+                selectionType: items
+                items: P737_REGIONAL
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+    )
+
+    dynamicAction seleciona-período-semanal-ciclo (
+        name: Seleciona Período Semanal / Ciclo
+        execution {
+            sequence: 40
+        }
+        when {
+            selectionType: items
+            items: P737_PERIODO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P737_PERIODO
+            value: S
+        }
+
+        action native-execute-plsql-code (
+            action: executeServerSideCode
+            settings {
+                plsqlCode:
+                    ```plsql
+                    :P737_LABEL := 'Semanal';
+                    :P737_SEMANAINICIAL := null;
+                    :P737_SEMANAFINAL := null;
+                    :P737_CICLOROMANCE := null;
+                    ```
+                itemsToSubmit: P737_PERIODO
+                itemsToReturn: [
+                    P737_LABEL
+                    P737_SEMANAINICIAL
+                    P737_SEMANAFINAL
+                    P737_CICLOROMANCE
+                ]
+                showProcessing: true
+            }
+            execution {
+                sequence: 50
+                fireOnInit: false
+            }
+        )
+
+        action native-execute-plsql-code-2 (
+            action: executeServerSideCode
+            settings {
+                plsqlCode:
+                    ```plsql
+                    :P737_LABEL := 'Ciclo';
+                    :P737_SEMANAINICIAL := null;
+                    :P737_SEMANAFINAL := null;
+                    :P737_CICLOROMANCE := null;
+                    ```
+                itemsToSubmit: P737_PERIODO
+                itemsToReturn: [
+                    P737_LABEL
+                    P737_CICLOROMANCE
+                    P737_SEMANAINICIAL
+                    P737_SEMANAFINAL
+                ]
+                showProcessing: true
+            }
+            execution {
+                sequence: 40
+                fireWhenEventResultIs: false
+                fireOnInit: false
+            }
+        )
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P737_SEMANAINICIAL
+                    P737_SEMANAFINAL
+                ]
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P737_CICLOROMANCE
+            }
+            execution {
+                sequence: 30
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P737_SEMANAINICIAL
+                    P737_SEMANAFINAL
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P737_CICLOROMANCE
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    dynamicAction seta-ciclo (
+        name: Seta Ciclo
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P737_IDFILIAL
+        }
+
+        action native-set-value (
+            action: setValue
+            settings {
+                type: plsqlExpression
+                plsqlExpression: null
+            }
+            affectedElements {
+                selectionType: items
+                items: [
+                    P737_SEMANAINICIAL
+                    P737_SEMANAFINAL
+                    P737_CICLOROMANCE
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction seta-semana-final (
+        name: Seta Semana Final
+        execution {
+            sequence: 50
+        }
+        when {
+            selectionType: items
+            items: P737_SEMANAINICIAL
+        }
+
+        action native-execute-plsql-code (
+            action: executeServerSideCode
+            settings {
+                plsqlCode: null;
+                itemsToSubmit: P737_SEMANAINICIAL
+            }
+            execution {
+                sequence: 30
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction seta-valores (
+        name: "Seta Valores "
+        execution {
+            sequence: 60
+        }
+        when {
+            selectionType: items
+            items: P737_SEMANAFINAL
+        }
+
+        action native-execute-plsql-code (
+            action: executeServerSideCode
+            settings {
+                plsqlCode: NULL;
+                itemsToSubmit: P737_SEMANASRESTANTES
+            }
+            execution {
+                sequence: 70
+            }
+        )
+
+        action native-execute-plsql-code-2 (
+            action: executeServerSideCode
+            settings {
+                plsqlCode: null;
+                itemsToSubmit: P737_SEMANAFINAL
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @ideal-até-o-momento
+            }
+            execution {
+                sequence: 100
+            }
+        )
+
+        action native-refresh-2 (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @relatorio-de-metas-romance-gestores
+            }
+            execution {
+                sequence: 90
+            }
+        )
+
+        action native-set-value (
+            action: setValue
+            settings {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                     select to_char(sum(m.desafiocalculadoatual / sc.total_semanas_ciclo) * sp.total_semanas_periodo_selecionado, '999G999G999G999G990D00')
+                       from metasdesafioromance m
+                          , ( select distinct cicloromance
+                                from semana_dias
+                               where idsemana between :P737_SEMANAINICIAL and :P737_SEMANAFINAL ) s
+                          , ( select count(1) total_semanas_ciclo
+                                from semana_dias
+                               where cicloromance in (select cicloromance from semana_dias where idsemana between :P737_SEMANAINICIAL and :P737_SEMANAFINAL) ) sc
+                          , ( select count(*) total_semanas_periodo_selecionado
+                                from roman.semana_dias
+                                where idsemana between :P737_SEMANAINICIAL and :P737_SEMANAFINAL) sp
+                          , catal.filiais fi
+                      where m.cicloromance = s.cicloromance
+                        and m.idfilial = fi.idfilial
+                        and m.idfilial = :P737_IDFILIAL
+                    group by sp.total_semanas_periodo_selecionado
+                    ```
+                itemsToSubmit: [
+                    P737_IDFILIAL
+                    P737_SEMANAINICIAL
+                    P737_SEMANAFINAL
+                ]
+            }
+            affectedElements {
+                selectionType: items
+                items: P737_TOTALDESAFIOFRAN
+            }
+            execution {
+                sequence: 50
+            }
+        )
+
+        action set-value (
+            name: Set Value
+            action: setValue
+            settings {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select to_char(totaldesafio, '999G999G999G999G990D00') totaldesafio
+                         , to_char((totalrealizado / totaldesafio) * 100, '999G990D00') percrealizado
+                         , to_char(valorfaltante, '999G999G999G999G990D00') valorfaltante
+                         , to_char(totalrealizado,'999G999G999G999G990D00') totalrealizado
+                    from (
+                    select sum(totaldesafio) totaldesafio
+                         , sum(valorfaltante) valorfaltante
+                         , sum(totalrealizado) totalrealizado
+                    from (
+                        select sum(m.desafiocalculadoatual) / sc.total_semanas totaldesafio
+                                --
+                             , case when sum(m.desafiocalculadoatual) > 0 
+                                     then round((nvl(sum(tf.totalcobranca),0) / sum(m.desafiocalculadoatual)) * sc.total_semanas * 100,2)
+                                     else 0
+                                end percrealizado
+                                --
+                              , (sum(m.desafiocalculadoatual) / sc.total_semanas) - nvl(sum(tf.totalcobranca),0) valorfaltante
+                                --
+                              , nvl(sum(tf.totalcobranca),0) totalrealizado
+                                --
+                           from metasdesafiodistribuidores m
+                              , catal.filiais fi
+                             , roman.semana_dias s
+                             , ( select cicloromance
+                                      , count(*) total_semanas
+                                   from roman.semana_dias
+                                  group by cicloromance ) sc
+                             , ( select f.idfilial
+                                      , fr.idrepresentante
+                                      , f.idsemana
+                                      , sum(fr.totalgeral) totalcobranca
+                                   from roman.fechamentossemanais f
+                                      , roman.fechamentorepresentantes fr
+                                      , roman.semana_dias s
+                                  where fr.idfechamento = f.idfechamento
+                                    and f.idsemana = s.idsemana
+                                    and s.idsemana between :P737_SEMANAINICIAL and :P737_SEMANAFINAL
+                                 group by f.idfilial
+                                        , fr.idrepresentante
+                                        , f.idsemana ) tf
+                          where m.idfilial = fi.idfilial
+                            and m.cicloromance = s.cicloromance
+                            and m.cicloromance = sc.cicloromance
+                            and s.idsemana between :P737_SEMANAINICIAL and :P737_SEMANAFINAL
+                            and m.idfilial = tf.idfilial(+)
+                            and m.idrepresentante = tf.idrepresentante(+)
+                            and s.idsemana = tf.idsemana(+)
+                            and m.idfilial = :P737_IDFILIAL
+                            and :P737_PERIODO = 'S'
+                            and m.idrepresentante not in (
+                                                            select r.idrepresentante
+                                                              from catal.representantes r
+                                                             where r.idpessoa in ( select g.idpessoa
+                                                                                    from catal.gerentes g
+                                                                                   where g.idfilial = :P0_IDFILIAL ) )
+                          group by sc.total_semanas
+                    )
+                    )
+                    ```
+                itemsToSubmit: [
+                    P737_SEMANAINICIAL
+                    P737_SEMANAFINAL
+                ]
+            }
+            affectedElements {
+                selectionType: items
+                items: [
+                    P737_TOTALDESAFIODIST
+                    P737_PERCREALIZADO
+                    P737_VALORFALTANTE
+                    P737_REALIZADO
+                ]
+            }
+            execution {
+                sequence: 30
+            }
+        )
+
+        action set-value-2 (
+            name: Set Value
+            action: setValue
+            settings {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select count(*)
+                      from semana_dias 
+                     where idsemana between :P737_SEMANAINICIAL and :P737_SEMANAFINAL
+                       and dt_fim > trunc(sysdate)
+                    ```
+                itemsToSubmit: [
+                    P737_SEMANAINICIAL
+                    P737_SEMANAFINAL
+                ]
+            }
+            affectedElements {
+                selectionType: items
+                items: P737_SEMANASRESTANTES
+            }
+            execution {
+                sequence: 40
+            }
+        )
+
+    )
+
+    dynamicAction seta-valores-2 (
+        name: Seta Valores
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P737_CICLOROMANCE
+        }
+
+        action native-execute-plsql-code (
+            action: executeServerSideCode
+            settings {
+                plsqlCode: NULL;
+                itemsToSubmit: P737_SEMANASRESTANTES
+            }
+            execution {
+                sequence: 90
+            }
+        )
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @ideal-até-o-momento
+            }
+            execution {
+                sequence: 110
+            }
+        )
+
+        action native-refresh-2 (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @relatorio-de-metas-romance-gestores
+            }
+            execution {
+                sequence: 100
+            }
+        )
+
+        action native-set-value (
+            action: setValue
+            settings {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                     select to_char(sum( m.desafiocalculadoatual),'999G999G999G999G990D00')  totaldesafio
+                          , to_char(nvl(round(( sum(tf.totalcobranca /* * fi.fatorconversao*/ ) / sum(m.desafiocalculadoatual)) * 100,2),0),'999G990D00') percrealizado
+                          , to_char(sum(m.desafiocalculadoatual) - nvl(sum(tf.totalcobranca /* * fi.fatorconversao*/ ),0),'999G999G999G999G990D00')  valorfaltante
+                          , to_char(nvl(sum(tf.totalcobranca /* * fi.fatorconversao*/ ),0),'999G999G999G999G990D00')  totalrealizado
+                       from metasdesafiodistribuidores m
+                          , catal.filiais fi
+                          , ( select f.idfilial
+                                   , fr.idrepresentante
+                                   , nvl(sum(fr.totalgeral),0) totalcobranca
+                                from fechamentossemanais f
+                                   , fechamentorepresentantes fr
+                               where fr.idfechamento = f.idfechamento
+                                 and f.idsemana in (select idsemana
+                                                    from roman.semana_dias 
+                                                    where semanacompleta in (select semanacompleta anterior
+                                                                             from roman.semana_dias s
+                                                                             where cicloromance = :P737_CICLOROMANCE) )
+                               group by f.idfilial, fr.idrepresentante ) tf
+                      where m.cicloromance = :P737_CICLOROMANCE
+                        and m.idfilial = fi.idfilial
+                        and m.idfilial = tf.idfilial(+)
+                        and m.idrepresentante = tf.idrepresentante(+)
+                        and m.idfilial = :P737_IDFILIAL
+                    ```
+                itemsToSubmit: P737_CICLOROMANCE
+            }
+            affectedElements {
+                selectionType: items
+                items: [
+                    P737_TOTALDESAFIODIST
+                    P737_PERCREALIZADO
+                    P737_VALORFALTANTE
+                    P737_REALIZADO
+                ]
+            }
+            execution {
+                sequence: 30
+            }
+        )
+
+        action native-set-value-2 (
+            action: setValue
+            settings {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select count(*)
+                      from semana_dias 
+                     where cicloromance = :P737_CICLOROMANCE
+                       and dt_fim > trunc(sysdate) 
+                    
+                    ```
+                itemsToSubmit: P737_CICLOROMANCE
+            }
+            affectedElements {
+                selectionType: items
+                items: P737_SEMANASRESTANTES
+            }
+            execution {
+                sequence: 40
+            }
+        )
+
+        action native-set-value-3 (
+            action: setValue
+            settings {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                     select to_char(m.desafiocalculadoatual,'999G999G999G999G990D00')
+                       from metasdesafioromance m
+                          , catal.filiais fi
+                      where m.cicloromance = :P737_CICLOROMANCE
+                        and m.idfilial = fi.idfilial
+                        and m.idfilial = :P737_IDFILIAL
+                    ```
+                itemsToSubmit: [
+                    P737_CICLOROMANCE
+                    P737_IDFILIAL
+                ]
+            }
+            affectedElements {
+                selectionType: items
+                items: P737_TOTALDESAFIOFRAN
+            }
+            execution {
+                sequence: 60
+            }
+        )
+
+    )
+
+)
+

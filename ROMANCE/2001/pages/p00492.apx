@@ -1,0 +1,2983 @@
+page 492 (
+    name: Coleta para Envio SMS
+    title: Coleta para Envio SMS
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    css {
+        inline:
+            ```css
+            .t-Region-body { background-color: Beige !important;} 
+            .t-Dialog { background-color: Beige !important;} 
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region carteira-atrasada-fav (
+        name: Carteira Atrasada FAV
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                ---- SE INCLUIR ALGUM FILTRO AQUI, INCLUIR TAMBEM NA PAGINA 493---------------
+                select nvl(p.cpf,p.documentoestrangeiro) "CPF"
+                     , p.rg "RG"
+                     , initcap(p.nomepessoa) "Consultora"
+                     , p.enderecoprincipal "Endereço"
+                     , p.numero "Numero"
+                     , p.bairro "Bairro"
+                     , p.cep "Cep"
+                     , roman.pck_romance.fnc_nomecidade(p.idcidade) "Cidade"
+                     , p.email
+                     , ( select t.telefone
+                         from telefonespessoas t
+                         where t.idtelefonepessoa = ( select max(tt.idtelefonepessoa)
+                                                      from telefonespessoas tt
+                                                      where tt.idpessoa = p.idpessoa
+                                                        and not REGEXP_LIKE(telefone, '(\d)\1\1\1\1\1') ) ) "Telefones"
+                     , p.datanascimento "Data de Nascimento"
+                     , decode(p.sexo,'M','Masculino','F','Feminino') "Sexo"
+                     , pp.filialromance "Empresa"
+                     , pp.representante "Distribuidor"
+                     , pp.numeropedido "Nr Pedido"
+                     , pp.dataemissao "Data de Emissão"
+                     , pp.dataentrega "Data de Entrega"
+                     , pp.datavencimentomenor "Vencimento"
+                     , nvl(pp.valortotal*pp.fatorconversao,0) "Total Pedido"
+                     , nvl(pp.valordesconto*pp.fatorconversao,0) "Valor Desconto"
+                     , nvl(pp.valorapagar*pp.fatorconversao,0) "Valor a Pagar"
+                     , nvl(pp.valorpago*pp.fatorconversao,0) "Pago"
+                     , nvl(pp.saldodevedor*pp.fatorconversao,0) "Saldo"
+                     , decode(v.spc, 'S', 'Sim','Não') "Enviado ao SPC"
+                    /* , ( select max(m.datainclusao)
+                         from mensagenssms m
+                         where m.idpessoa = p.idpessoa
+                           and m.idprocessosistema = 40 ) ultimo_acionamento */
+                from favorita.vw_pedidos_fav pp
+                   , catal.vendedoras v
+                   , catal.pessoas p
+                where pp.idvendedora = v.idvendedora
+                  and v.idpessoa     = p.idpessoa
+                  and pp.datacancelamento is null
+                  and pp.saldodevedor > 0
+                  --and pp.idvendedora =  2303662
+                  and p.idpais       = :P492_IDPAIS
+                  and ( :P492_PESQUISA is null
+                    or ( :P492_PESQUISA = 'A' and extract (year from pp.dataemissao) = :P492_ANO )
+                    or ( :P492_PESQUISA = 'P' and pp.dataemissao between to_date(:P492_DATAINICIO||' 00:00:01','DD/MM/RRRR HH24:MI:SS') 
+                                                                     and to_date(:P492_DATAFIM   ||' 23:59:59','DD/MM/RRRR HH24:MI:SS') ) )
+                  and ( :P492_IDFILIAL is null or pp.idfilialromance = :P492_IDFILIAL)
+                  and ( :P492_DATAINICIO is not null or :P492_IDFILIAL is not null or :P492_ANO is not null )
+                  and ( :P492_ENVIADOCOBR = 'A' or pp.enviadocobranca = :P492_ENVIADOCOBR )
+                  and ( :P492_ACORDOVIG   = 'A' or (:P492_ENVIADOCOBR = 'S' and exists ( select 1
+                                                                                           from negociacoesparceiros np
+                                                                                          where np.idvendedora = v.idvendedora
+                                                                                            and np.origem      = 'B' ) ) 
+                                                or (:P492_ENVIADOCOBR = 'N' and not exists ( select 1
+                                                                                               from negociacoesparceiros np
+                                                                                              where np.idvendedora = v.idvendedora
+                                                                                                and np.origem      = 'B' ) )   )
+                  and ( :P492_ENVIADOSPC = 'A' or nvl(v.spc,'N') = :P492_ENVIADOSPC )
+                  and ( :P492_SEXO = 'A' OR p.sexo = :P492_SEXO ) 
+                --  and ( :P492_VALORINI IS NULL or nvl(pp.valorapagar*pp.fatorconversao,0) between :P492_VALORINI
+                --                                                                              and :P492_VALORFIM)
+                -- Solicitado pelo Paulo Saravia para busca o valor do saldo
+                  and ( :P492_VALORINI IS NULL or nvl(pp.saldodevedor*pp.fatorconversao,0) between :P492_VALORINI
+                                                                                               and :P492_VALORFIM)
+                  and ( :P492_SMSENVIADO = 'A' or (:P492_SMSENVIADO = 'S' and exists ( select 1
+                                                                                           from predisparosms 
+                                                                                          where idpedido = pp.idpedido) ) 
+                                                or (:P492_SMSENVIADO = 'N' and not exists (  select 1
+                                                                                           from predisparosms 
+                                                                                          where idpedido = pp.idpedido ) )  )
+                    
+                  
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P492_TIPO
+            value: F
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToYOfZ
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhuma informação encontrada!
+        }
+        advanced {
+            savedReportMappingIdentifier: 217148574902788976
+        }
+
+        column Bairro (
+            type: plainText
+            heading {
+                heading: Bairro
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column Cep (
+            type: plainText
+            heading {
+                heading: Cep
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column Cidade (
+            type: plainText
+            heading {
+                heading: Cidade
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column Consultora (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Data de Emissão" (
+            type: plainText
+            heading {
+                heading: Data De Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column "Data de Entrega" (
+            type: plainText
+            heading {
+                heading: Data De Entrega
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column "Data de Nascimento" (
+            type: plainText
+            heading {
+                heading: Data De Nascimento
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column EMAIL (
+            type: plainText
+            heading {
+                heading: Email
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column Empresa (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column Endereço (
+            type: plainText
+            heading {
+                heading: Endereço
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "Enviado ao SPC" (
+            type: plainText
+            heading {
+                heading: Enviado Ao Spc
+                alignment: center
+            }
+            layout {
+                sequence: 240
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column "Nr Pedido" (
+            type: plainText
+            heading {
+                heading: Nr Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column Numero (
+            type: plainText
+            heading {
+                heading: Numero
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column Pago (
+            type: plainText
+            heading {
+                heading: Pago
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column RG (
+            type: plainText
+            heading {
+                heading: Rg
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column Saldo (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: end
+            }
+            layout {
+                sequence: 230
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column Sexo (
+            type: plainText
+            heading {
+                heading: Sexo
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column Telefones (
+            type: plainText
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "Total Pedido" (
+            type: plainText
+            heading {
+                heading: Total Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column "Valor Desconto" (
+            type: plainText
+            heading {
+                heading: Valor Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column "Valor a Pagar" (
+            type: plainText
+            heading {
+                heading: Valor A Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column Vencimento (
+            type: plainText
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 1006865 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Bairro" (
+                sequence: 6
+            )
+
+            displayColumn CPF (
+                sequence: 1
+            )
+
+            displayColumn "Cep" (
+                sequence: 7
+            )
+
+            displayColumn "Cidade" (
+                sequence: 8
+            )
+
+            displayColumn "Consultora" (
+                sequence: 3
+            )
+
+            displayColumn "Data de Emissão" (
+                sequence: 16
+            )
+
+            displayColumn "Data de Entrega" (
+                sequence: 17
+            )
+
+            displayColumn "Data de Nascimento" (
+                sequence: 11
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 14
+            )
+
+            displayColumn EMAIL (
+                sequence: 9
+            )
+
+            displayColumn "Empresa" (
+                sequence: 13
+            )
+
+            displayColumn "Endereço" (
+                sequence: 4
+            )
+
+            displayColumn "Enviado ao SPC" (
+                sequence: 24
+            )
+
+            displayColumn "Nr Pedido" (
+                sequence: 15
+            )
+
+            displayColumn "Numero" (
+                sequence: 5
+            )
+
+            displayColumn "Pago" (
+                sequence: 22
+            )
+
+            displayColumn RG (
+                sequence: 2
+            )
+
+            displayColumn "Saldo" (
+                sequence: 23
+            )
+
+            displayColumn "Sexo" (
+                sequence: 12
+            )
+
+            displayColumn "Telefones" (
+                sequence: 10
+            )
+
+            displayColumn "Total Pedido" (
+                sequence: 19
+            )
+
+            displayColumn "Valor Desconto" (
+                sequence: 20
+            )
+
+            displayColumn "Valor a Pagar" (
+                sequence: 21
+            )
+
+            displayColumn "Vencimento" (
+                sequence: 18
+            )
+
+        )
+
+    )
+
+    region carteira-atrasada-rmc (
+        name: Carteira Atrasada RMC
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nvl(p.cpf,p.documentoestrangeiro) "CPF"
+                     , p.rg "RG"
+                     , initcap(p.nomepessoa) "Consultora"
+                --     , nv.idvendedora
+                     , p.enderecoprincipal "Endereço"
+                     , p.numero "Numero"
+                     , p.bairro "Bairro"
+                     , p.cep "Cep"
+                     , roman.pck_romance.fnc_nomecidade(p.idcidade) "Cidade"
+                     , p.email
+                     , ( select t.telefone
+                         from telefonespessoas t
+                         where t.idtelefonepessoa = ( select max(tt.idtelefonepessoa)
+                                                      from telefonespessoas tt
+                                                      where tt.idpessoa = p.idpessoa
+                                                        and not REGEXP_LIKE(telefone, '(\d)\1\1\1\1\1') ) ) "Telefones"
+                     , p.datanascimento "Data de Nascimento"
+                     , decode(p.sexo,'M','Masculino','F','Feminino') "Sexo"
+                     , roman.pck_romance.fnc_nomefilial(nv.idfilial) "Empresa"
+                     , roman.pck_romance.fnc_nomerepresentante(nv.idrepresentante) "Distribuidor"
+                     , nv.numeronota "Nr Pedido"
+                     , trunc(nv.datanota) "Data do Nota"
+                     , trunc(nv.dataretorno) "Data do Retorno"
+                     , trunc(nvl(nv.dataretornoorig,(nv.datanota+42))) "Data do Retorno Orig."
+                     , trunc(nv.dataacerto) "Data do Acerto"
+                     , nvl(nv.valortotalnota*nv.fatorconversao,0) "Total Nota"
+                     , nvl(nv.valortotaldevolucao*nv.fatorconversao,0) "Total Devolução"
+                     , nvl(nv.valortotalvenda*nv.fatorconversao,0) "Total Venda"
+                     , nvl(nv.valortotalvendalqd*nv.fatorconversao,0) "Total Venda Liquida"
+                     , nvl(nv.valorcomissao*nv.fatorconversao,0) "Comissão Consultora"
+                     , nvl(nv.valorpago*nv.fatorconversao,0) "Pago"
+                     , nvl(nv.saldo*nv.fatorconversao,0) "Saldo"
+                     , nvl(nv.enviadocobranca,'N') "Enviado Cobrança"
+                     , nv.dataenviadocobranca "Data de envio p/ Cobrança"
+                     , decode(v.spc, 'S', 'Sim','Não') "Enviado ao SPC"
+                /*     , ( select decode(aa.situacao,'R','Reprovada','A','Aprovada')
+                         from assinaturaseletronicas aa
+                         where aa.idassinaturaeletronica = ( select max(a.idassinaturaeletronica)
+                                                             from assinaturaseletronicas a 
+                                                             where a.idnotavenda = nv.idnotavenda
+                                                               and a.status = 'C' ) ) situacao_assinatura
+                     , nvl( ( select 'Sim'
+                              from dual
+                              where exists ( select 1
+                                             from negociacoesparceiros np
+                                             where np.idvendedora = nv.idvendedora
+                                               and np.origem      = 'B' ) ),'Não') acordo_vigente 
+                     , ( select max(ob.data)
+                         from observacoesnotasvendas ob
+                         where ob.idnotavenda = nv.idnotavenda ) ultimo_acionamento*/
+                from roman.notasvendas nv
+                   , catal.pessoas p
+                   , catal.vendedoras v
+                where v.idvendedora = nv.idvendedora
+                  and p.idpessoa = v.idpessoa
+                  and nv.idsituacaonotavenda = 4
+                  and nv.saldo > 0
+                  and p.idpais       = :P492_IDPAIS
+                  and ( :P492_PESQUISA is null
+                    or ( :P492_PESQUISA = 'A' and extract (year from nv.datanota) = :P492_ANO )
+                    or ( :P492_PESQUISA = 'P' and nv.datanota between to_date(:P492_DATAINICIO||' 00:00:01','DD/MM/RRRR HH24:MI:SS') 
+                                                                  and to_date(:P492_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') ) )
+                  and ( :P492_IDFILIAL is null or nv.idfilial = :P492_IDFILIAL)
+                  and ( :P492_DATAINICIO is not null or :P492_IDFILIAL is not null or :P492_ANO is not null )
+                  and ( :P492_SITUACAO_ASSINATURA = 'X' or exists ( select 1
+                                                                    from assinaturaseletronicas a
+                                                                    where a.idnotavenda = nv.idnotavenda
+                                                                      and a.status = 'C'
+                                                                      and a.situacao = :P492_SITUACAO_ASSINATURA ) )
+                  and ( :P492_ENVIADOCOBR = 'A' or (:P492_ENVIADOCOBR = 'S' and exists ( select 1
+                                                                                           from negociacoesparceiros np
+                                                                                          where np.idvendedora = v.idvendedora
+                                                                                            and np.origem      = 'B' ) ) 
+                                                or (:P492_ENVIADOCOBR = 'N' and not exists ( select 1
+                                                                                               from negociacoesparceiros np
+                                                                                              where np.idvendedora = v.idvendedora
+                                                                                                and np.origem      = 'B' ) )   )
+                  and ( :P492_ENVIADOSPC = 'A' or nvl(v.spc,'N') = :P492_ENVIADOSPC )
+                  and ( :P492_SEXO ='A'        or p.sexo = :P492_SEXO ) 
+                --  and ( :P492_VALORINI IS NULL or nvl(nv.valortotalnota*nv.fatorconversao,0) between :P492_VALORINI
+                --                                                                                 and :P492_VALORFIM)
+                -- solicitado pelo Paulo Saraiva para pegar pelo saldo
+                  and ( :P492_VALORINI IS NULL or nvl(nv.saldo*nv.fatorconversao,0) between :P492_VALORINI
+                                                                                        and :P492_VALORFIM)
+                  and ( :P492_SMSENVIADO = 'A' or (:P492_SMSENVIADO = 'S' and exists ( select 1
+                                                                                           from predisparosms 
+                                                                                          where idnotavenda = nv.idnotavenda) ) 
+                                                or (:P492_SMSENVIADO = 'N' and not exists (  select 1
+                                                                                           from predisparosms 
+                                                                                          where idnotavenda = nv.idnotavenda ) )  )
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P492_TIPO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToYOfZ
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhuma informação encontrada! Verifique os filtros.
+        }
+        download {
+            formats: [
+                html
+                csv
+                excel
+            ]
+            sendAsEmail: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 217097233309823191
+        }
+
+        column Bairro (
+            type: plainText
+            heading {
+                heading: Bairro
+                alignment: center
+            }
+            layout {
+                sequence: 330
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column Cep (
+            type: plainText
+            heading {
+                heading: Cep
+                alignment: center
+            }
+            layout {
+                sequence: 340
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        column Cidade (
+            type: plainText
+            heading {
+                heading: Cidade
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Comissão Consultora" (
+            type: plainText
+            heading {
+                heading: Comissão Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 430
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AQ
+            }
+        )
+
+        column Consultora (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Data de Nascimento" (
+            type: plainText
+            heading {
+                heading: Data De Nascimento
+                alignment: center
+            }
+            layout {
+                sequence: 360
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AJ
+            }
+        )
+
+        column "Data de envio p/ Cobrança" (
+            type: plainText
+            heading {
+                heading: Data De Envio P&#x2F; Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 450
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AS
+            }
+        )
+
+        column "Data do Acerto" (
+            type: plainText
+            heading {
+                heading: Data Do Acerto
+                alignment: center
+            }
+            layout {
+                sequence: 390
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AM
+            }
+        )
+
+        column "Data do Nota" (
+            type: plainText
+            heading {
+                heading: Data da nota
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column "Data do Retorno" (
+            type: plainText
+            heading {
+                heading: Data Do Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 370
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AK
+            }
+        )
+
+        column "Data do Retorno Orig." (
+            type: plainText
+            heading {
+                heading: Data Do Retorno Orig.
+                alignment: center
+            }
+            layout {
+                sequence: 380
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AL
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column EMAIL (
+            type: plainText
+            heading {
+                heading: Email
+                alignment: center
+            }
+            layout {
+                sequence: 350
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AI
+            }
+        )
+
+        column Empresa (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column Endereço (
+            type: plainText
+            heading {
+                heading: Endereço
+                alignment: center
+            }
+            layout {
+                sequence: 310
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AE
+            }
+        )
+
+        column "Enviado Cobrança" (
+            type: plainText
+            heading {
+                heading: Enviado cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 270
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column "Enviado ao SPC" (
+            type: plainText
+            heading {
+                heading: Enviado ao SPC
+                alignment: center
+            }
+            layout {
+                sequence: 290
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AB
+            }
+        )
+
+        column "Nr Pedido" (
+            type: plainText
+            heading {
+                heading: Nr pedido
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column Numero (
+            type: plainText
+            heading {
+                heading: Numero
+                alignment: center
+            }
+            layout {
+                sequence: 320
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column Pago (
+            type: plainText
+            heading {
+                heading: Pago
+                alignment: center
+            }
+            layout {
+                sequence: 250
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column RG (
+            type: plainText
+            heading {
+                heading: Rg
+                alignment: center
+            }
+            layout {
+                sequence: 300
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AD
+            }
+        )
+
+        column Saldo (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: end
+            }
+            layout {
+                sequence: 440
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AR
+            }
+        )
+
+        column Sexo (
+            type: plainText
+            heading {
+                heading: Sexo
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column Telefones (
+            type: plainText
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "Total Devolução" (
+            type: plainText
+            heading {
+                heading: Total Devolução
+                alignment: center
+            }
+            layout {
+                sequence: 400
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AN
+            }
+        )
+
+        column "Total Nota" (
+            type: plainText
+            heading {
+                heading: Total nota
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column "Total Venda" (
+            type: plainText
+            heading {
+                heading: Total Venda
+                alignment: center
+            }
+            layout {
+                sequence: 410
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AO
+            }
+        )
+
+        column "Total Venda Liquida" (
+            type: plainText
+            heading {
+                heading: Total Venda Liquida
+                alignment: center
+            }
+            layout {
+                sequence: 420
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AP
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 1007039 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Bairro" (
+                sequence: 17
+            )
+
+            displayColumn CPF (
+                sequence: 1
+            )
+
+            displayColumn "Cep" (
+                sequence: 18
+            )
+
+            displayColumn "Cidade" (
+                sequence: 3
+            )
+
+            displayColumn "Comissão Consultora" (
+                sequence: 27
+            )
+
+            displayColumn "Consultora" (
+                sequence: 2
+            )
+
+            displayColumn "Data de Nascimento" (
+                sequence: 20
+            )
+
+            displayColumn "Data de envio p/ Cobrança" (
+                sequence: 29
+            )
+
+            displayColumn "Data do Acerto" (
+                sequence: 23
+            )
+
+            displayColumn "Data do Nota" (
+                sequence: 9
+            )
+
+            displayColumn "Data do Retorno" (
+                sequence: 21
+            )
+
+            displayColumn "Data do Retorno Orig." (
+                sequence: 22
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 7
+            )
+
+            displayColumn EMAIL (
+                sequence: 19
+            )
+
+            displayColumn "Empresa" (
+                sequence: 6
+            )
+
+            displayColumn "Endereço" (
+                sequence: 15
+            )
+
+            displayColumn "Enviado Cobrança" (
+                sequence: 12
+            )
+
+            displayColumn "Enviado ao SPC" (
+                sequence: 13
+            )
+
+            displayColumn "Nr Pedido" (
+                sequence: 8
+            )
+
+            displayColumn "Numero" (
+                sequence: 16
+            )
+
+            displayColumn "Pago" (
+                sequence: 11
+            )
+
+            displayColumn RG (
+                sequence: 14
+            )
+
+            displayColumn "Saldo" (
+                sequence: 28
+            )
+
+            displayColumn "Sexo" (
+                sequence: 5
+            )
+
+            displayColumn "Telefones" (
+                sequence: 4
+            )
+
+            displayColumn "Total Devolução" (
+                sequence: 24
+            )
+
+            displayColumn "Total Nota" (
+                sequence: 10
+            )
+
+            displayColumn "Total Venda" (
+                sequence: 25
+            )
+
+            displayColumn "Total Venda Liquida" (
+                sequence: 26
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region gerarpresms (
+        name: GerarPreSMS
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: dialogsDrawersAndPopups
+        }
+        appearance {
+            template: @/inline-dialog
+            templateOptions: [
+                js-dialog-autoheight
+                js-modal
+                js-draggable
+                js-resizable
+                js-dialog-size720x480
+            ]
+        }
+        advanced {
+            htmlDomId: PRESMS
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <b>Informações:</b><br>
+                <b> &ltPRIMEIRONOME&gt </b> - O sistema entende que deve colocar o primeiro nome da consultora no texto.<br><br>
+                ```
+        }
+    )
+
+    region gerarpresms-2 (
+        name: GerarPreSMS2
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: dialogsDrawersAndPopups
+        }
+        appearance {
+            template: @/inline-dialog
+            templateOptions: [
+                js-dialog-autoheight
+                js-modal
+                js-draggable
+                js-resizable
+                js-dialog-size600x400
+            ]
+        }
+        advanced {
+            htmlDomId: PRESMS2
+            regionDisplaySelector: true
+        }
+    )
+
+    region new (
+        name: New
+        type: interactiveGrid
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select *
+                  from tmp_predisparosms;
+                ```
+        }
+        layout {
+            sequence: 40
+            parentRegion: @gerarpresms-2
+            slot: subRegions
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        edit {
+            enabled: true
+            allowedOperations: [
+                update
+                delete
+            ]
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: page
+        }
+        toolbar {
+            controls: [
+                searchCol
+                searchField
+                actionsMenu
+                resetButton
+                saveButton
+            ]
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 100957804579699602
+        }
+
+        savedReport PRIMARY (
+            visibility: primary
+            view {
+                default: grid
+            }
+            singleRowView {
+                displayedColumns: true
+            }
+
+            displayColumn (
+                column: @IDPESSOA
+                layout {
+                    sequence: 2
+                }
+            )
+
+            displayColumn (
+                column: @SAFRA
+                layout {
+                    sequence: 5
+                }
+            )
+
+            displayColumn (
+                column: @TELEFONE
+                layout {
+                    sequence: 6
+                }
+            )
+
+            displayColumn (
+                column: @INCLUIR
+                layout {
+                    sequence: 7
+                }
+            )
+
+            displayColumn (
+                column: @USUARIO
+                layout {
+                    sequence: 8
+                }
+            )
+
+            displayColumn (
+                column: @DATAHORADISP
+                layout {
+                    sequence: 9
+                }
+            )
+
+            displayColumn (
+                column: @MENSAGEM
+                layout {
+                    sequence: 10
+                }
+            )
+
+            displayColumn (
+                column: @NOMEPESSOA
+                layout {
+                    sequence: 12
+                }
+            )
+
+            displayColumn (
+                column: @APEX$ROW_ACTION
+                layout {
+                    sequence: 0
+                }
+            )
+
+            displayColumn (
+                column: @ID
+                layout {
+                    sequence: 13
+                }
+            )
+
+            displayColumn (
+                column: @IDDOCUMENTO
+                layout {
+                    sequence: 14
+                }
+            )
+
+            displayColumn (
+                column: @VALOR
+                layout {
+                    sequence: 15
+                }
+            )
+
+            displayColumn (
+                column: @CANALDISP
+                layout {
+                    sequence: 16
+                }
+            )
+
+        )
+
+        column APEX$ROW_ACTION (
+            type: actionsMenu
+            layout {
+                sequence: 20
+            }
+        )
+
+        column APEX$ROW_SELECTOR (
+            type: rowSelector
+            layout {
+                sequence: 10
+            }
+        )
+
+        column CANALDISP (
+            type: numberField
+            heading {
+                heading: Canaldisp
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: CANALDISP
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column DATAHORADISP (
+            type: textarea
+            heading {
+                heading: Datahoradisp
+            }
+            layout {
+                sequence: 110
+            }
+            validation {
+                maxLength: 4000
+            }
+            source {
+                databaseColumn: DATAHORADISP
+                dataType: date
+            }
+            columnFilter {
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column ID (
+            type: numberField
+            heading {
+                heading: Id
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            validation {
+                valueRequired: true
+            }
+            source {
+                databaseColumn: ID
+                dataType: number
+                primaryKey: true
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column IDDOCUMENTO (
+            type: numberField
+            heading {
+                heading: Iddocumento
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: IDDOCUMENTO
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column IDPESSOA (
+            type: textarea
+            heading {
+                heading: Idpessoa
+            }
+            layout {
+                sequence: 40
+            }
+            validation {
+                maxLength: 4000
+            }
+            source {
+                databaseColumn: IDPESSOA
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column INCLUIR (
+            type: textarea
+            heading {
+                heading: Incluir
+            }
+            layout {
+                sequence: 90
+            }
+            validation {
+                maxLength: 1
+            }
+            source {
+                databaseColumn: INCLUIR
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column MENSAGEM (
+            type: textarea
+            heading {
+                heading: Mensagem
+            }
+            layout {
+                sequence: 120
+            }
+            validation {
+                maxLength: 500
+            }
+            source {
+                databaseColumn: MENSAGEM
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column NOMEPESSOA (
+            type: textarea
+            heading {
+                heading: Nomepessoa
+            }
+            layout {
+                sequence: 140
+            }
+            validation {
+                maxLength: 100
+            }
+            source {
+                databaseColumn: NOMEPESSOA
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column SAFRA (
+            type: textarea
+            heading {
+                heading: Safra
+            }
+            layout {
+                sequence: 70
+            }
+            validation {
+                maxLength: 4000
+            }
+            source {
+                databaseColumn: SAFRA
+                dataType: date
+            }
+            columnFilter {
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column TELEFONE (
+            type: textarea
+            heading {
+                heading: Telefone
+            }
+            layout {
+                sequence: 80
+            }
+            validation {
+                maxLength: 30
+            }
+            source {
+                databaseColumn: TELEFONE
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column USUARIO (
+            type: textarea
+            heading {
+                heading: Usuario
+            }
+            layout {
+                sequence: 100
+            }
+            validation {
+                maxLength: 50
+            }
+            source {
+                databaseColumn: USUARIO
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column VALOR (
+            type: numberField
+            heading {
+                heading: Valor
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: VALOR
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+    )
+
+    pageItem P492_ACORDOVIG (
+        type: radioGroup
+        label {
+            label: Acordo Vigente
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N,Ambos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_ANO (
+        type: textField
+        label {
+            label: Ano
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 5
+        }
+        default {
+            type: expression
+            plsqlExpression: to_char(sysdate,'RRRR')
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_CANAL (
+        type: radioGroup
+        label {
+            label: Canal de Disparo
+            alignment: left
+        }
+        settings {
+            noOfCols: 5
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Análise de Crédito;25,Cobrança;40,Call Center;41,SAC;42,Comercial;43
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 180
+            region: @gerarpresms
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_DATADISPARO (
+        type: datePickerJquery
+        label {
+            label: Data Disparo
+            alignment: left
+        }
+        layout {
+            sequence: 210
+            region: @gerarpresms
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: dd/mm/rrrr hh24:mi:ss
+            width: 20
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_ENVIADOCOBR (
+        type: radioGroup
+        label {
+            label: Enviado Cobrança
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N,Ambos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_ENVIADOSPC (
+        type: radioGroup
+        label {
+            label: Enviado SPC
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N,Ambos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.tipofilial = 'D'
+                  and f.ativo = 'S'
+                  and f.idgrupo is not null
+                  and f.ididioma = :P492_IDPAIS
+                ```
+            nullDisplayValue: "- Todas - "
+        }
+        cascadingLov {
+            parentItems: P492_IDPAIS
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_IDPAIS (
+        type: selectList
+        label {
+            label: País
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.nome display_value
+                     , p.idpais return_value
+                from paises p
+                order by idpais
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_MENSAGEM (
+        type: textField
+        label {
+            label: Mensagem
+            alignment: left
+        }
+        layout {
+            sequence: 190
+            region: @gerarpresms
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 150
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_PESQUISA (
+        type: radioGroup
+        label {
+            label: Pesquisa
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Período;P,Ano;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_SEXO (
+        type: radioGroup
+        label {
+            label: Sexo
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Masc;M,Femi;F,Ambos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 120
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_SITUACAO_ASSINATURA (
+        type: radioGroup
+        label {
+            label: Sit. Assinatura
+            alignment: left
+        }
+        settings {
+            noOfCols: 4
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Aprov;A,Reprov;R,Ambos;X
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: X
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_SMSENVIADO (
+        type: radioGroup
+        label {
+            label: Incluir SMS já enviado
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N,Ambos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 130
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_TIPO (
+        type: radioGroup
+        label {
+            label: Tipo de Carteira
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Romance;R,Favorita;F
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_VALORFIM (
+        type: numberField
+        label {
+            label: Faixa Final
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 150
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P492_VALORINI (
+        type: numberField
+        label {
+            label: Faixa Inicial
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 140
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 160
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--iconRight
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+        advanced {
+            htmlDomId: P620_FILTRAR
+        }
+    )
+
+    button gerarpresms (
+        buttonName: GERARPRESMS
+        label: Gerar Pré-SMS
+        layout {
+            sequence: 10
+            region: @gerarpresms
+            slot: belowBox
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    button openmodalf (
+        buttonName: openModalF
+        label: PRÉ-DISPARO
+        layout {
+            sequence: 10
+            region: @carteira-atrasada-fav
+            slot: top
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:openModal('PRESMS');
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button openmodalr (
+        buttonName: openModalR
+        label: PRÉ-DISPARO
+        layout {
+            sequence: 20
+            region: @carteira-atrasada-rmc
+            slot: top
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:openModal('PRESMS');
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction ano (
+        name: Ano
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P492_PESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P492_PESQUISA
+            value: A
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P492_ANO
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P492_ANO
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction confirma-fav (
+        name: Confirma_FAV
+        execution {
+            sequence: 40
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @gerarpresms
+        }
+        serverSideCondition {
+            type: item=value
+            item: P492_TIPO
+            value: F
+        }
+
+        action native-confirm (
+            action: confirm
+            settings {
+                message: Confirma executar pré-disparo de SMS?
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    var pcanal = $v("P492_CANAL");
+                    var pmens  = $v("P492_MENSAGEM");
+                    var pdata  = $v("P492_DATADISPARO");
+                    var pmens2 = pmens.replace(/,/gi, "@");
+                    
+                    var purl = "f?p=&APP_ID.:493:&APP_SESSION.:::RP:P493_TIPO,P493_CANAL,P493_MENSAGEM,P493_DATADISPARO"+":R,"+pcanal+","+pmens2+","+pdata+":";
+                    
+                    apex.navigation.redirect (purl);
+                    
+                    ```
+            }
+            affectedElements {
+                selectionType: items
+                items: P492_MENSAGEM
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction confirma-rom (
+        name: Confirma_ROM
+        execution {
+            sequence: 50
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @gerarpresms
+        }
+        serverSideCondition {
+            type: item=value
+            item: P492_TIPO
+            value: R
+        }
+
+        action native-confirm (
+            action: confirm
+            settings {
+                message: Confirma executar pré-disparo de SMS?
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    var pcanal = $v("P492_CANAL");
+                    var pmens  = $v("P492_MENSAGEM");
+                    var pdata  = $v("P492_DATADISPARO");
+                    var pmens2 = pmens.replace(/,/gi, "@");
+                    
+                    var purl = "f?p=&APP_ID.:493:&APP_SESSION.:::RP:P493_TIPO,P493_CANAL,P493_MENSAGEM,P493_DATADISPARO"+":R,"+pcanal+","+pmens2+","+pdata+":";
+                    
+                    apex.navigation.redirect (purl);
+                    
+                    ```
+            }
+            affectedElements {
+                selectionType: items
+                items: P492_MENSAGEM
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction gerarelatorio (
+        name: GeraRelatorio
+        execution {
+            sequence: 30
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @filtrar
+        }
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction periodo (
+        name: Periodo
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P492_PESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P492_PESQUISA
+            value: P
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P492_DATAINICIO
+                    P492_DATAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P492_DATAINICIO
+                    P492_DATAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction romance (
+        name: Romance
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P492_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P492_TIPO
+            value: R
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P492_SITUACAO_ASSINATURA
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P492_SITUACAO_ASSINATURA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    process new-save-interactive-grid-data (
+        name: New - Save Interactive Grid Data
+        type: interactiveGridAutoRowProcessing
+        editableRegion: @new
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 100959321319699617
+        }
+    )
+
+    branch (
+        name: Go To Page 492
+        execution {
+            sequence: 20
+        }
+        behavior {
+            target: {
+                page: 492
+                items: {
+                    P492_IDFILIAL: &P492_IDFILIAL.
+                    P492_PESQUISA: &P492_PESQUISA.
+                    P492_DATAINICIO: &P492_DATAINICIO.
+                    P492_DATAFIM: &P492_DATAFIM.
+                    P492_ANO: &P492_ANO.
+                    P492_TIPO: &P492_TIPO.
+                    P492_IDPAIS: &P492_IDPAIS.
+                    P492_SITUACAO_ASSINATURA: &P492_SITUACAO_ASSINATURA.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

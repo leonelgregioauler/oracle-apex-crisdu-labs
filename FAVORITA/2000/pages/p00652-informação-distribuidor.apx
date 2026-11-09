@@ -1,0 +1,220 @@
+page 652 (
+    name: Informação Distribuidor
+    alias: INFORMAÇÃO-DISTRIBUIDOR
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+
+    region informações-do-distribuidor (
+        name: Informações do Distribuidor
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+    )
+
+    pageItem P652_DATAATIVACAO (
+        type: textField
+        label {
+            label: Data de Ativação:
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @informações-do-distribuidor
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        readOnly {
+            type: always
+        }
+    )
+
+    pageItem P652_DOCUMENTO (
+        type: textField
+        label {
+            label: Dcoumento:
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @informações-do-distribuidor
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        readOnly {
+            type: always
+        }
+    )
+
+    pageItem P652_IDREPRESENTANTE (
+        type: hidden
+        layout {
+            sequence: 10
+            region: @informações-do-distribuidor
+            slot: regionBody
+        }
+        source {
+            used: always
+        }
+    )
+
+    pageItem P652_INADCLIENTESFAV (
+        type: textField
+        label {
+            label: Inad. Clientes Favorita:
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @informações-do-distribuidor
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        readOnly {
+            type: always
+        }
+    )
+
+    pageItem P652_NOME (
+        type: textField
+        label {
+            label: Nome:
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @informações-do-distribuidor
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        readOnly {
+            type: always
+        }
+    )
+
+    process busca-informações (
+        name: Busca Informações
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                
+                select roman.pck_romance.fnc_nomerepresentante(r.idrepresentante)
+                     , (select p.cpf
+                        from pessoas p
+                        where p.idpessoa = r.idpessoa)
+                     , to_char(r.datainclusao,'dd/mm/rrrr')
+                     , (select round ( ((t.total_pagar) - (valor_pago_emdia) - (pago_30dias) - (pago_42dias) - (pago_90dias)) / (t.total_pagar) *100 ,2) inad_rep
+                        from (
+                              select count(1) Qtd_Vencimentos 
+                                   , sum(nvl(v.valorpagar,0) * nvl(p.fatorconversao,1)) total_pagar 
+                                   , sum( nvl(pg.valorpago,0) * nvl(p.fatorconversao,1)) total_pago
+                                   , sum( case  
+                                            when nvl(pg.datapagamento,pg.databaixa) <= v.datavencimento 
+                                              then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                            else 
+                                              0 
+                                          end )  valor_pago_emdia
+                                   , sum( case 
+                                            when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 1 and v.datavencimento + 30 
+                                              then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                            else 
+                                              0 
+                                          end ) pago_30dias
+                                   , sum( case  
+                                            when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 31 and v.datavencimento + 42 
+                                              then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                            else 
+                                              0 
+                                          end ) pago_42dias
+                                   , sum( case 
+                                            when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 43 and v.datavencimento + 90 
+                                              then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                            else 
+                                              0 
+                                          end ) pago_90dias
+                               from favorita.vencimentospedidos v                 
+                                  , favorita.pedidos p                            
+                                  , filiaisfavorita f                             
+                                  , (select sum(valorpago) valorpago             
+                                          , min(trunc(datapagamento)) datapagamento
+                                          , min(trunc(databaixa)) databaixa   
+                                          , idvencimentopedido                    
+                                       from pagamentospedidos                     
+                                      where idsituacao = 20                       
+                                      group by idvencimentopedido ) pg
+                              where v.idpedido = p.idpedido 
+                                and p.idfilialromance is not null
+                                and p.idfilialromance not in (1216,1258,1220,1063,200)                                     
+                                and p.datacancelamento is null                            
+                                and v.situacaovencimento = 'V'   
+                                and p.idrepresentante = r.idrepresentante       
+                                and p.idfilialfavorita = f.idfilialfavorita                   
+                                and v.idvencimentopedido = pg.idvencimentopedido(+)    
+                                and v.valorpagar > 0                                          
+                                and v.datavencimento between add_months(trunc(sysdate)-1,-12) and trunc(sysdate-1)
+                                and not exists ( select 1
+                                                   from representantes r
+                                                   where r.idrepresentante = p.idrepresentante
+                                                     and r.ativo = 'N')) t)
+                into :P652_NOME
+                   , :P652_DOCUMENTO
+                   , :P652_DATAATIVACAO
+                   , :P652_INADCLIENTESFAV
+                from representantes r
+                where r.idrepresentante = :P652_IDREPRESENTANTE;
+                
+                exception when no_data_found then
+                null;
+                
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 373719703738955709
+        }
+    )
+
+)
+

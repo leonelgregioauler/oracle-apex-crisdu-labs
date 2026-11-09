@@ -1,0 +1,1050 @@
+page 574 (
+    name: Controle PIX Boleto
+    title: Controle PIX Boleto
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function geraChavePix_POST() {
+                var idPagamento = parseInt(document.getElementById('P574_IDPAGAMENTOPEDIDO').value || 0);
+                var valor = parseFloat(document.getElementById('P574_VALOR_ATUAL').value.replace(",", "."));
+                
+                var json = {
+                    idpagamentopedido: idPagamento,
+                    valor: valor
+                }
+            
+                console.log(JSON.stringify(json));
+            
+                fetch("https://debitos.romance.com.br/ws_dev/pix/gerar", {
+                    method: "POST",
+                    mode: "cors",
+                    cache: "no-cache",
+                    credentials: "same-origin",
+                    headers: {
+                        Accept: "application/json",
+                        "Content-Type": "application/json; charset=UTF-8",
+                    },
+                    redirect: "follow",
+                    referrerPolicy: "no-referrer",
+                    body: JSON.stringify(json)
+                }).then(function() {
+                    alert("Chamada efetuada com sucesso!")
+                    window.location.reload(); 
+                });
+            };
+            
+            function geraChavePix() {
+                $("#BT_GERARPIX").attr("disabled", true);
+                
+                var idPagamento = parseInt(document.getElementById('P574_IDPAGAMENTOPEDIDO').value || 0);
+                var valor = parseFloat(document.getElementById('P574_VALOR_ATUAL').value.replace(",", "."));
+                
+                
+                fetch("https://debitos.romance.com.br/ws/pix/gerar" + "?idpagamentopedido=" + idPagamento + "&valor=" + valor);
+                document.getElementById("P574_IDPAGAMENTOPEDIDO").value = idPagamento;
+                
+                setTimeout( function(){
+                    window.location.reload(); 
+                }, 3000);
+                
+            }
+            
+            window.geraChavePix = geraChavePix;
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region não-valido (
+        name: Não Valido
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <font color = "RED"><h3>
+                    Pedido possui boleto na Carteira Nova, não é possível gerar PIX via Integração.
+                    </h3> </font>
+                ```
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression:
+                ```sql
+                exists ( select 1
+                         from pagamentospedidos pp
+                            , controlearquivosbanco ca
+                         where ca.idpagamentopedido = pp.idpagamentopedido
+                           and pp.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO
+                           and pp.idsituacao = 10
+                           and nvl(ca.idconveniobanco,0) != 0 )
+                ```
+        }
+    )
+
+    region opção (
+        name: Opção
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression:
+                ```sql
+                exists ( select 1
+                             from pagamentospedidos pp
+                             where pp.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO
+                               and pp.chavepix is null )
+                and exists ( select 1
+                             from pagamentospedidos pp
+                                , controlearquivosbanco ca
+                             where ca.idpagamentopedido = pp.idpagamentopedido
+                               and pp.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO
+                               and nvl(ca.idconveniobanco,0) = 0 )
+                and :P574_IDPAGAMENTOPEDIDO is null
+                and exists ( select 1
+                             from vencimentospedidos vp
+                             where vp.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO
+                               and vp.valorpago < vp.valorpagar )
+                ```
+        }
+    )
+
+    region pago (
+        name: Pago
+        type: staticContent
+        layout {
+            sequence: 40
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <font color = "BLUE"><h3>
+                    Vencimento liquidado!
+                    </h3> </font>
+                ```
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression:
+                ```sql
+                exists ( select 1
+                         from vencimentospedidos vp
+                         where vp.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO
+                           and vp.valorpago >= vp.valorpagar )
+                ```
+        }
+    )
+
+    region válido (
+        name: Válido
+        type: staticContent
+        layout {
+            sequence: 50
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression:
+                ```sql
+                exists ( select 1
+                         from pagamentospedidos pp
+                         where  pp.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO
+                           and pp.idformapagamento = 24
+                           and pp.idsituacao = 10
+                           and pp.idcontroleurl is not null )
+                and :P574_IDPAGAMENTOPEDIDO is not null
+                ```
+        }
+    )
+
+    pageItem P574_CHAVEPIX (
+        type: textarea
+        label {
+            label: Chave Pix
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @válido
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 50
+            height: 5
+        }
+        advanced {
+            customAttributes: readonly
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare 
+                  vchavepix varchar2(1000);
+                begin
+                  --
+                  select chavepix
+                  into vchavepix
+                  from pagamentospedidos pp
+                  where pp.idformapagamento = 24
+                    and pp.idsituacao = 10
+                    and pp.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO
+                    and pp.idpagamentopedido = :P574_IDPAGAMENTOPEDIDO;
+                  --
+                  return vchavepix;
+                  --
+                exception
+                  when others then
+                    return 'Chave Pix não encontrada!';
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P574_IDPAGAMENTOPEDIDO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 20
+            region: @opção
+            slot: regionBody
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P574_IDVENCIMENTOPEDIDO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 30
+            region: @opção
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P574_TELEFONE (
+        type: textField
+        label {
+            label: Telefone
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @válido
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P574_TIPO_ACORDO (
+        type: radioGroup
+        label {
+            label: Isentar Encargos?
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @opção
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P574_TIPO_MOVIMENTO (
+        type: radioGroup
+        label {
+            label: Ação
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Copia/Cola;1,Enviar SMS;2
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @válido
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P574_VALOR_ATUAL (
+        type: textField
+        label {
+            label: Valor Atual
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @opção
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 10
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select round(pck_util_fav.fnc_calculajuros(pidpedido           => v.idpedido,
+                                                            pvalororiginal      => (v.valorpagar - v.valorpago),
+                                                     pdatavencimentoorig => v.datavencimento,
+                                                     pdatavencimentonovo => trunc(sysdate),
+                                                     ppercmulta          => 2,
+                                                     ppercjuros          => 1),2) valor
+                from vencimentospedidos v
+                where :P574_TIPO_ACORDO	 = 'N'
+                  and v.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO
+                union
+                select (v.valorpagar - v.valorpago)
+                from vencimentospedidos v
+                where :P574_TIPO_ACORDO	 = 'S'
+                  and v.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO
+                ```
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button cancelar (
+        buttonName: CANCELAR
+        label: Cancelar PIX
+        layout {
+            sequence: 10
+            region: @válido
+            slot: help
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--danger
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button confirmar (
+        buttonName: CONFIRMAR
+        label: Confirmar
+        layout {
+            sequence: 20
+            region: @válido
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 537
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: item=value
+            item: P574_TIPO_MOVIMENTO
+            value: 1
+        }
+    )
+
+    button enviar-sms (
+        buttonName: ENVIAR_SMS
+        label: Enviar Sms
+        layout {
+            sequence: 30
+            region: @válido
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: item=value
+            item: P574_TIPO_MOVIMENTO
+            value: 2
+        }
+    )
+
+    button gerar-chave (
+        buttonName: GERAR_CHAVE
+        label: Gerar Chave Pix
+        layout {
+            sequence: 10
+            region: @opção
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+        advanced {
+            htmlDomId: BT_GERARPIX
+        }
+    )
+
+    dynamicAction escolha-acao (
+        name: Escolha Acao
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P574_TIPO_MOVIMENTO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P574_TIPO_MOVIMENTO
+            value: 2
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P574_TELEFONE
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P574_CHAVEPIX
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P574_TELEFONE
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P574_CHAVEPIX
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    dynamicAction gerar-pix (
+        name: Gerar Pix
+        execution {
+            sequence: 40
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @gerar-chave
+        }
+
+        action native-execute-plsql-code (
+            action: executeServerSideCode
+            settings {
+                plsqlCode:
+                    ```plsql
+                    declare
+                      --
+                      vidpagamentopedido number;
+                      --
+                    begin
+                      -- Call the procedure
+                      pck_pedidos_fav.prc_gerapagamentoviapix(pidvencimentopedido => :P574_IDVENCIMENTOPEDIDO,
+                                                              pvalor_atual => :P574_VALOR_ATUAL,
+                                                              pidusuario => :P0_IDUSUARIO,
+                                                              pidpagamento => vidpagamentopedido);
+                      --
+                      :P574_IDPAGAMENTOPEDIDO := vidpagamentopedido;
+                      --
+                    end;
+                    
+                    ```
+                itemsToReturn: P574_IDPAGAMENTOPEDIDO
+                showProcessing: true
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode: javascript: window.geraChavePix();
+            }
+            execution {
+                sequence: 40
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction isenta-encargos (
+        name: Isenta Encargos
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P574_TIPO_ACORDO
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: items
+                items: P574_VALOR_ATUAL
+            }
+            execution {
+                sequence: 30
+                fireOnInit: false
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: REFRESH
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction refresh-acao (
+        name: Refresh_Acao
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P574_TIPO_MOVIMENTO
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: REFRESH_ACAO
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    validation valida-telefone (
+        name: Valida Telefone
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: itemIsNotNull
+            item: P574_TELEFONE
+        }
+        error {
+            errorMessage: É necessário informar um telefone
+        }
+        serverSideCondition {
+            whenButtonPressed: @enviar-sms
+        }
+    )
+
+    process alimenta-valor (
+        name: Alimenta Valor
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vvalor number;
+                begin
+                  --
+                  if :P574_TIPO_ACORDO = 'N' then
+                    --
+                    select round(pck_util_fav.fnc_calculajuros(pidpedido           => v.idpedido,
+                                                               pvalororiginal      => (v.valorpagar - v.valorpago),
+                                                               pdatavencimentoorig => v.datavencimento,
+                                                               pdatavencimentonovo => trunc(sysdate),
+                                                               ppercmulta          => 2,
+                                                               ppercjuros          => 1),2) valor
+                    into vvalor
+                    from vencimentospedidos v
+                    where v.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO;
+                    --
+                  elsif :P574_TIPO_ACORDO = 'S' then
+                    --
+                    select (v.valorpagar - v.valorpago)
+                    into vvalor
+                    from vencimentospedidos v
+                    where v.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO;
+                    --
+                  end if;
+                  --
+                  :P574_VALOR_ATUAL := vvalor;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 102430990141581206
+        }
+    )
+
+    process busca-chave-pix (
+        name: Busca Chave PIX
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare 
+                  --
+                  vchavepix varchar2(1000);
+                  --
+                begin
+                  --
+                  begin
+                    --
+                    select chavepix
+                    into vchavepix
+                    from pagamentospedidos pp
+                    where pp.idformapagamento = 24
+                      and pp.idsituacao = 10
+                      and pp.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO
+                      and pp.idpagamentopedido = :P574_IDPAGAMENTOPEDIDO;
+                    --
+                  exception
+                    when others then
+                      --
+                      vchavepix := null; 
+                      --
+                   end;
+                   --
+                  :P574_CHAVEPIX := vchavepix;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 102432746169581224
+        }
+    )
+
+    process busca-pagamento-pedido-com-pix (
+        name: Busca Pagamento pedido  com PIX
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare 
+                  --
+                  vidpagamento number;
+                  --
+                begin
+                  --
+                  select max(pp.idpagamentopedido)
+                  into vidpagamento
+                  from pagamentospedidos pp
+                  where pp.idvencimentopedido = :P574_IDVENCIMENTOPEDIDO
+                    and pp.idsituacao = 10
+                    and pp.idformapagamento = 24
+                    and pp.chavepix is not null
+                    and pp.idcontroleurl is not null;
+                  --
+                  :P574_IDPAGAMENTOPEDIDO := vidpagamento;
+                  --
+                exception
+                  when others then
+                    :P574_IDPAGAMENTOPEDIDO := null;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 102433775989581234
+        }
+    )
+
+    process cancela-pix (
+        name: Cancela Pix
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  -- Call the procedure
+                  pck_pedidos_fav.prc_cancelapromessapgto(pidpagamentopedido => :P574_IDPAGAMENTOPEDIDO,
+                                                          pidusuario => :P0_IDUSUARIO);
+                end;
+                
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        advanced {
+            executionMappingIdentifier: 102527368283293601
+        }
+        serverSideCondition {
+            whenButtonPressed: @cancelar
+        }
+    )
+
+    process gera-promessa-de-pagamento-pix (
+        name: Gera Promessa de Pagamento PIX
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidpagamentopedido number;
+                  --
+                begin
+                  -- Call the procedure
+                  pck_pedidos_fav.prc_gerapagamentoviapix(pidvencimentopedido => :P574_IDVENCIMENTOPEDIDO,
+                                                          pvalor_atual => :P574_VALOR_ATUAL,
+                                                          pidusuario => :P0_IDUSUARIO,
+                                                          pidpagamento => vidpagamentopedido);
+                end;
+                
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 102431200040581209
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    process gera-sms-com-link-encurtado (
+        name: Gera SMS com Link encurtado
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  -- Call the procedure
+                  pck_pedidos_fav.prc_gerasmslink_pix(pidpagamentopedido => :P574_IDPAGAMENTOPEDIDO,
+                                                      pidvencimentopedido => :P574_IDVENCIMENTOPEDIDO,
+                                                      ptelefone => :P574_TELEFONE);
+                end;
+                
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: Enviado Com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 102431674367581213
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ENVIAR_SMS
+        }
+    )
+
+    branch (
+        name: Go To Page 574
+        execution {
+            sequence: 20
+        }
+        behavior {
+            target: {
+                page: 574
+                items: {
+                    P574_TIPO_ACORDO: &P574_TIPO_ACORDO.
+                    P574_IDVENCIMENTOPEDIDO: &P574_IDVENCIMENTOPEDIDO.
+                    P574_IDPAGAMENTOPEDIDO:
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: REFRESH
+        }
+    )
+
+    branch (
+        name: Go To Page 574
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 574
+                items: {
+                    P574_TIPO_MOVIMENTO: &P574_TIPO_MOVIMENTO.
+                    P574_IDVENCIMENTOPEDIDO: &P574_IDVENCIMENTOPEDIDO.
+                    P574_IDPAGAMENTOPEDIDO: &P574_IDPAGAMENTOPEDIDO.
+                }
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERARPIX
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 30
+        }
+        behavior {
+            target: {
+                page: 574
+                items: {
+                    P574_IDPAGAMENTOPEDIDO: &P574_IDPAGAMENTOPEDIDO.
+                    P574_IDVENCIMENTOPEDIDO: &P574_IDVENCIMENTOPEDIDO.
+                    P574_TIPO_MOVIMENTO: &P574_TIPO_MOVIMENTO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: REFRESH_ACAO
+        }
+    )
+
+    branch (
+        name: Go To Page 537
+        execution {
+            sequence: 40
+        }
+        behavior {
+            target: {
+                page: 574
+                items: {
+                    P574_IDPAGAMENTOPEDIDO: &P574_IDPAGAMENTOPEDIDO.
+                    P574_TELEFONE: &P574_TELEFONE.
+                    P574_IDVENCIMENTOPEDIDO: &P574_IDVENCIMENTOPEDIDO.
+                    P574_CHAVEPIX: &P574_CHAVEPIX.
+                    P574_TIPO_MOVIMENTO: &P574_TIPO_MOVIMENTO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ENVIAR_SMS
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 50
+        }
+        behavior {
+            target: {
+                page: 574
+                items: {
+                    P574_IDPAGAMENTOPEDIDO:
+                    P574_IDVENCIMENTOPEDIDO: &P574_IDVENCIMENTOPEDIDO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @cancelar
+        }
+    )
+
+)
+

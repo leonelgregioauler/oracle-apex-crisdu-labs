@@ -1,0 +1,1295 @@
+page 539 (
+    name: Análise de Inadimplência
+    title: Análise de Inadimplência
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region análise-de-inadimplência-romance (
+        name: Análise de Inadimplência Romance
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 99
+                     , '- Total -' descricao
+                     , sum(total.vend) "Vendedoras"
+                     , '=' s1
+                     , sum(total.qtd) "Qtd Venda"
+                     , 100 perc0
+                     , '-' s3
+                     , sum(total.qtdquitado) "Qtd Quitado"
+                     , round((sum(total.qtdquitado)/sum(total.qtd)*100),2) perc1
+                     , sum(total.qtddebito) "Qtd Débito"
+                     , round((sum(total.qtddebito)/sum(total.qtd)*100),2) perc2
+                     , '|' s2
+                     , sum(total.valortotal) "Total"
+                     , sum(total.valorquitado) "Quitado"
+                     , round((sum(total.valorquitado)/sum(total.valortotal)*100),2) perc3
+                     , sum(total.valordebito) "Débito"
+                     , round((sum(total.valordebito)/sum(total.valortotal)*100),2) perc4
+                     , sum(valortotalnota) valortotalnota    
+                     , sum(valortotalvenda) valortotalvenda
+                     , sum(valortotalvenda) * 100 / sum(valortotalnota) pervenda
+                from ( select ( venda.quantidade + debito.quantidade ) qtd
+                            , ( venda.vend       + debito.vend       ) vend
+                            , venda.quantidade qtdquitado
+                            , debito.quantidade qtddebito
+                            , round((venda.valor + debito.valor),2 ) valortotal
+                            , round(venda.valor,2) valorquitado
+                            , round(debito.valor,2) valordebito                       
+                            , round(venda.valortotalnota,2) valortotalnota   
+                            , round(venda.valortotalvenda,2) valortotalvenda
+                       from nivelfaturamento n
+                          , ( 
+                               select nf.idfaturamento
+                                    , count( distinct idnotavenda ) quantidade
+                                    , count( distinct idvendedora ) vend
+                                    , sum(nv.valortotalvendalqd*nv.fatorconversao) valor
+                                    , sum(nv.valortotalnota*nv.fatorconversao) valortotalnota   
+                                    , sum(nv.valortotalvenda*nv.fatorconversao) valortotalvenda
+                               from notasvendas nv
+                                  , nivelfaturamento nf
+                               where nv.dataacerto between to_date(:P539_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P539_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                                 and ( :P539_TIPOPESQUISA = 'T'
+                                     or ( :P539_TIPOPESQUISA = 'D' and nv.idrepresentante = :P539_IDREPRESENTANTE )
+                                     or ( :P539_TIPOPESQUISA = 'F' and nv.idfilial = :P539_IDFILIAL )
+                                     or ( :P539_TIPOPESQUISA = 'G' and nv.idfilial in ( select idfilial 
+                                                                                        from filtrosfiliais ff
+                                                                                        where ff.usuario = v('APP_USER') ) ) )
+                                 and nv.idsituacaonotavenda = 4 
+                                 and (nv.valortotalvendalqd*nv.fatorconversao) between nf.valorinicio and nf.valorfim
+                                 and nv.valortotalvendalqd > 0
+                                 and nv.saldo <= 0
+                /*                 and exists ( select 1
+                                              from vendedoras v
+                                              where v.idvendedora = nv.idvendedora
+                                                and v.ativo       = 'S' )         */
+                               group by idfaturamento ) venda
+                           , ( 
+                               select nf.idfaturamento
+                                    , count( distinct idnotavenda ) quantidade
+                                    , count( distinct idvendedora ) vend
+                                    , sum(nv.valortotalvendalqd*nv.fatorconversao) valor  
+                                    , sum(nv.valortotalnota*nv.fatorconversao) valortotalnota  
+                                    , sum(nv.valortotalvenda*nv.fatorconversao) valortotalvenda
+                               from notasvendas nv
+                                  , nivelfaturamento nf
+                               where nv.dataacerto between to_date(:P539_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P539_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                                 and nv.idsituacaonotavenda = 4 
+                                 and ( :P539_TIPOPESQUISA  = 'T' 
+                                     or ( :P539_TIPOPESQUISA = 'D' and nv.idrepresentante = :P539_IDREPRESENTANTE )
+                                     or ( :P539_TIPOPESQUISA = 'F' and nv.idfilial = :P539_IDFILIAL )
+                                     or ( :P539_TIPOPESQUISA = 'G' and nv.idfilial in ( select idfilial 
+                                                                                        from filtrosfiliais ff
+                                                                                        where ff.usuario = v('APP_USER') ) ) )
+                                 and (nv.valortotalvendalqd*nv.fatorconversao) between nf.valorinicio and nf.valorfim
+                                 and nv.valortotalvendalqd > 0
+                                 and nv.saldo > 0 
+                /*                 and exists ( select 1
+                                              from vendedoras v
+                                              where v.idvendedora = nv.idvendedora
+                                                and v.ativo       = 'S' )*/
+                               group by idfaturamento ) debito
+                          where n.idfaturamento = venda.idfaturamento(+)
+                            and n.idfaturamento = debito.idfaturamento(+) ) total
+                where :P539_DATAINICIO is not null
+                union
+                select n.idfaturamento
+                     , n.descricao
+                     , ( nvl(venda.vend,0) + nvl(debito.vend,0) ) 
+                     , '|'
+                     , ( nvl(venda.quantidade,0) + nvl(debito.quantidade,0) )
+                     , case 
+                         when tot.quantidade > 0 then
+                           round( (( nvl(venda.quantidade,0) + nvl(debito.quantidade,0) ) / tot.quantidade * 100 ),2)
+                         else
+                           0
+                       end
+                     , '-'
+                     , nvl(venda.quantidade,0)
+                     , case
+                         when nvl(venda.quantidade,0) = 0 then
+                           0
+                         else
+                           round(( venda.quantidade / (venda.quantidade + nvl(debito.quantidade,0)) * 100 ),2)
+                       end
+                     , nvl(debito.quantidade,0)
+                     , case
+                         when nvl(debito.quantidade,0) = 0 then
+                           0
+                         else
+                           round(( debito.quantidade / (nvl(venda.quantidade,0) + debito.quantidade) * 100 ),2)
+                       end
+                     , '|'
+                     , round( nvl(venda.valor,0) + nvl(debito.valor,0),2)
+                     , round(nvl(venda.valor,0),2)
+                     , case
+                         when nvl(venda.valor,0) = 0 then
+                           0
+                         else
+                           round((venda.valor/(venda.valor+nvl(debito.valor,0))*100),2)
+                       end
+                     , round(nvl(debito.valor,0),2)
+                     , case
+                         when nvl(debito.valor,0) = 0 then
+                           0
+                         else
+                           round((debito.valor/(nvl(venda.valor,0)+debito.valor)*100),2)
+                       end
+                     , venda.valortotalnota
+                     , venda.valortotalvenda
+                     , venda.valortotalvenda * 100 / venda.valortotalnota percvenda
+                from nivelfaturamento n
+                   , ( 
+                        select count( distinct idnotavenda ) quantidade
+                             , count( distinct idvendedora ) vend
+                        from notasvendas nv
+                           , nivelfaturamento nf
+                        where nv.dataacerto between to_date(:P539_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P539_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')  
+                          and nv.idsituacaonotavenda = 4 
+                          and ( :P539_TIPOPESQUISA = 'T'
+                             or ( :P539_TIPOPESQUISA = 'D' and nv.idrepresentante = :P539_IDREPRESENTANTE )
+                             or ( :P539_TIPOPESQUISA = 'F' and nv.idfilial = :P539_IDFILIAL )
+                             or ( :P539_TIPOPESQUISA = 'G' and nv.idfilial in ( select idfilial 
+                                                                                from filtrosfiliais ff
+                                                                                where ff.usuario = v('APP_USER') ) ) )
+                          and (nv.valortotalvendalqd*nv.fatorconversao) between nf.valorinicio and nf.valorfim
+                          and nv.valortotalvendalqd > 0
+                          and nv.saldo <= 0
+                /*          and exists ( select 1
+                                       from vendedoras v
+                                       where v.idvendedora = nv.idvendedora
+                                         and v.ativo       = 'S' )*/ ) tot
+                   , ( 
+                        select nf.idfaturamento
+                             , count( distinct idnotavenda ) quantidade
+                             , count( distinct idvendedora ) vend
+                             , sum(nv.valortotalvendalqd*nv.fatorconversao) valor
+                             , sum(nv.valortotalnota*nv.fatorconversao) valortotalnota    
+                             , sum(nv.valortotalvenda*nv.fatorconversao) valortotalvenda         
+                        from notasvendas nv
+                           , nivelfaturamento nf
+                        where nv.dataacerto between to_date(:P539_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P539_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')  
+                          and nv.idsituacaonotavenda = 4 
+                          and ( :P539_TIPOPESQUISA = 'T'
+                             or ( :P539_TIPOPESQUISA = 'D' and nv.idrepresentante = :P539_IDREPRESENTANTE )
+                             or ( :P539_TIPOPESQUISA = 'F' and nv.idfilial = :P539_IDFILIAL )
+                             or ( :P539_TIPOPESQUISA = 'G' and nv.idfilial in ( select idfilial 
+                                                                                from filtrosfiliais ff
+                                                                                where ff.usuario = v('APP_USER') ) ) )
+                          and (nv.valortotalvendalqd*nv.fatorconversao) between nf.valorinicio and nf.valorfim
+                          and nv.valortotalvendalqd > 0
+                          and nv.saldo <= 0
+                /*          and exists ( select 1
+                                       from vendedoras v
+                                       where v.idvendedora = nv.idvendedora
+                                         and v.ativo       = 'S' )*/
+                        group by idfaturamento ) venda
+                    , ( 
+                        select nf.idfaturamento
+                             , count( distinct idnotavenda ) quantidade
+                             , count( distinct idvendedora ) vend
+                             , sum(nv.valortotalvendalqd*nv.fatorconversao) valor  
+                             , sum(nv.valortotalvenda*nv.fatorconversao) valortotalvenda
+                        from notasvendas nv
+                           , nivelfaturamento nf
+                        where nv.dataacerto between to_date(:P539_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P539_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') 
+                          and nv.idsituacaonotavenda = 4 
+                          and (nv.valortotalvendalqd*nv.fatorconversao) between nf.valorinicio and nf.valorfim
+                          and nv.valortotalvendalqd > 0
+                          and ( :P539_TIPOPESQUISA = 'T'
+                             or ( :P539_TIPOPESQUISA = 'D' and nv.idrepresentante = :P539_IDREPRESENTANTE )
+                             or ( :P539_TIPOPESQUISA = 'F' and nv.idfilial = :P539_IDFILIAL )
+                             or ( :P539_TIPOPESQUISA = 'G' and nv.idfilial in ( select idfilial 
+                                                                                from filtrosfiliais ff
+                                                                                where ff.usuario = v('APP_USER') ) ) )
+                          and nv.saldo > 0 
+                 /*         and exists ( select 1
+                                       from vendedoras v
+                                       where v.idvendedora = nv.idvendedora
+                                         and v.ativo       = 'S' )*/
+                        group by idfaturamento ) debito
+                where n.idfaturamento = venda.idfaturamento(+)
+                  and n.idfaturamento = debito.idfaturamento(+)
+                  and :P539_DATAINICIO is not null
+                order by 1
+                
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum dado encontrado!
+            whenMoreDataFound: Nenhum dado encontrado!
+        }
+        advanced {
+            savedReportMappingIdentifier: 15666772194625417
+        }
+
+        column 99 (
+            type: plainText
+            heading {
+                heading: 99
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column DESCRICAO (
+            type: plainText
+            heading {
+                heading: Descrição
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column Débito (
+            type: plainText
+            heading {
+                heading: Débito
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column PERC0 (
+            type: plainText
+            heading {
+                heading: % Partic.
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00MI
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column PERC1 (
+            type: plainText
+            heading {
+                heading: %
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00MI
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column PERC2 (
+            type: plainText
+            heading {
+                heading: %
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00MI
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column PERC3 (
+            type: plainText
+            heading {
+                heading: %
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00MI
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column PERC4 (
+            type: plainText
+            heading {
+                heading: %
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00MI
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column PERVENDA (
+            type: plainText
+            heading {
+                heading: % Venda
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00MI
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column "Qtd Débito" (
+            type: plainText
+            heading {
+                heading: Qtd Débito
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column "Qtd Quitado" (
+            type: plainText
+            heading {
+                heading: Qtd Quitado
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "Qtd Venda" (
+            type: plainText
+            heading {
+                heading: Qtd Venda
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column Quitado (
+            type: plainText
+            heading {
+                heading: Quitado
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column S1 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column S2 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column S3 (
+            type: plainText
+            heading {
+                heading: -
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column Total (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column VALORTOTALNOTA (
+            type: plainText
+            heading {
+                heading: Valor Distribuído
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column VALORTOTALVENDA (
+            type: plainText
+            heading {
+                heading: Valor Total Venda
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column Vendedoras (
+            type: plainText
+            heading {
+                heading: Vendedoras
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 157037 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn 99 (
+                sequence: 20
+            )
+
+            displayColumn DESCRICAO (
+                sequence: 1
+            )
+
+            displayColumn "Débito" (
+                sequence: 18
+            )
+
+            displayColumn PERC0 (
+                sequence: 8
+            )
+
+            displayColumn PERC1 (
+                sequence: 11
+            )
+
+            displayColumn PERC2 (
+                sequence: 13
+            )
+
+            displayColumn PERC3 (
+                sequence: 17
+            )
+
+            displayColumn PERC4 (
+                sequence: 19
+            )
+
+            displayColumn PERVENDA (
+                sequence: 6
+            )
+
+            displayColumn "Qtd Débito" (
+                sequence: 12
+            )
+
+            displayColumn "Qtd Quitado" (
+                sequence: 10
+            )
+
+            displayColumn "Qtd Venda" (
+                sequence: 7
+            )
+
+            displayColumn "Quitado" (
+                sequence: 16
+            )
+
+            displayColumn S1 (
+                sequence: 3
+            )
+
+            displayColumn S2 (
+                sequence: 14
+            )
+
+            displayColumn S3 (
+                sequence: 9
+            )
+
+            displayColumn "Total" (
+                sequence: 15
+            )
+
+            displayColumn VALORTOTALNOTA (
+                sequence: 4
+            )
+
+            displayColumn VALORTOTALVENDA (
+                sequence: 5
+            )
+
+            displayColumn "Vendedoras" (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region new (
+        name: New
+        type: staticContent
+        layout {
+            sequence: 10
+            parentRegion: @análise-de-inadimplência-romance
+            slot: subRegions
+        }
+        appearance {
+            template: @/buttons-container
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P539_CONSULTORASUNICAS (
+        type: displayOnly
+        label {
+            label: Consultoras Únicas
+            alignment: left
+        }
+        settings {
+            format: htmlUnsafe
+        }
+        layout {
+            sequence: 10
+            region: @new
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  vqtd varchar2(100);
+                begin
+                    select '<B>'|| TRIM(to_char(count( distinct idvendedora ),'999G999G990')) ||'</B>' vend
+                    into vqtd
+                    from notasvendas nv
+                     where nv.dataacerto between to_date(:P539_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P539_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                       and ( :P539_TIPOPESQUISA = 'T'
+                           or ( :P539_TIPOPESQUISA = 'D' and nv.idrepresentante = :P539_IDREPRESENTANTE )
+                           or ( :P539_TIPOPESQUISA = 'F' and nv.idfilial = :P539_IDFILIAL )
+                           or ( :P539_TIPOPESQUISA = 'G' and nv.idfilial in ( select idfilial 
+                                                                              from filtrosfiliais ff
+                                                                              where ff.usuario = v('APP_USER') ) ) )
+                       and nv.idsituacaonotavenda = 4;
+                     
+                     return vqtd;
+                exception
+                 when others then
+                    return '0' ;
+                end;
+                ```
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P539_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P539_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P539_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nome
+                     , idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and exists ( select 1
+                               from usuariosfiliais u
+                               where u.usuario = v('APP_USER')
+                                 and u.idfilial = f.idfilial )
+                ```
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P539_IDFILIAL_REP (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nome
+                     , idgerente
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                ```
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P539_IDREPRESENTANTE (
+        type: popupLov
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(p.nomepessoa)||'('||decode(r.ativo,'S','Ativo','N','Inativo')||')' display_value
+                     , r.idrepresentante return_value
+                from pessoas p
+                   , representantes r
+                where r.idpessoa = p.idpessoa 
+                  and r.idgerente = :P539_IDFILIAL_REP
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P539_IDFILIAL_REP
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P539_TIPOPESQUISA (
+        type: radioGroup
+        label {
+            label: Pesquisar Por
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Empresa'
+                     , 'F'
+                from dual
+                union
+                select 'Grupo de Empresas'
+                     , 'G'
+                from dual
+                where exists ( select 1
+                               from usuariosgruposatendimento ug
+                               where ug.idgrupoatendimento in (0,20)
+                                 and ug.usuario            = v('APP_USER') )
+                union
+                select 'Distribuidor'
+                     , 'D'
+                from dual
+                where exists ( select 1
+                               from usuariosgruposatendimento ug
+                               where ug.idgrupoatendimento in (0,20)
+                                 and ug.usuario            = v('APP_USER') )
+                union
+                select 'Todas'
+                     , 'T'
+                from dual
+                where exists ( select 1
+                               from usuariosgruposatendimento ug
+                               where ug.idgrupoatendimento in (0,20)
+                                 and ug.usuario            = v('APP_USER') )
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: F
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button add-filiais (
+        buttonName: ADD_FILIAIS
+        label: + Empresas
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--primary
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 540
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction tipo-d (
+        name: Tipo D
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P539_TIPOPESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P539_TIPOPESQUISA
+            value: D
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P539_IDREPRESENTANTE
+                    P539_IDFILIAL_REP
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P539_IDREPRESENTANTE
+                    P539_IDFILIAL_REP
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction tipo-f (
+        name: Tipo F
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P539_TIPOPESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P539_TIPOPESQUISA
+            value: F
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P539_IDFILIAL
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P539_IDFILIAL
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction tipo-g (
+        name: Tipo G
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P539_TIPOPESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P539_TIPOPESQUISA
+            value: G
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: button
+                button: @add-filiais
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: button
+                button: @add-filiais
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 539
+                items: {
+                    P539_IDFILIAL_REP: &P539_IDFILIAL_REP.
+                    P539_IDREPRESENTANTE: &P539_IDREPRESENTANTE.
+                    P539_IDFILIAL: &P539_IDFILIAL.
+                    P539_TIPOPESQUISA: &P539_TIPOPESQUISA.
+                    P539_DATAINICIO: &P539_DATAINICIO.
+                    P539_DATAFIM: &P539_DATAFIM.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

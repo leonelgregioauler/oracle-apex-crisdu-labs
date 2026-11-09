@@ -1,0 +1,1026 @@
+page 552 (
+    name: Lista de Consultoras
+    title: Lista de Consultoras
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region lista-de-clientes (
+        name: Lista de Clientes
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                WITH
+                vendedoras_filtradas AS (
+                    SELECT /*+ MATERIALIZE */ DISTINCT v.idvendedora
+                    FROM catal.vendedoras v
+                    JOIN roman.notasvendas nv ON nv.idvendedora = v.idvendedora
+                    WHERE v.ativo                = 'S'
+                      AND nv.idsituacaonotavenda = 3
+                      AND :P552_FILTRAR          = 'S'
+                      AND (
+                              (:P552_DISTRIBUIDOR != -1 AND nv.idrepresentante = :P552_DISTRIBUIDOR)
+                           OR (:P552_DISTRIBUIDOR  = -1 AND EXISTS (
+                                    SELECT 1 FROM representantes r
+                                    WHERE r.idgerente       = :P552_FRANQUIA_REP
+                                      AND r.idrepresentante = nv.idrepresentante
+                                      AND (   :P552_SITUACAO_DISTRIBUIDOR = 'A'
+                                           OR r.ativo = :P552_SITUACAO_DISTRIBUIDOR)
+                                ))
+                          )
+                      AND (:P552_SEMANA_DE IS NULL OR nv.idsemanacobranca BETWEEN :P552_SEMANA_DE AND :P552_SEMANA_ATE)
+                ),
+                debitos_calc AS (
+                    SELECT /*+ MATERIALIZE */
+                        vp.idvendedora,
+                        SUM(CASE
+                                WHEN vp.tipopedido       = 'P'
+                                 AND vp.datacancelamento IS NULL
+                                 AND vp.saldodevedor     > 0
+                                 AND exc.idpedido        IS NULL
+                                THEN vp.saldodevedor ELSE 0
+                            END) AS debped,
+                        SUM(CASE
+                                WHEN vp.tipopedido   = 'T'
+                                 AND vp.valorapagar  > 0
+                                 AND vp.saldodevedor > 0
+                                 AND exc.idpedido    IS NULL
+                                THEN vp.saldodevedor ELSE 0
+                            END) AS debtroc
+                    FROM favorita.vw_pedidos_fav_new vp
+                    LEFT JOIN favorita.classificacoespedidos exc
+                           ON exc.idpedido = vp.idpedido
+                          AND exc.idcaracteristicapedido IN (104, 59)
+                    WHERE vp.idvendedora IN (SELECT idvendedora FROM vendedoras_filtradas)
+                    GROUP BY vp.idvendedora
+                ),
+                debitos_old AS (
+                    SELECT /*+ MATERIALIZE */
+                           c.idvendedora,
+                           SUM(c.valorapagar - c.valorpago) AS devpant
+                    FROM   favorita.vw_pedidos_old c
+                    WHERE  c.saldodevedor > 0.5
+                      AND  c.idsituacao NOT IN ('Q', 'U', 'K')
+                      AND  c.idvendedora IN (SELECT idvendedora FROM vendedoras_filtradas)
+                    GROUP BY c.idvendedora
+                ),
+                categoria_max AS (
+                    SELECT /*+ MATERIALIZE */
+                           idvendedora,
+                           MAX(idpontuacaoclube) AS idpontuacaoclube
+                    FROM   roman.pontuacoesclubedesucesso
+                    WHERE  idvendedora IN (SELECT idvendedora FROM vendedoras_filtradas)
+                    GROUP BY idvendedora
+                ),
+                tablet_vend AS (
+                    SELECT /*+ MATERIALIZE */ DISTINCT idvendedora
+                    FROM   favorita.vw_pedidostablet_fav
+                    WHERE  idvendedora IN (SELECT idvendedora FROM vendedoras_filtradas)
+                ),
+                vencimentos_calc AS (
+                    SELECT /*+ MATERIALIZE */
+                        idvendedora,
+                        LISTAGG(data_formatada, ' - ')
+                            WITHIN GROUP (ORDER BY datavencimento) AS datas_vencimento
+                    FROM (
+                        SELECT DISTINCT
+                               ped.idvendedora,
+                               TRUNC(vp.datavencimento)                 AS datavencimento,
+                               TO_CHAR(vp.datavencimento, 'DD/MM/YYYY') AS data_formatada
+                        FROM favorita.vencimentospedidos vp
+                        JOIN favorita.pedidos ped ON ped.idpedido = vp.idpedido
+                        WHERE vp.valorpago < vp.valorpagar
+                          AND ped.idvendedora IN (SELECT idvendedora FROM vendedoras_filtradas)
+                    )
+                    GROUP BY idvendedora
+                )
+                SELECT
+                    INITCAP(p.nomepessoa)                                                      AS nome,
+                    p.cpf,
+                    nv.numeronota,
+                    cnv.idvalorcaracteristica                                                  AS sacola,
+                    roman.pck_romance.fnc_retornatelefones(v.idvendedora)                      AS telefone,
+                    INITCAP(p.enderecoprincipal) || ', ' || p.numero || ', ' || p.bairro       AS endereco,
+                    roman.pck_romance.fnc_nomecidade(p.idcidade)                               AS nomecidade,
+                    rv_vend.descricao                                                          AS "Regiao Vendedora",
+                    rv_nota.descricao                                                          AS "Região Nota",
+                    roman.pck_romance.fnc_nomerepresentante(nv.idrepresentante)                AS "Distribuidor",
+                    p.observacao,
+                    p.email,
+                    CASE WHEN tv.idvendedora IS NOT NULL THEN 'Sim' ELSE 'Não' END             AS possuipedido,
+                    nv.dataretorno,
+                    NVL(ct.nomecategoria, 'Não participa de campanha.')                        AS categoria,
+                    NVL(
+                        NVL(dc.debped, 0)
+                      + NVL(dc.debtroc, 0)
+                      + NVL(dold.devpant, 0),
+                        0
+                    )                                                                          AS saldo,
+                    NVL(v.pontos, 0)                                                           AS pontos,
+                    favorita.pck_controle_fav.fnc_retornalimitedisponivel(v.idvendedora, 'D')  AS "Limite",
+                    vc.datas_vencimento                                                        AS "Vencimento Boleto",
+                    nv.semanacobranca                                                          AS "Semana Cobrança"
+                FROM catal.pessoas p
+                JOIN catal.vendedoras v
+                     ON v.idpessoa = p.idpessoa
+                JOIN roman.notasvendas nv
+                     ON nv.idvendedora = v.idvendedora
+                JOIN vendedoras_filtradas vf
+                     ON vf.idvendedora = v.idvendedora
+                LEFT JOIN roman.classificacoesnotasvendas cnv
+                       ON cnv.idnotavenda = nv.idnotavenda
+                      AND cnv.idcaracteristicanotavenda = 52
+                LEFT JOIN roman.regioesvenda rv_vend
+                       ON rv_vend.idregiaovenda = v.idregiaovenda
+                LEFT JOIN roman.regioesvenda rv_nota
+                       ON rv_nota.idregiaovenda = nv.idregiaovenda
+                LEFT JOIN tablet_vend tv
+                       ON tv.idvendedora = v.idvendedora
+                LEFT JOIN categoria_max cm
+                       ON cm.idvendedora = v.idvendedora
+                LEFT JOIN roman.pontuacoesclubedesucesso pp
+                       ON pp.idpontuacaoclube = cm.idpontuacaoclube
+                LEFT JOIN roman.categoriasclubes ct
+                       ON ct.idcategoriaclube = pp.idcategoriaclube
+                LEFT JOIN debitos_calc dc
+                       ON dc.idvendedora = v.idvendedora
+                LEFT JOIN debitos_old dold
+                       ON dold.idvendedora = v.idvendedora
+                LEFT JOIN vencimentos_calc vc
+                       ON vc.idvendedora = v.idvendedora
+                WHERE v.ativo                = 'S'
+                  AND nv.idsituacaonotavenda = 3
+                  AND (
+                          (:P552_DISTRIBUIDOR != -1 AND nv.idrepresentante = :P552_DISTRIBUIDOR)
+                       OR (:P552_DISTRIBUIDOR  = -1 AND EXISTS (
+                                SELECT 1 FROM representantes r
+                                WHERE r.idgerente       = :P552_FRANQUIA_REP
+                                  AND r.idrepresentante = nv.idrepresentante
+                                  AND (   :P552_SITUACAO_DISTRIBUIDOR = 'A'
+                                       OR r.ativo = :P552_SITUACAO_DISTRIBUIDOR)
+                            ))
+                      )
+                  AND (:P552_SEMANA_DE IS NULL OR nv.idsemanacobranca BETWEEN :P552_SEMANA_DE AND :P552_SEMANA_ATE)
+                ORDER BY 1
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 33063336608266902
+        }
+
+        column CATEGORIA (
+            type: plainText
+            heading {
+                heading: Categoria
+            }
+            layout {
+                sequence: 320
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 260
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column DATARETORNO (
+            type: plainText
+            heading {
+                heading: Data Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 300
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AE
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 400
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AO
+            }
+        )
+
+        column EMAIL (
+            type: plainText
+            heading {
+                heading: E-mail
+                alignment: center
+            }
+            layout {
+                sequence: 240
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column ENDERECO (
+            type: plainText
+            heading {
+                heading: Endereço
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column Limite (
+            type: plainText
+            heading {
+                heading: Limite
+                alignment: center
+            }
+            layout {
+                sequence: 350
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AJ
+            }
+        )
+
+        column NOME (
+            type: plainText
+            heading {
+                heading: Nome
+                alignment: center
+            }
+            layout {
+                sequence: 280
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column NOMECIDADE (
+            type: plainText
+            heading {
+                heading: Cidade
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column NUMERONOTA (
+            type: plainText
+            heading {
+                heading: Nota
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column PONTOS (
+            type: plainText
+            heading {
+                heading: Pontos
+                alignment: end
+            }
+            layout {
+                sequence: 340
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AI
+            }
+        )
+
+        column POSSUIPEDIDO (
+            type: plainText
+            heading {
+                heading: Possui Pedido?
+                alignment: center
+            }
+            layout {
+                sequence: 290
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AD
+            }
+        )
+
+        column "Regiao Vendedora" (
+            type: plainText
+            heading {
+                heading: Região Vendedora
+                alignment: center
+            }
+            layout {
+                sequence: 270
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column "Região Nota" (
+            type: plainText
+            heading {
+                heading: Região Nota
+                alignment: center
+            }
+            layout {
+                sequence: 390
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AN
+            }
+        )
+
+        column SACOLA (
+            type: plainText
+            heading {
+                heading: Sacola
+                alignment: center
+            }
+            layout {
+                sequence: 310
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo Devedor
+                alignment: center
+            }
+            layout {
+                sequence: 330
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        column "Semana Cobrança" (
+            type: plainText
+            heading {
+                heading: Semana Cobrança
+            }
+            layout {
+                sequence: 410
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AP
+            }
+        )
+
+        column TELEFONE (
+            type: plainText
+            heading {
+                heading: Telefone
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column "Vencimento Boleto" (
+            type: plainText
+            heading {
+                heading: Vencimento Boleto
+            }
+            layout {
+                sequence: 380
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AM
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 330764 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CATEGORIA (
+                sequence: 8
+            )
+
+            displayColumn CPF (
+                sequence: 2
+            )
+
+            displayColumn DATARETORNO (
+                sequence: 17
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 3
+            )
+
+            displayColumn EMAIL (
+                sequence: 14
+            )
+
+            displayColumn ENDERECO (
+                sequence: 11
+            )
+
+            displayColumn "Limite" (
+                sequence: 18
+            )
+
+            displayColumn NOME (
+                sequence: 1
+            )
+
+            displayColumn NOMECIDADE (
+                sequence: 12
+            )
+
+            displayColumn NUMERONOTA (
+                sequence: 6
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 15
+            )
+
+            displayColumn PONTOS (
+                sequence: 10
+            )
+
+            displayColumn POSSUIPEDIDO (
+                sequence: 16
+            )
+
+            displayColumn "Regiao Vendedora" (
+                sequence: 7
+            )
+
+            displayColumn "Região Nota" (
+                sequence: 4
+            )
+
+            displayColumn SACOLA (
+                sequence: 5
+            )
+
+            displayColumn SALDO (
+                sequence: 9
+            )
+
+            displayColumn TELEFONE (
+                sequence: 13
+            )
+
+            displayColumn "Vencimento Boleto" (
+                sequence: 19
+            )
+
+            highlight ir-condition (
+                name: Possui Pedido Favorita
+                condition {
+                    column: POSSUIPEDIDO
+                    value: Sim
+                }
+                colors {
+                    background: #f99a9a
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P552_DISTRIBUIDOR (
+        type: popupLov
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap (p.nomepessoa) display_value
+                     , r.idrepresentante return_value
+                from pessoas p
+                   , representantes r
+                where r.idpessoa = p.idpessoa 
+                  --and r.ativo = 'S'
+                  and r.idgerente = :P552_FRANQUIA_REP
+                  and (:P552_SITUACAO_DISTRIBUIDOR = 'A' or r.ativo = :P552_SITUACAO_DISTRIBUIDOR)
+                order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: --- Todos ---
+            nullReturnValue: -1
+        }
+        cascadingLov {
+            parentItems: [
+                P552_FRANQUIA_REP
+                P552_SITUACAO_DISTRIBUIDOR
+            ]
+            itemsToSubmit: P552_DISTRIBUIDOR
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        default {
+            type: static
+            staticValue: -1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P552_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+    )
+
+    pageItem P552_FRANQUIA_REP (
+        type: selectList
+        label {
+            label: "Franquia "
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nome
+                     , idgerente
+                from roman.vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  --and f.ididioma = 1
+                  and f.idgrupo is not null
+                ```
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P552_REGIAO (
+        type: selectMany
+        label {
+            label: Região Nota
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomeregiaovenda (r.idregiaovenda) || r.semana display_value
+                     , r.idregiaovenda return_value 
+                from roman.regioesrepresentantes r
+                where (:P552_DISTRIBUIDOR = -1 or r.idrepresentante = :P552_DISTRIBUIDOR)
+                order by idsemana
+                ```
+        }
+        cascadingLov {
+            parentItems: P552_DISTRIBUIDOR
+            itemsToSubmit: P552_REGIAO
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        serverSideCondition {
+            type: never
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P552_SEMANA_ATE (
+        type: popupLov
+        label {
+            label: até
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select sd.semanacompleta
+                     , sd.idsemana
+                  from roman.semana_dias sd
+                order by 2 desc
+                ```
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+    )
+
+    pageItem P552_SEMANA_DE (
+        type: popupLov
+        label {
+            label: Semana De
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select sd.semanacompleta
+                     , sd.idsemana
+                  from roman.semana_dias sd
+                order by 2 desc
+                ```
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+    )
+
+    pageItem P552_SITUACAO_DISTRIBUIDOR (
+        type: selectList
+        label {
+            label: Situação Distribuidor
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Ativo;S,Inativo;N,Ambos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: FILTRAR
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--iconRight
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process filtra (
+        name: FILTRA
+        type: executeCode
+        source {
+            plsqlCode: :P552_FILTRAR := 'S'
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 26096014859727907
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 552
+                items: {
+                    P552_FRANQUIA_REP: &P552_FRANQUIA_REP.
+                    P552_DISTRIBUIDOR: &P552_DISTRIBUIDOR.
+                    P552_REGIAO: &P552_REGIAO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

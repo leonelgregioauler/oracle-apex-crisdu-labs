@@ -1,0 +1,2698 @@
+page 1 (
+    name: Home
+    title: Home
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function doLoad()
+            {
+            setTimeout( "submit()", 60*1000 );
+            }
+            
+            function submit()
+            {
+              apex.submit('SUBMIT');
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region ano-anterior (
+        name: Ano Anterior
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+    )
+
+    region ano-atual (
+        name: Ano Atual
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+                t-Form--slimPadding
+                t-Form--stretchInputs
+            ]
+        }
+    )
+
+    region dashboard (
+        name: Dashboard
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomefilial(emp.idfilial) empresa
+                     , ( select w.grupo from roman.vw_filiais w where w.idfilial = emp.idfilial ) grupo
+                     , emp.qtd
+                     , emp.tiketmedio 
+                     , emp.valortotal 
+                from ( select p.idfilialromance idfilial
+                            , sum(p.valorapagar*p.fatorconversao) valortotal  
+                            , avg(p.valorapagar*p.fatorconversao) tiketmedio
+                            , count(1) qtd
+                       from vw_pedidos_fav p
+                       where dataemissao  between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                         and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )                  
+                         and p.idsituacaoentrega  >= 20000
+                         and p.tipopedido         != 'F'    -- sem favorita paris
+                         and p.ididioma            = 1
+                         and p.valorapagar_orig         > 0
+                         and NOT exists ( select 1
+                                          from classificacoespedidos c
+                                          where c.idpedido               = p.idpedido
+                                            and c.idcaracteristicapedido = 25 )  
+                         and NOT exists ( select 1
+                                          from classificacoespedidos c  
+                                          where idpedido = p.idpedido
+                                            and idcaracteristicapedido = 8 
+                                            and idvalorcaracteristica  = 16 ) 
+                         and exists ( select 1
+                                      from roman.vw_filiais f
+                                      where f.ativo    = 'S'
+                                        --and f.tipofilial = 'D'
+                                        and f.idfilial = p.idfilialromance)
+                       group by p.idfilialromance
+                       union
+                       select c.idfilialromancedestino idfilial
+                            , sum(v.valorvencimento) valortotal
+                            , avg(v.valorvencimento) tiketmedio
+                            , count(1) qtd
+                       from vencimentoscomprastransf v
+                          , comprastransferencias c
+                       where c.idcompratransferencia = v.idcompratransferencia
+                         and v.valorvencimento > 0
+                         and v.situacaovencimento = 'V'
+                         and ( :P0_IDFILIALROMANCE = '999999999999' or c.idfilialromancedestino = :P0_IDFILIALROMANCE )
+                         and exists ( select 1
+                                      from pedidos p
+                                         , pedidosremessasct pr
+                                      where p.idpedido = pr.idpedido
+                                        and pr.idcompratransferencia = v.idcompratransferencia
+                                        and p.datacancelamento is null
+                                        and p.idsituacaoentrega  >= 20000
+                                        and dataemissao between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss') )
+                       group by c.idfilialromancedestino 
+                       union
+                       select w.idfilial
+                            , 0 valortotal
+                            , 0 ticketmedio
+                            , 0 qtd
+                       from roman.vw_filiais   w
+                       where tipofilial = 'D'
+                         and ativo      = 'S'
+                         and not exists ( select 1
+                                          from vw_pedidos_fav p
+                                          where dataemissao  between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                                            and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )
+                                             and NOT exists ( select 1
+                                                              from classificacoespedidos c  
+                                                              where idpedido = p.idpedido
+                                                                and idcaracteristicapedido = 8 
+                                                                and idvalorcaracteristica  = 16 ) 
+                                            and p.idsituacaoentrega  >= 20000
+                                            and p.idfilialromance  = w.idfilial )
+                         and not exists ( select 1
+                                          from vencimentoscomprastransf v
+                                             , comprastransferencias c
+                                          where c.idcompratransferencia = v.idcompratransferencia
+                                            and v.valorvencimento > 0
+                                            and v.situacaovencimento = 'V'
+                                            and ( :P0_IDFILIALROMANCE = '999999999999' or c.idfilialromancedestino = :P0_IDFILIALROMANCE )
+                                            and exists ( select 1
+                                                         from pedidos p
+                                                            , pedidosremessasct pr
+                                                         where p.idpedido = pr.idpedido 
+                                                           and p.idfilialfavorita = w.idfilial
+                                                           and pr.idcompratransferencia = v.idcompratransferencia
+                                                           and p.datacancelamento is null
+                                                           and p.idsituacaoentrega  >= 20000
+                                                           and dataemissao between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss') ) )
+                       ) emp
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 120
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                js-useLocalStorage
+                is-collapsed
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        advanced {
+            savedReportMappingIdentifier: 4608587368639802707
+        }
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column GRUPO (
+            type: plainText
+            heading {
+                heading: Grupo
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column QTD (
+            type: plainText
+            heading {
+                heading: Qtd
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column TIKETMEDIO (
+            type: plainText
+            heading {
+                heading: Tiketmedio
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 46272034 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn EMPRESA (
+                sequence: 2
+            )
+
+            displayColumn GRUPO (
+                sequence: 1
+            )
+
+            displayColumn QTD (
+                sequence: 3
+            )
+
+            displayColumn TIKETMEDIO (
+                sequence: 5
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 4
+            )
+
+        )
+
+    )
+
+    region faturamento-x-pago-por-distribuidor (
+        name: Faturamento X Pago Por Distribuidor
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select aux.distribuidor     as "Distribuidor",
+                       sum(aux.valor_total) as "Valor Total",
+                       sum(aux.valor_pago)  as "Valor Pago",
+                       case 
+                         when sum(aux.valor_pago) < sum(aux.valor_total) then
+                           '<div style="color: red; font-weight: bold;">' || 
+                           to_char(sum(aux.valor_pago) - sum(aux.valor_total), 'FM999G999G990D00', 'NLS_NUMERIC_CHARACTERS = '',.''') || 
+                           '</div>'
+                         else
+                           '<div style="color: green; font-weight: bold;">' || 
+                           to_char(sum(aux.valor_pago) - sum(aux.valor_total), 'FM999G999G990D00', 'NLS_NUMERIC_CHARACTERS = '',.''') || 
+                           '</div>'
+                       end as "Diferença"
+                  from (    select initcap(pp.nomepessoa) as distribuidor
+                                 , sum(p.valortotal) as valor_total
+                                 , 0 as valor_pago
+                              from favorita.pedidos p
+                                 , catal.representantes r
+                                 , catal.pessoas pp
+                             where r.idrepresentante = p.idrepresentante
+                               and pp.idpessoa = r.idpessoa
+                               -- pedidos que não estão cancelados
+                               and p.datacancelamento is null
+                               -- período
+                               and p.dataemissao between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' )
+                                                     and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                               -- Somente Brasil
+                               and p.idpais = 1
+                               -- apartir de Aguardando Montagem de Remessa
+                               and p.idsituacaoentrega  >= 20000
+                               -- sem favorita paris
+                               and p.tipopedido         != 'F'
+                               -- empresa romance
+                               and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )      
+                             group by pp.nomepessoa
+                
+                            union
+                
+                            select initcap(pp.nomepessoa) as distribuidor
+                                 , 0 as valor_total
+                                 , sum(pag.valorpago) as valor_pago
+                              from favorita.pagamentospedidos pag
+                                 , favorita.vencimentospedidos vp
+                                 , favorita.pedidos p
+                                 , catal.representantes r
+                                 , catal.pessoas pp
+                             where vp.idvencimentopedido = pag.idvencimentopedido
+                               and p.idpedido = vp.idpedido
+                               and r.idrepresentante = p.idrepresentante
+                               and pp.idpessoa = r.idpessoa
+                               -- pedidos que não estão cancelados
+                               and p.datacancelamento is null
+                               -- período
+                               and pag.datapagamento between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' )
+                                                         and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                               -- Somente Brasil
+                               and p.idpais = 1
+                               -- apartir de Aguardando Montagem de Remessa
+                               and p.idsituacaoentrega  >= 20000
+                               -- sem favorita paris
+                               and p.tipopedido         != 'F'
+                               -- empresa romance
+                               and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )
+                             group by pp.nomepessoa) aux
+                 group by aux.distribuidor
+                 order by aux.distribuidor
+                 
+                
+                
+                
+                
+                
+                
+                ```
+        }
+        layout {
+            sequence: 220
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent13
+                t-Region--scrollBody
+            ]
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 762850568982282743
+        }
+
+        column Diferença (
+            type: plainText
+            heading {
+                heading: Diferença
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Valor Pago" (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Valor Total" (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 7629639 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Diferença" (
+                sequence: 4
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 1
+            )
+
+            displayColumn "Valor Pago" (
+                sequence: 3
+            )
+
+            displayColumn "Valor Total" (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+    )
+
+    region navegação (
+        name: Navegação
+        type: regionDisplaySelector
+        layout {
+            sequence: 10
+            slot: breadcrumbBar
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+        settings {
+            rememberSelection: bySession
+        }
+    )
+
+    region pedidos-por-canal-ano-anterior (
+        name: Pedidos por Canal - Ano Anterior
+        title: Valor de Pedidos por Canal - Ano Anterior
+        type: chart
+        layout {
+            sequence: 80
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        chart {
+            type: donut
+        }
+        chartLayout {
+            height: 400
+        }
+        performance {
+            lazyLoading: true
+        }
+        value {
+            format: decimal
+            decimalPlaces: 0
+            formatScaling: none
+        }
+        tooltip {
+            showValue: false
+        }
+        legend {
+            position: top
+        }
+
+        series new (
+            name: New
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select distinct decode( f.tipofilial , 'E','Estoque'
+                                                , 'L','Loja'
+                                                , 'S','Site'
+                                                , 'V','Venda Direta'          
+                                                , 'F','Favorita Paris'  
+                                                , 'C','Call Center'
+                                                , 'Outros - '||f.tipofilial ) ||' - Qtd: '||trim(to_char(emp.qtd,'999G999G990'))
+                                                                              ||' - TM: '||trim(to_char(emp.tiketmedio,'999G999G999G990D00'))
+                                                                              ||' - Valor: '||trim(to_char(nvl(ROUND(emp.valortotal),0),'999G999G999G990D00'))  empresa
+                         , nvl(ROUND(emp.valortotal),0) valortotal
+                    from ( select tipofilial
+                                , sum(p.valorapagar*p.fatorconversao) valortotal  
+                                , avg(p.valorapagar*p.fatorconversao) tiketmedio
+                                , count(1) qtd
+                           from vw_pedidos_fav p    
+                              , favorita.filiaisfavorita ff
+                           where dataemissao between to_date(:P1_DE_ANTERIOR||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE_ANTERIOR||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                             and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )  
+                             and p.idfilialfavorita    = ff.idfilialfavorita              
+                             and p.idsituacaoentrega  >= 20000
+                             and p.tipopedido         != 'F'    -- sem favorita paris
+                             and p.ididioma            = 1
+                             and p.valorapagar_orig         > 0
+                             and NOT exists ( select 1
+                                              from classificacoespedidos c
+                                              where c.idpedido               = p.idpedido
+                                                and c.idcaracteristicapedido = 25 )  
+                             and NOT exists ( select 1
+                                              from classificacoespedidos c  
+                                              where idpedido = p.idpedido
+                                                and idcaracteristicapedido = 8 
+                                                and idvalorcaracteristica  = 16 ) 
+                             and exists ( select 1
+                                          from roman.vw_filiais f
+                                          where f.ativo    = 'S'
+                                            --and f.tipofilial = 'D'
+                                            and f.idfilial = p.idfilialromance)
+                           group by ff.tipofilial ) emp
+                       , favorita.filiaisfavorita f
+                    where f.tipofilial = emp.tipofilial (+)  
+                    order by 1
+                    ```
+                pageItemsToSubmit: [
+                    P1_DE
+                    P1_ATE
+                ]
+            }
+            columnMapping {
+                label: EMPRESA
+                value: VALORTOTAL
+            }
+            label {
+                show: true
+                position: outsideSlice
+                displayAs: value
+            }
+        )
+
+    )
+
+    region pedidos-por-canal-ano-atual (
+        name: Pedidos por Canal - Ano Atual
+        title: Valor de Pedidos por Canal - Ano Atual
+        type: chart
+        layout {
+            sequence: 90
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        chart {
+            type: donut
+        }
+        chartLayout {
+            height: 400
+        }
+        performance {
+            lazyLoading: true
+        }
+        settings {
+            pieSelectionEffect: highlightAndExplode
+        }
+        value {
+            format: decimal
+            decimalPlaces: 0
+            formatScaling: none
+        }
+        tooltip {
+            showValue: false
+        }
+        legend {
+            position: top
+        }
+
+        series new (
+            name: New
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select distinct decode( f.tipofilial , 'E','Estoque'
+                                                , 'L','Loja'
+                                                , 'S','Site'
+                                                , 'V','Venda Direta'          
+                                                , 'F','Favorita Paris'  
+                                                , 'C','Call Center'
+                                                , 'Outros - '||f.tipofilial ) ||' - Qtd: '||trim(to_char(emp.qtd,'999G999G990'))
+                                                                              ||' - TM: '||trim(to_char(emp.tiketmedio,'999G999G999G990D00'))
+                                                                              ||' - Valor: '||trim(to_char(nvl(ROUND(emp.valortotal),0),'999G999G999G990D00'))  empresa
+                         , nvl(ROUND(emp.valortotal),0) valortotal
+                    from ( select tipofilial
+                                , sum(p.valorapagar*p.fatorconversao) valortotal  
+                                , avg(p.valorapagar*p.fatorconversao) tiketmedio
+                                , count(1) qtd
+                           from vw_pedidos_fav p
+                              , favorita.filiaisfavorita ff
+                           where dataemissao  between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                             and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )  
+                    		 and p.idfilialfavorita    = ff.idfilialfavorita              
+                             and p.idsituacaoentrega  >= 20000
+                             and p.tipopedido         != 'F'    -- sem favorita paris
+                             and p.ididioma            = 1
+                             and p.valorapagar_orig         > 0
+                             and NOT exists ( select 1
+                                              from classificacoespedidos c
+                                              where c.idpedido               = p.idpedido
+                                                and c.idcaracteristicapedido = 25 )  
+                             and NOT exists ( select 1
+                                              from classificacoespedidos c  
+                                              where idpedido = p.idpedido
+                                                and idcaracteristicapedido = 8 
+                                                and idvalorcaracteristica  = 16 ) 
+                             and exists ( select 1
+                                          from roman.vw_filiais f
+                                          where f.ativo    = 'S'
+                                            --and f.tipofilial = 'D'
+                                            and f.idfilial = p.idfilialromance)
+                           group by ff.tipofilial ) emp
+                       , favorita.filiaisfavorita f
+                    where f.tipofilial = emp.tipofilial (+)  
+                    order by 1
+                    ```
+                pageItemsToSubmit: [
+                    P1_DE
+                    P1_ATE
+                ]
+            }
+            columnMapping {
+                label: EMPRESA
+                value: VALORTOTAL
+            }
+            label {
+                show: true
+                position: outsideSlice
+                displayAs: value
+            }
+        )
+
+    )
+
+    region produtos-top-p1-top (
+        name: Produtos Top &P1_TOP.
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pro.nomeproduto as produto
+                     , sum(ip.quantidade) as qtd_produtos
+                     , sum(ip.valorvenda * ip.quantidade) as valor_venda
+                  from favorita.pedidos p
+                     , favorita.itenspedidos ip
+                     , favorita.produtos pro
+                 where ip.idpedido = p.idpedido
+                   and pro.idproduto = ip.idproduto
+                   -- período
+                   and p.dataemissao between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' )
+                                         and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                   -- empresa romance
+                   and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )
+                   and p.idsituacaoentrega  >= 20000
+                   and p.tipopedido          = 'P'    
+                   and p.idpais              = 1
+                   and nvl(ip.valorvenda,0)  > 0
+                   and p.datacancelamento is null
+                   and NOT exists ( select 1
+                                      from favorita.classificacoespedidos c  
+                                     where idpedido = p.idpedido
+                                       and idcaracteristicapedido = 8 
+                                       and idvalorcaracteristica  = 16 )
+                 group by pro.nomeproduto
+                 order by 2 desc
+                 fetch first :P1_TOP rows only
+                ```
+            pageItemsToSubmit: [
+                P1_DE
+                P1_ATE
+            ]
+        }
+        layout {
+            sequence: 150
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent15
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 762993364054907006
+        }
+
+        column PRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column QTD_PRODUTOS (
+            type: plainText
+            heading {
+                heading: Qtd Produtos
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column VALOR_VENDA (
+            type: plainText
+            heading {
+                heading: Valor Venda
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 7630250 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn PRODUTO (
+                sequence: 1
+            )
+
+            displayColumn QTD_PRODUTOS (
+                sequence: 2
+            )
+
+            displayColumn VALOR_VENDA (
+                sequence: 3
+            )
+
+        )
+
+    )
+
+    region produtos-top-p1-top-mct (
+        name: Produtos Top &P1_TOP. MCT
+        type: plugin/html5BarChart
+        source {
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomeprodutodetalhado(idprodutodetalhado,1)  || ' - Qtd Total: '||quantidade||'. Qtd Pedidos: '||qtdpedidos nomeproduto
+                    , to_char(round(valortotalvenda/1000,2),'999G999G990D00')||'K'  valortotalvendaK
+                    , ROUND(valortotalvenda) valortotalvenda
+                    , quantidade
+                    , ROUND(MCT) MCT
+                from (  select idprodutodetalhado
+                             , sum(w.valortotalvenda*w.fatorconversao) valortotalvenda
+                             , sum(w.quantidade) quantidade
+                             , count(distinct idpedido) qtdpedidos
+                             ,  ( select i.mct
+                                   from favorita.itenspedagiosrevistas i
+                                   where i.idprodutodetalhado = w.idprodutodetalhado 
+                                     and i.idpedagiorevista = :P1_IDPEDAGIOREVISTA ) MCT
+                        from vw_itenspedidos_fav w
+                        where ididioma                        = 1 
+                          and exists ( select i.mct
+                                       from favorita.itenspedagiosrevistas i
+                                       where i.idprodutodetalhado = w.idprodutodetalhado 
+                                         and i.idpedagiorevista = :P1_IDPEDAGIOREVISTA )
+                          and exists ( select 1
+                                       from vw_pedidos_fav p
+                                       where p.idpedido = w.idpedido
+                                         and dataemissao  between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' )  and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                                         and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )                     
+                                         and p.idsituacaoentrega  >= 20000
+                                         and p.tipopedido         != 'F'    -- sem favorita paris
+                                         and p.ididioma            = 1
+                                         and p.valorapagar_orig         > 0
+                                         and NOT exists ( select 1
+                                                          from classificacoespedidos c
+                                                          where c.idpedido               = p.idpedido
+                                                            and c.idcaracteristicapedido = 25 )  
+                                         and NOT exists ( select 1
+                                                          from classificacoespedidos c  
+                                                          where idpedido = p.idpedido
+                                                            and idcaracteristicapedido = 8 
+                                                            and idvalorcaracteristica  = 16 ) ) 
+                        group by idprodutodetalhado
+                        order by 5 desc ) W
+                 fetch first :P1_TOP rows only
+                ```
+            pageItemsToSubmit: P1_IDPEDAGIOREVISTA
+        }
+        layout {
+            sequence: 160
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--accent15
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+        comments {
+            comments: Comentado em 04/08/2025 para atender o ticket 9954304
+        }
+        settings {
+            labelColumn: NOMEPRODUTO
+            valueColumn: MCT
+            formatMask: 999G999G999G999G990
+            barWidthCalculation: relative
+            colorScheme: modern
+            maximumRows: 30
+        }
+    )
+
+    region quantidade-de-pedidos (
+        name: "Quantidade de Pedidos "
+        type: plugin/html5BarChart
+        source {
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomefilial(p.idfilialromance) empresa
+                     , COUNT(1) valorotal
+                from vw_pedidos_fav p
+                where dataemissao between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' )-365 and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')-365
+                  and p.datacancelamento is null
+                  and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )                
+                 and p.idsituacaoentrega  >= 20000
+                 and p.tipopedido         != 'F'    -- sem favorita paris
+                 and p.ididioma            = 1
+                 and p.valorapagar_orig         > 0
+                 and NOT exists ( select 1
+                                  from classificacoespedidos c
+                                  where c.idpedido               = p.idpedido
+                                    and c.idcaracteristicapedido = 25 )  
+                 and NOT exists ( select 1
+                                  from classificacoespedidos c  
+                                  where idpedido = p.idpedido
+                                    and idcaracteristicapedido = 8 
+                                    and idvalorcaracteristica  = 16 ) 
+                group by p.idfilialromance
+                order by 2 desc
+                ```
+            pageItemsToSubmit: [
+                P1_DE
+                P1_ATE
+            ]
+        }
+        layout {
+            sequence: 130
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--noBorder
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            labelColumn: EMPRESA
+            valueColumn: VALOROTAL
+            formatMask: 999G999G990
+            colorScheme: modern
+            maximumRows: 30
+        }
+    )
+
+    region quantidade-de-pedidos-2 (
+        name: "Quantidade de Pedidos "
+        type: plugin/html5BarChart
+        source {
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomefilial(p.idfilialromance) empresa
+                     , COUNT(1) valorotal
+                from vw_pedidos_fav p
+                where dataemissao between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                  and p.datacancelamento is null
+                  and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )                
+                         and p.idsituacaoentrega  >= 20000
+                         and p.tipopedido         != 'F'    -- sem favorita paris
+                         and p.ididioma            = 1
+                         and p.valorapagar_orig         > 0
+                         and p.datacancelamento is null
+                         and p.idfilialromance != 1063
+                         and NOT exists ( select 1
+                                          from classificacoespedidos c  
+                                          where idpedido = p.idpedido
+                                            and idcaracteristicapedido = 8 
+                                            and idvalorcaracteristica  = 16 ) 
+                group by p.idfilialromance
+                order by 2 desc
+                ```
+            pageItemsToSubmit: [
+                P1_DE
+                P1_ATE
+            ]
+        }
+        layout {
+            sequence: 140
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--noBorder
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            labelColumn: EMPRESA
+            valueColumn: VALOROTAL
+            formatMask: 999G999G990
+            colorScheme: modern
+            maximumRows: 30
+        }
+    )
+
+    region subcategoria-quantidade-vendida (
+        name: Subcategoria - Quantidade Vendida
+        type: plugin/html5BarChart
+        source {
+            sqlQuery:
+                ```sql
+                select s.nome as "Subcategoria"
+                     , trunc(sum(ip.quantidade)) as "Quantidade Vendida"
+                  from favorita.itenspedidos ip
+                     , favorita.produtos pp
+                     , favorita.subcategorias s
+                     , favorita.pedidos ped
+                 where pp.idproduto = ip.idproduto
+                   and s.idsubcategoria = pp.idsubcategoria
+                   and ped.idpedido = ip.idpedido
+                    -- pedidos que não estão cancelados
+                   and ped.datacancelamento is null
+                   -- período
+                   and ped.dataemissao between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' )
+                                           and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                   -- Somente Brasil
+                   and ped.idpais = 1
+                   -- apartir de Aguardando Montagem de Remessa
+                   and ped.idsituacaoentrega  >= 20000
+                   -- sem favorita paris
+                   and ped.tipopedido         != 'F'
+                   -- empresa romance
+                   and ( :P0_IDFILIALROMANCE = '999999999999' or ped.idfilialromance = :P0_IDFILIALROMANCE )      
+                 group by s.nome
+                 order by 2 desc
+                
+                
+                
+                
+                
+                
+                
+                ```
+        }
+        layout {
+            sequence: 240
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent8
+                t-Region--scrollBody
+            ]
+        }
+        settings {
+            labelColumn: "Subcategoria"
+            valueColumn: "Quantidade Vendida"
+            formatMask: 999G999G999G990
+        }
+    )
+
+    region subcategoria-valor-vendido (
+        name: Subcategoria - Valor Vendido
+        type: plugin/html5BarChart
+        source {
+            sqlQuery:
+                ```sql
+                select s.nome as "Subcategoria"
+                     , trunc(sum(ip.valorvenda)) as "Valor Vendido"
+                  from favorita.itenspedidos ip
+                     , favorita.produtos pp
+                     , favorita.subcategorias s
+                     , favorita.pedidos ped
+                 where pp.idproduto = ip.idproduto
+                   and s.idsubcategoria = pp.idsubcategoria
+                   and ped.idpedido = ip.idpedido
+                    -- pedidos que não estão cancelados
+                   and ped.datacancelamento is null
+                   -- período
+                   and ped.dataemissao between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' )
+                                           and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                   -- Somente Brasil
+                   and ped.idpais = 1
+                   -- apartir de Aguardando Montagem de Remessa
+                   and ped.idsituacaoentrega  >= 20000
+                   -- sem favorita paris
+                   and ped.tipopedido         != 'F'
+                   -- empresa romance
+                   and ( :P0_IDFILIALROMANCE = '999999999999' or ped.idfilialromance = :P0_IDFILIALROMANCE )      
+                 group by s.nome
+                 order by 2 desc
+                
+                
+                
+                
+                
+                
+                
+                ```
+        }
+        layout {
+            sequence: 230
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent8
+                t-Region--scrollBody
+            ]
+        }
+        settings {
+            labelColumn: "Subcategoria"
+            valueColumn: "Valor Vendido"
+            formatMask: 999G999G999G999G990D00
+        }
+    )
+
+    region top-p1-top-distribuidores-pedidos-pagos (
+        name: Top &P1_TOP. Distribuidores - Pedidos Pagos
+        type: plugin/html5BarChart
+        source {
+            sqlQuery:
+                ```sql
+                select distribuidor
+                     , quantidade
+                     , ROUND(valortotal) VALORTOTAL
+                from (select roman.pck_romance.fnc_nomerepresentante(p.idrepresentante)||' - '||roman.pck_romance.fnc_nomefilial(p.idfilialromance)  distribuidor 
+                           , count(1) quantidade
+                           , sum(p.valortotal*p.fatorconversao) valortotal
+                      from vw_pedidos_fav p
+                      where exists ( select 1
+                                     from vw_vencimentospedidos_fav v
+                                        , vw_pagamentospedidos_fav pp
+                                     where p.idpedido           = v.idpedido   
+                                       and v.idvencimentopedido = pp.idvencimentopedido
+                                       and pp.datapagamento  between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' )  and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss') )
+                        and p.datacancelamento is null
+                        and p.ididioma = 1
+                        and p.idsituacaoentrega  >= 20000
+                        and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )
+                      group by p.idrepresentante,p.idfilialromance
+                )
+                ORDER BY VALORTOTAL DESC
+                 fetch first :P1_TOP rows only
+                ```
+        }
+        layout {
+            sequence: 190
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            labelColumn: DISTRIBUIDOR
+            valueColumn: VALORTOTAL
+            formatMask: 999G999G999G990
+            maximumRows: 20
+        }
+    )
+
+    region top-p1-top-empreendedoras (
+        name: Top &P1_TOP. Empreendedoras
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select vendedora
+                     , representante
+                     , quantidade
+                     , valortotal
+                     , cpf
+                from ( select roman.pck_romance.fnc_nomevendedora(p.idvendedora) vendedora
+                            , ( select roman.pck_romance.fnc_nomerepresentante(v.idrepresentante)||' ('||roman.pck_romance.fnc_nomefilial(roman.pck_romance.fnc_filialvendedora(v.idvendedora))||') '
+                                from vendedoras v
+                                where v.idvendedora = p.idvendedora ) representante
+                            , count(1) quantidade
+                            , sum(nvl(p.valorapagar,1)*p.fatorconversao) valortotal
+                            , p.cpf
+                       from vw_pedidos_fav p
+                       where dataemissao  between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                         and p.datacancelamento is null
+                         and p.ididioma = 1
+                         and p.idsituacaoentrega  >= 20000
+                         and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )
+                         and exists ( select 1
+                                      from roman.vw_filiais f
+                                      where f.idfilial = p.idfilialromance
+                                        and f.tipofilial = 'D' )
+                         and not exists ( select 1
+                                          from classificacoespedidos c
+                                          where c.idpedido = p.idpedido
+                                            and c.idcaracteristicapedido = 28 )
+                       group by p.idvendedora,p.cpf
+                       order by 4 desc
+                       fetch first :P1_TOP rows only)
+                
+                ```
+        }
+        layout {
+            sequence: 210
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText: <b> Não está sendo levado em consideração os pedidos de distribuidores independentes</b>
+        }
+        reportLayout {
+            numberOfRows: 20
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        download {
+            csvExportEnabled: true
+            csvSeparator: ;
+            filename: top20consultora
+        }
+
+        column CPF (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: CPF
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: center
+            }
+        )
+
+        column QUANTIDADE (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Qtd Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 3
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column REPRESENTANTE (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Distribuidor Independente
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+        )
+
+        column VALORTOTAL (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Valor Total a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                defaultSequence: 1
+                direction: desc
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VENDEDORA (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region total-de-pedidos (
+        name: Total de Pedidos
+        type: plugin/html5BarChart
+        source {
+            sqlQuery:
+                ```sql
+                select 'Total Geral '||' - Qtd: '||trim(to_char(count(1),'999G999G990'))||' Ticket Médio: '||trim(to_char(avg(p.valorapagar*p.fatorconversao),'999G999G999G990D00')) empresa
+                     , sum(p.valorapagar*p.fatorconversao) valorotal
+                from vw_pedidos_fav p
+                where dataemissao between to_date(:P1_DE_ANTERIOR||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE_ANTERIOR||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                  and  p.ididioma = 1
+                  and p.datacancelamento is null
+                  and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )                
+                         and p.idsituacaoentrega  >= 20000
+                         and p.tipopedido         != 'F'    -- sem favorita paris
+                         and p.ididioma            = 1
+                         and p.valorapagar_orig         > 0
+                         and p.datacancelamento is null
+                         and NOT exists ( select 1
+                                          from classificacoespedidos c  
+                                          where idpedido = p.idpedido
+                                            and idcaracteristicapedido = 8 
+                                            and idvalorcaracteristica  = 16 ) 
+                ```
+            pageItemsToSubmit: [
+                P1_DE
+                P1_ATE
+            ]
+        }
+        layout {
+            sequence: 10
+            parentRegion: @valor-de-pedidos-ano-anterior
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        settings {
+            labelColumn: EMPRESA
+            valueColumn: VALOROTAL
+            formatMask: 999G999G999G990D00
+            barWidthCalculation: relative
+            colorScheme: modern
+        }
+    )
+
+    region total-de-pedidos-2 (
+        name: Total de Pedidos
+        type: plugin/html5BarChart
+        source {
+            sqlQuery:
+                ```sql
+                select 'Total Geral '||' - Qtd: '||trim(to_char(count(1),'999G999G990'))||' Ticket Médio: '||trim(to_char(avg(p.valorapagar*p.fatorconversao),'999G999G999G990D00')) empresa
+                     , sum(p.valorapagar*p.fatorconversao) valorotal
+                from vw_pedidos_fav p
+                where dataemissao between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                  and p.ididioma = 1                
+                 and p.idsituacaoentrega  >= 20000
+                 and p.tipopedido         != 'F'    -- sem favorita paris
+                 and p.ididioma            = 1
+                 and p.idfilialromance != 1063
+                 and p.valorapagar_orig         > 0
+                 and p.datacancelamento is null
+                 and NOT exists ( select 1
+                                  from classificacoespedidos c  
+                                  where idpedido = p.idpedido
+                                    and idcaracteristicapedido = 8 
+                                    and idvalorcaracteristica  = 16 ) 
+                ```
+            pageItemsToSubmit: [
+                P1_DE
+                P1_ATE
+            ]
+        }
+        layout {
+            sequence: 10
+            parentRegion: @valor-de-pedidos-ano-atual
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        settings {
+            labelColumn: EMPRESA
+            valueColumn: VALOROTAL
+            formatMask: 999G999G999G990D00
+            colorScheme: modern
+        }
+    )
+
+    region valor-de-pedidos-ano-anterior (
+        name: Valor de Pedidos - Ano Anterior
+        type: plugin/html5BarChart
+        source {
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomefilial(emp.idfilial) ||' - Qtd: '||trim(to_char(emp.qtd,'999G999G990'))||' Ticket Médio: '||trim(to_char(emp.tiketmedio,'999G999G999G990D00'))  empresa
+                     , ROUND(emp.valortotal) valortotal
+                from ( select p.idfilialromance idfilial
+                            , sum(p.valorapagar*p.fatorconversao) valortotal  
+                            , avg(p.valorapagar*p.fatorconversao) tiketmedio
+                            , count(1) qtd
+                       from vw_pedidos_fav p
+                       where dataemissao between to_date(:P1_DE_ANTERIOR||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE_ANTERIOR||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                         and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )                
+                         and p.idsituacaoentrega  >= 20000
+                         and p.tipopedido         != 'F'    -- sem favorita paris
+                         and p.ididioma            = 1
+                         and p.valorapagar_orig         > 0
+                         and p.datacancelamento is null
+                         and NOT exists ( select 1
+                                          from classificacoespedidos c  
+                                          where idpedido = p.idpedido
+                                            and idcaracteristicapedido = 8 
+                                            and idvalorcaracteristica  = 16 ) 
+                         and exists ( select 1
+                                      from roman.vw_filiais f
+                                      where f.ativo    = 'S'
+                                        --and f.tipofilial = 'D'
+                                        and f.idfilial = p.idfilialromance)
+                       group by p.idfilialromance ) emp
+                order by 1
+                ```
+            pageItemsToSubmit: [
+                P1_DE
+                P1_ATE
+            ]
+        }
+        layout {
+            sequence: 60
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--noBorder
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            labelColumn: EMPRESA
+            valueColumn: VALORTOTAL
+            formatMask: 999G999G999G990
+            colorScheme: modern
+            maximumRows: 50
+        }
+    )
+
+    region valor-de-pedidos-ano-atual (
+        name: Valor de Pedidos - Ano Atual
+        type: plugin/html5BarChart
+        source {
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomefilial(emp.idfilial) ||' - Qtd: '||trim(to_char(emp.qtd,'999G999G990'))||' Ticket Médio: '||trim(to_char(emp.tiketmedio,'999G999G999G990D00'))  empresa
+                     , ROUND(emp.valortotal) valortotal
+                from ( select p.idfilialromance idfilial
+                            , round(sum(p.valorapagar*nvl(p.fatorconversao,1)),2) valortotal  
+                            , avg(p.valorapagar*nvl(p.fatorconversao,1)) tiketmedio
+                            , count(1) qtd
+                       from vw_pedidos_fav p
+                       where trunc(dataemissao) between to_date(:P1_DE,'dd/mm/rrrr') and to_date(:P1_ATE,'dd/mm/rrrr')
+                         and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )                  
+                         and p.idsituacaoentrega  >= 20000
+                         and p.tipopedido         != 'F'    -- sem favorita paris
+                         and p.ididioma            = 1
+                         and p.valorapagar         > 0
+                         and p.datacancelamento is null
+                         and NOT exists ( select 1
+                                          from classificacoespedidos c  
+                                          where idpedido = p.idpedido
+                                            and idcaracteristicapedido = 8 
+                                            and idvalorcaracteristica  = 16 ) 
+                         and exists ( select 1
+                                      from roman.vw_filiais f
+                                      where f.ativo    = 'S'
+                                       -- and f.tipofilial = 'D'
+                                        and f.idfilial = p.idfilialromance
+                                        and f.idfilial != 1063 )
+                       group by p.idfilialromance
+                       ) emp
+                where ROUND(emp.valortotal) > 0
+                order by 1
+                ```
+            pageItemsToSubmit: [
+                P1_DE
+                P1_ATE
+            ]
+        }
+        layout {
+            sequence: 70
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--noBorder
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            labelColumn: EMPRESA
+            valueColumn: VALORTOTAL
+            formatMask: 999G999G999G990
+            colorScheme: modern
+            maximumRows: 50
+        }
+    )
+
+    pageItem P1_ATE (
+        type: datePickerJquery
+        label {
+            label: <b>Até:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                BEGIN
+                  RETURN trunc(sysdate);
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_ATE_ANTERIOR (
+        type: datePickerJquery
+        label {
+            label: <b>Até:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                BEGIN
+                  RETURN trunc(sysdate);
+                end;
+                ```
+        }
+        serverSideCondition {
+            type: never
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_CONSULTORASUNICAS_ATUAL (
+        type: displayOnly
+        label {
+            label: Consultoras Únicas
+            alignment: left
+        }
+        layout {
+            sequence: 70
+            region: @ano-atual
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_CONSULTUNICAS_ANOANTERIOR (
+        type: displayOnly
+        label {
+            label: Consultoras Únicas
+            alignment: left
+        }
+        layout {
+            sequence: 70
+            region: @ano-anterior
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_DE (
+        type: datePickerJquery
+        label {
+            label: <b>De:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                BEGIN
+                  RETURN trunc(sysdate);
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_DE_ANTERIOR (
+        type: datePickerJquery
+        label {
+            label: <b>De:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                BEGIN
+                  RETURN trunc(sysdate);
+                end;
+                ```
+        }
+        serverSideCondition {
+            type: never
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_IDPEDAGIOREVISTA (
+        type: selectList
+        label {
+            label: <b>Pedágio:</b>
+            alignment: left
+        }
+        settings {
+            pageActionOnSelection: redirectSetValue
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nomepedagiorevista  display_value
+                     , idpedagiorevista 
+                from pedagiosrevistas
+                order by 2 desc
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  vid number;
+                begin
+                  select max(idpedagiorevista )
+                  into  vid
+                  from pedagiosrevistas;
+                  --
+                  return vid;
+                  --
+                exception
+                  when others then
+                     return null;
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_QTDCANECLADO_ANOANTERIOR (
+        type: displayOnly
+        label {
+            label: Qtd Cancelados
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @ano-anterior
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_QTDCANECLADO_ANOATUAL (
+        type: displayOnly
+        label {
+            label: Qtd Cancelados
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @ano-atual
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_QTDTOTAL_PEDIDOVALIDO (
+        type: displayOnly
+        label {
+            label: Qtd Total Válido
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @ano-anterior
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_QTDTOTAL_PEDIDOVALIDOATUAL (
+        type: displayOnly
+        label {
+            label: QTd Total Válido
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @ano-atual
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_QUANTIDADETOTAL_ANOANTERIOR (
+        type: displayOnly
+        label {
+            label: Qtd Pedidos
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @ano-anterior
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_QUANTIDADETOTAL_ANOATUAL (
+        type: displayOnly
+        label {
+            label: Qtd Pedidos
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @ano-atual
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_TOP (
+        type: numberField
+        label {
+            label: <b>Top:</b>
+            alignment: left
+        }
+        settings {
+            minValue: 1
+            maxValue: 99
+            virtualKeyboard: numeric
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        default {
+            type: static
+            staticValue: 20
+        }
+    )
+
+    pageItem P1_VALORCANCELADO_ANOATUAL (
+        type: displayOnly
+        label {
+            label: "Valor Total Cancelados "
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @ano-atual
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_VALORCANECLADO_ANOANTERIOR (
+        type: displayOnly
+        label {
+            label: Valor Total Cancelados
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @ano-anterior
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_VALORTOTAL_ANOANTERIOR (
+        type: displayOnly
+        label {
+            label: Valor Total
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @ano-anterior
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_VALORTOTAL_ANOATUAL (
+        type: displayOnly
+        label {
+            label: Valor Total
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @ano-atual
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_VALORTOTAL_PEDIDOVALIDO (
+        type: displayOnly
+        label {
+            label: Valor Total Válido
+            alignment: left
+        }
+        layout {
+            sequence: 60
+            region: @ano-anterior
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P1_VALORTOTAL_PEDVALIDOATUAL (
+        type: displayOnly
+        label {
+            label: Valor Total Válido
+            alignment: left
+        }
+        layout {
+            sequence: 60
+            region: @ano-atual
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    dynamicAction change (
+        name: Change
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: [
+                P1_DE
+                P1_ATE
+            ]
+        }
+        serverSideCondition {
+            type: never
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @quantidade-de-pedidos
+            }
+            execution {
+                sequence: 30
+                fireOnInit: false
+            }
+        )
+
+        action native-refresh-2 (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @top-p1-top-distribuidores-pedidos-pagos
+            }
+            execution {
+                sequence: 50
+                fireOnInit: false
+            }
+        )
+
+        action native-refresh-3 (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @valor-de-pedidos-ano-anterior
+            }
+            execution {
+                sequence: 60
+                fireOnInit: false
+            }
+        )
+
+        action native-refresh-4 (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @total-de-pedidos
+            }
+            execution {
+                sequence: 80
+                fireOnInit: false
+            }
+        )
+
+        action native-refresh-5 (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @top-p1-top-empreendedoras
+            }
+            execution {
+                sequence: 90
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction change-2 (
+        name: change
+        execution {
+            sequence: 40
+        }
+        when {
+            selectionType: items
+            items: P1_TOP
+        }
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction change-3 (
+        name: Change2
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: [
+                P1_DE
+                P1_ATE
+            ]
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: FILTRAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction filtra (
+        name: Filtra
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P1_TIPO
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: FILTRAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process busca-totais-ano-anterior (
+        name: Busca totais ano anterior
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  -- BUSCA DO TOTAL - ANO ANTERIOR
+                  --
+                  for a in ( select trim(to_char(count(1),'999G999G999G999G990')) quantidade
+                                  , TRIM(TO_CHAR(sum(p.valorapagar_orig*p.fatorconversao),'999G999G999G999G990D00')) valorotal 
+                             from vw_pedidos_fav p
+                             where dataemissao between to_date(:P1_DE_ANTERIOR||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE_ANTERIOR||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                               and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )
+                               and p.idsituacaoentrega  >= 20000
+                               and p.tipopedido         != 'F'    -- sem favorita paris
+                               and p.ididioma            = 1
+                               and p.valorapagar_orig    > 0 
+                               and NOT exists ( select 1
+                                                from classificacoespedidos c  
+                                                where idpedido = p.idpedido
+                                                  and idcaracteristicapedido = 8 
+                                                  and idvalorcaracteristica  = 16 ) 
+                           )
+                  loop
+                    --
+                    :P1_QUANTIDADETOTAL_ANOANTERIOR := nvl(A.quantidade,'0');
+                    :P1_VALORTOTAL_ANOANTERIOR       := nvl(A.valorotal,'0,00');
+                    --
+                  end loop;
+                  --
+                  -- BUSCA DOS CANCELADOS - ANO ANTERIOR
+                  --
+                  for B in ( select trim(to_char(count(1),'999G999G999G999G990')) quantidade
+                                  , TRIM(TO_CHAR(sum(p.valorapagar_orig*p.fatorconversao),'999G999G999G999G990D00')) valorotal 
+                             from vw_pedidos_fav p
+                             where dataemissao between to_date(:P1_DE_ANTERIOR||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE_ANTERIOR||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                               and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )
+                               and p.idsituacaoentrega  >= 20000
+                               and p.tipopedido         != 'F'    -- sem favorita paris
+                               and p.ididioma            = 1
+                               and p.valorapagar_orig         > 0
+                               and exists ( select 1
+                                            from classificacoespedidos c
+                                            where c.idpedido               = p.idpedido
+                                              and c.idcaracteristicapedido = 25 )
+                               and NOT exists ( select 1
+                                                from classificacoespedidos c  
+                                                where idpedido = p.idpedido
+                                                  and idcaracteristicapedido = 8 
+                                                  and idvalorcaracteristica  = 16 )   )
+                  loop
+                    --
+                    :P1_QTDCANECLADO_ANOANTERIOR   := nvl(B.quantidade,'0');
+                    :P1_VALORCANECLADO_ANOANTERIOR := nvl(B.valorotal,'0,00');
+                    --
+                  end loop;
+                  --
+                  --
+                  -- BUSCA DOS VÁLIDOS - ANO ANTERIOR
+                  --
+                  for C in ( select trim(to_char(count(1),'999G999G999G999G990')) quantidade
+                                  , TRIM(TO_CHAR(sum(p.valorapagar*p.fatorconversao),'999G999G999G999G990D00')) valorotal 
+                                  , TRIM(TO_CHAR(count(distinct idvendedora),'999G999G999G999G990')) qtdvendedoras
+                             from vw_pedidos_fav p
+                             where dataemissao between to_date(:P1_DE_ANTERIOR||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE_ANTERIOR||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                               and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )
+                               and p.idsituacaoentrega  >= 20000
+                               and p.tipopedido         != 'F'    -- sem favorita paris
+                               and p.ididioma            = 1
+                               and p.valorapagar_orig         > 0
+                               and NOT exists ( select 1
+                                                from classificacoespedidos c
+                                                where c.idpedido               = p.idpedido
+                                                  and c.idcaracteristicapedido = 25 )
+                               and NOT exists ( select 1
+                                                from classificacoespedidos c  
+                                                where idpedido = p.idpedido
+                                                  and idcaracteristicapedido = 8 
+                                                  and idvalorcaracteristica  = 16 )  )
+                  loop
+                    --
+                    :P1_QTDTOTAL_PEDIDOVALIDO      := nvl(C.quantidade,'0');
+                    :P1_VALORTOTAL_PEDIDOVALIDO    := nvl(C.valorotal,'0,00');
+                    :P1_CONSULTUNICAS_ANOANTERIOR  := NVL(C.qtdvendedoras,'0');
+                    --
+                  end loop;
+                  --
+                exception
+                  when others then
+                   null;
+                end;
+                
+                
+                
+                ```
+        }
+        execution {
+            sequence: 20
+            point: beforeRegions
+        }
+        advanced {
+            executionMappingIdentifier: 4441909927073134848
+        }
+    )
+
+    process busca-totais-ano-atual (
+        name: Busca totais ano atual
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  -- BUSCA DO TOTAL - ANO ATUAL
+                  --
+                  for a in ( select trim(to_char(count(distinct p.idpedido),'999G999G999G999G990')) quantidade
+                                  , TRIM(TO_CHAR(round(sum(p.valorapagar*p.fatorconversao),2),'999G999G999G999G990D00')) valorotal 
+                             from pedidos p
+                             where trunc(p.dataemissao)  between to_date(:P1_DE) and to_date(:P1_ATE)
+                               and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )
+                               and p.idsituacaoentrega  >= 20000
+                               and p.tipopedido         != 'F'    -- sem favorita paris
+                               and p.valorapagar         > 0 
+                               and p.datacancelamento is null
+                               and NOT exists ( select 1
+                                                from classificacoespedidos c  
+                                                where idpedido = p.idpedido
+                                                  and idcaracteristicapedido = 8 
+                                                  and idvalorcaracteristica  = 16 ) 
+                           )
+                  loop
+                    --
+                    :P1_QUANTIDADETOTAL_ANOATUAL := nvl(A.quantidade,'0');
+                    :P1_VALORTOTAL_ANOATUAL := nvl(A.valorotal,'0,00');
+                    --
+                  end loop;
+                  --
+                  -- BUSCA DOS CANCELADOS - ANO ATUAL
+                  --
+                  for B in ( select trim(to_char(count(1),'999G999G999G999G990')) quantidade
+                                  , TRIM(TO_CHAR(sum(p.valorapagar_orig*p.fatorconversao),'999G999G999G999G990D00')) valorotal 
+                             from vw_pedidos_fav_new p
+                             where dataemissao  between to_date(:P1_DE||' 00:00:00' ,'dd/mm/rrrr hh24:mi:ss' ) and to_date(:P1_ATE||' 23:59:59' ,'dd/mm/rrrr hh24:mi:ss')
+                               and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )
+                               and p.idsituacaoentrega  >= 20000
+                               and p.tipopedido         != 'F'    -- sem favorita paris
+                               and p.valorapagar_orig         > 0
+                               and p.datacancelamento is not null
+                               and NOT exists ( select 1
+                                                from classificacoespedidos c  
+                                                where idpedido = p.idpedido
+                                                  and idcaracteristicapedido = 8 
+                                                  and idvalorcaracteristica  = 16 )   )
+                  loop
+                    --
+                    :P1_QTDCANECLADO_ANOATUAL   := nvl(B.quantidade,'0');
+                    :P1_VALORCANCELADO_ANOATUAL := nvl(B.valorotal,'0,00');
+                    --
+                  end loop;
+                  --
+                  --
+                  -- BUSCA DOS VÁLIDOS - ANO ATUAL
+                  --
+                  for C in ( select trim(to_char(count(1),'999G999G999G999G990')) quantidade
+                                  , TRIM(TO_CHAR(sum(p.valorapagar*p.fatorconversao),'999G999G999G999G990D00')) valorotal 
+                                  , TRIM(TO_CHAR(count(distinct idvendedora),'999G999G999G999G990')) qtdvendedoras
+                             from vw_pedidos_fav_new p
+                             where trunc(dataemissao)  between to_date(:P1_DE)  and to_date(:P1_ATE)
+                               and ( :P0_IDFILIALROMANCE = '999999999999' or p.idfilialromance = :P0_IDFILIALROMANCE )                     
+                               and p.idsituacaoentrega  >= 20000
+                               and p.tipopedido         != 'F'    -- sem favorita paris
+                               and p.valorapagar         > 0
+                               and p.datacancelamento is null
+                               and NOT exists ( select 1
+                                                from classificacoespedidos c  
+                                                where idpedido = p.idpedido
+                                                  and idcaracteristicapedido = 8 
+                                                  and idvalorcaracteristica  = 16 )  )
+                  loop
+                    --
+                    :P1_QTDTOTAL_PEDIDOVALIDOATUAL   := nvl(C.quantidade,'0');
+                    :P1_VALORTOTAL_PEDVALIDOATUAL    := nvl(C.valorotal,'0,00');
+                    :P1_CONSULTORASUNICAS_ATUAL      := nvl(C.qtdvendedoras,'0');
+                    --
+                  end loop;
+                  --
+                exception
+                  when others then
+                   null;
+                end;
+                
+                
+                
+                ```
+        }
+        execution {
+            sequence: 30
+            point: beforeRegions
+        }
+        advanced {
+            executionMappingIdentifier: 4441910191467134850
+        }
+    )
+
+    process popula-campos (
+        name: Popula campos
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vid number;
+                  vde date;
+                  vate date;
+                  vdia_1 varchar2(2);
+                  vmes_1 varchar2(2);
+                  vano_1 varchar2(4);
+                  vdia_2 varchar2(2);
+                  vmes_2 varchar2(2);
+                  vano_2 varchar2(4);
+                begin
+                  --
+                  if :P1_IDPEDAGIOREVISTA is null then
+                    select max(idpedagiorevista )
+                      into  :P1_IDPEDAGIOREVISTA
+                      from pedagiosrevistas;
+                  end if;
+                  --
+                  if :P1_TOP is null then
+                    :P1_TOP := 20;
+                  end if;
+                
+                  :P1_DE   := NVL(:P1_DE,TRUNC(SYSDATE));
+                  :P1_ATE  := NVL(:P1_ATE,TRUNC(SYSDATE));
+                  --
+                  vde := :P1_DE;
+                  vate := :P1_ATE;
+                  --
+                  vdia_1 := to_char(vde,'DD');
+                  vmes_1 := to_char(vde,'MM');
+                  vano_1 := to_char(vde,'RRRR')-1;
+                  vdia_2 := to_char(vate,'DD');
+                  vmes_2 := to_char(vate,'MM');
+                  vano_2 := to_char(vate,'RRRR')-1;
+                  vde := to_date(vdia_1||'/'||vmes_1||'/'||vano_1);
+                  vate := to_date(vdia_2||'/'||vmes_2||'/'||vano_2);
+                  --
+                  :P0_IDFILIALROMANCE := nvl(:P0_IDFILIALROMANCE,'999999999999');
+                  --
+                  :P1_DE_ANTERIOR  := to_date(vde,'DD/MM/RRRR');
+                  :P1_ATE_ANTERIOR := to_date(vate,'DD/MM/RRRR');
+                  --
+                exception
+                  when others then
+                      null;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeRegions
+        }
+        advanced {
+            executionMappingIdentifier: 3973344393506627222
+        }
+    )
+
+)
+

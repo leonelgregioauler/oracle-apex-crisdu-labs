@@ -1,0 +1,1328 @@
+page 76 (
+    name: Efetuar Compra/Remessa
+    title: Efetuar Compra/Remessa
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    htmlHeader {
+        htmlHeader:
+            ```html
+            <style>
+               
+              .laranja {
+                background-color: orange !important;
+                color: white;
+                width: 30px;
+              }
+                
+              .vermelho {
+                background-color:  red !important;
+                color: white;
+                width: 30px;
+              }
+                
+              .azul {
+                background-color:  blue !important;
+                color: white;
+                width: 30px;
+              }
+              
+                
+            </style>
+            
+            <script 
+              src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js">
+            </script>
+            
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region acessos (
+        name: Acessos
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region filtros (
+        name: "                  Filtros"
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P76_IDCOMPRATRANSFERENCIA is not null
+                  and exists ( select 1
+                               from comprastransferencias c
+                               where c.idcompratransferencia = :P76_IDCOMPRATRANSFERENCIA
+                                 and c.idtipocomptransrem    = 0 )
+                ```
+        }
+    )
+
+    region legenda (
+        name: Legenda
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <table>                                                      
+                <tbody>  
+                    
+                <tr>                                                         
+                <td class="vermelho"></td>
+                <td style="padding-left: 8px;">Quantidade abaixo do estoque mínimo</td>      
+                </tr>
+                    
+                <tr>    
+                <td class="laranja"></td>
+                <td style="padding-left: 8px;">Quantidade acima do estoque máximo</td>    
+                </tr>
+                    
+                <tr>    
+                <td class="azul"></td>
+                <td style="padding-left: 8px;">Produto Descontinuado</td>    
+                </tr>
+                
+                    
+                </table>      
+                ```
+        }
+    )
+
+    region produtos-para-efetuar-compra-remessa (
+        name: Produtos para Efetuar Compra/Remessa
+        type: interactiveGrid
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomeprodutodetalhado(i.idprodutodetalhado,1) prod
+                     , ( select pck_estoque_fav.fnc_estoquedisponivel(e.idestoque)
+                         from estoques e
+                         where e.idprodutodetalhado = i.idprodutodetalhado
+                           and e.idfilialfavorita = ( select c.idfilialfavoritadestino
+                                                      from comprastransferencias c
+                                                      where c.idcompratransferencia = i.idcompratransferencia ) ) qtdestoque
+                     , (select qtdestoqueminimo
+                        from estoques e
+                        where e.idestoque = i.idestoquefildestino ) qtdestoqueminimo  
+                     , (select qtdestoquemaximo
+                        from estoques e
+                        where e.idestoque = i.idestoquefildestino ) qtdestoquemaximo
+                     , nvl(( select sum(Ip.QUANTIDADE)
+                             from pedidos p
+                                , itenspedidos ip
+                             where p.idpedido   = ip.idpedido
+                               and ip.idestoque = i.idestoquefildestino
+                               and p.idedicaorevista in ( select e.idedicaorevista
+                                                          from edicoesrevistascompras e 
+                                                          where e.idcompratransferencia = :P76_IDCOMPRATRANSFERENCIA )
+                               and trunc(p.dataemissao) between  to_date(:P76_DATAINI,'DD/MM/RRRR') and to_date(:P76_DATAFIM,'DD/MM/RRRR')),0) "Qtd Total Saída" 
+                     , NVL(( select sum(itc.quantidadecomprada) 
+                             from comprastransferencias ct 
+                                , itenscomprastransferencias itc
+                             where itc.idprodutodetalhado = i.idprodutodetalhado
+                               and itc.idcompratransferencia = ct.idcompratransferencia
+                               and itc.idcompratransferencia != :P76_IDCOMPRATRANSFERENCIA
+                               and ct.idsituacao in (10,20,30)
+                               and ct.idcompratransferencia != :P76_IDCOMPRATRANSFERENCIA
+                               and ct.idfilialfavoritadestino = :P76_IDFILIALFAVORITA),0) "Qtd Comprada"
+                     , nvl(( select sum(Ip.QUANTIDADE)
+                             from pedidos p
+                                , itenspedidos ip
+                             where p.idpedido   = ip.idpedido
+                               and ip.idestoque = i.idestoquefildestino
+                               and trunc(p.dataemissao) between  to_date(:P76_DATAINI,'DD/MM/RRRR') and to_date(:P76_DATAFIM,'DD/MM/RRRR')),0) "Qtd Total Saída Acumulada" 
+                   , i.valorcusto
+                   , quantidadecomprada 
+                   , i.quantidadecomprada * i.valorcusto "Total Item"
+                   , i.observacao
+                   ,  ( select descontinuado
+                        from produtosdetalhados 
+                        where idprodutodetalhado = i.idprodutodetalhado ) descontinuado
+                from itenscomprastransferencias i
+                where i.idcompratransferencia = :P76_IDCOMPRATRANSFERENCIA
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        edit {
+            enabled: true
+            allowedOperations: update
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        toolbar {
+            controls: [
+                searchCol
+                searchField
+                actionsMenu
+                resetButton
+                saveButton
+            ]
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 11885391327711826
+        }
+
+        savedReport PRIMARY (
+            visibility: primary
+            view {
+                default: grid
+                settingsAreaExpanded: false
+            }
+            singleRowView {
+                displayedColumns: true
+            }
+
+            displayColumn (
+                column: @PROD
+                layout {
+                    width: 399
+                    sequence: 1
+                }
+            )
+
+            displayColumn (
+                column: @QTDESTOQUE
+                layout {
+                    width: 140
+                    sequence: 2
+                }
+            )
+
+            displayColumn (
+                column: @"Qtd Comprada"
+                layout {
+                    width: 148
+                    sequence: 5
+                }
+            )
+
+            displayColumn (
+                column: @VALORCUSTO
+                layout {
+                    width: 111
+                    sequence: 9
+                }
+            )
+
+            displayColumn (
+                column: @QUANTIDADECOMPRADA
+                layout {
+                    width: 148
+                    sequence: 10
+                }
+            )
+
+            displayColumn (
+                column: @"Total Item"
+                layout {
+                    width: 84
+                    sequence: 11
+                }
+            )
+
+            displayColumn (
+                column: @ROWID
+                layout {
+                    sequence: 7
+                }
+            )
+
+            displayColumn (
+                column: @APEX$ROW_ACTION
+                layout {
+                    frozen: true
+                    sequence: 0
+                }
+            )
+
+            displayColumn (
+                column: @OBSERVACAO
+                layout {
+                    width: 230
+                    sequence: 12
+                }
+            )
+
+            displayColumn (
+                column: @"Qtd Total Saída"
+                layout {
+                    width: 139
+                    sequence: 6
+                }
+            )
+
+            displayColumn (
+                column: @"Qtd Total Saída Acumulada"
+                layout {
+                    width: 150
+                    sequence: 8
+                }
+            )
+
+            displayColumn (
+                column: @QTDESTOQUEMINIMO
+                layout {
+                    width: 140
+                    sequence: 3
+                }
+            )
+
+            displayColumn (
+                column: @QTDESTOQUEMAXIMO
+                layout {
+                    width: 140
+                    sequence: 4
+                }
+            )
+
+            displayColumn (
+                column: @DESCONTINUADO
+                layout {
+                    sequence: 13
+                }
+            )
+
+            aggregate sum (
+                column: @QTDESTOQUE
+            )
+
+            aggregate sum-2 (
+                column: @QUANTIDADECOMPRADA
+                showGrandTotal: true
+            )
+
+            aggregate sum-3 (
+                column: @"Total Item"
+                showGrandTotal: true
+            )
+
+            aggregate sum-4 (
+                column: @QTDESTOQUEMINIMO
+                showGrandTotal: true
+            )
+
+            aggregate sum-5 (
+                column: @QTDESTOQUEMAXIMO
+                showGrandTotal: true
+            )
+
+        )
+
+        column APEX$ROW_ACTION (
+            type: actionsMenu
+            layout {
+                sequence: 20
+            }
+        )
+
+        column APEX$ROW_SELECTOR (
+            type: rowSelector
+            layout {
+                sequence: 10
+            }
+        )
+
+        column DESCONTINUADO (
+            type: textField
+            heading {
+                heading: Descontinuado
+            }
+            layout {
+                sequence: 150
+            }
+            appearance {
+                cssClasses: descontinuado
+            }
+            source {
+                databaseColumn: DESCONTINUADO
+                dataType: varchar2
+                queryOnly: true
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+            }
+        )
+
+        column OBSERVACAO (
+            type: textarea
+            heading {
+                heading: Observação
+            }
+            layout {
+                sequence: 120
+            }
+            validation {
+                maxLength: 2000
+            }
+            source {
+                databaseColumn: OBSERVACAO
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column PROD (
+            type: textarea
+            heading {
+                heading: Produto
+            }
+            layout {
+                sequence: 40
+            }
+            appearance {
+                cssClasses: produto
+            }
+            validation {
+                maxLength: 4000
+            }
+            source {
+                databaseColumn: PROD
+                dataType: varchar2
+                queryOnly: true
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column QTDESTOQUE (
+            type: numberField
+            heading {
+                heading: Qtd em Estoque
+                alignment: center
+            }
+            settings {
+                numberAlignment: center
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            appearance {
+                cssClasses: qtdestoque
+            }
+            source {
+                databaseColumn: QTDESTOQUE
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column QTDESTOQUEMAXIMO (
+            type: numberField
+            heading {
+                heading: Qtd Estoque Máximo
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                cssClasses: qtdestoquemaximo
+            }
+            source {
+                databaseColumn: QTDESTOQUEMAXIMO
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column QTDESTOQUEMINIMO (
+            type: numberField
+            heading {
+                heading: Qtd Estoque Mínimo
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                cssClasses: qtdestoqueminimo
+            }
+            source {
+                databaseColumn: QTDESTOQUEMINIMO
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column QUANTIDADECOMPRADA (
+            type: numberField
+            heading {
+                heading: Quantidade
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            validation {
+                valueRequired: true
+            }
+            source {
+                databaseColumn: QUANTIDADECOMPRADA
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column "Qtd Comprada" (
+            type: numberField
+            heading {
+                heading: Qtd Comprada
+                alignment: center
+            }
+            settings {
+                numberAlignment: center
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: Qtd Comprada
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column "Qtd Total Saída" (
+            type: numberField
+            heading {
+                heading: Qtd Total Saída
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: Qtd Total Saída
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column "Qtd Total Saída Acumulada" (
+            type: numberField
+            heading {
+                heading: Qtd Total Saída Acumulada
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: Qtd Total Saída Acumulada
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column ROWID (
+            type: hidden
+            layout {
+                sequence: 30
+            }
+            source {
+                databaseColumn: ROWID
+                dataType: rowid
+                primaryKey: true
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column "Total Item" (
+            type: numberField
+            heading {
+                heading: Total item
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: Total Item
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column VALORCUSTO (
+            type: numberField
+            heading {
+                heading: Valor Custo
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: VALORCUSTO
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+            advanced {
+                customAttributes: onkeyup="formataMoeda(this);"
+            }
+        )
+
+    )
+
+    pageItem P76_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P76_DATAINI (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P76_IDCOMPRATRANSFERENCIA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @produtos-para-efetuar-compra-remessa
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P76_IDFILIALFAVORITA (
+        type: hidden
+        layout {
+            sequence: 20
+            region: @produtos-para-efetuar-compra-remessa
+            slot: regionBody
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select idfilialfavoritadestino
+                from comprastransferencias
+                where idcompratransferencia = :P76_IDCOMPRATRANSFERENCIA
+                ```
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button buscar-produtos (
+        buttonName: BUSCAR_PRODUTOS
+        label: Buscar Produtos
+        layout {
+            sequence: 20
+            region: @acessos
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--success
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where not exists ( select 1
+                                   from itenscomprastransferencias i
+                                   where i.idcompratransferencia = :P76_IDCOMPRATRANSFERENCIA )
+                  and exists ( select 1
+                               from edicoesrevistascompras e 
+                               where e.idcompratransferencia = :P76_IDCOMPRATRANSFERENCIA )
+                union
+                select 1
+                from dual
+                where v('APP_USER') in ('GUILHERME','FELIPEGB')
+                ```
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--iconLeft
+                t-Button--stretch
+            ]
+            icon: fa-filter
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button selecionar (
+        buttonName: SELECIONAR
+        label: Selecionar Revistas
+        layout {
+            sequence: 10
+            region: @produtos-para-efetuar-compra-remessa
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--success
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button voltar (
+        buttonName: VOLTAR
+        label: Voltar Para Compra
+        layout {
+            sequence: 10
+            region: @acessos
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--warning
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 74
+                items: {
+                    P74_IDCOMPRATRANSFERENCIA: &P76_IDCOMPRATRANSFERENCIA.
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction destacar-informações-estoque (
+        name: Destacar Informações Estoque
+        execution {
+            sequence: 30
+        }
+        when {
+            event: ready
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    $(".qtdestoque").each(function(idx) {
+                        
+                      var qtdestoque       = $(".qtdestoque").eq(idx).text();
+                      var qtdestoqueminimo = $(".qtdestoqueminimo").eq(idx).text();
+                      var qtdestoquemaximo = $(".qtdestoquemaximo").eq(idx).text();
+                        
+                      qtdestoque        = parseInt(qtdestoque);
+                      qtdestoqueminimo  = parseInt(qtdestoqueminimo);
+                      qtdestoquemaximo  = parseInt(qtdestoquemaximo);
+                       
+                      if ( qtdestoque < qtdestoqueminimo ) {
+                        $(this).closest("td").addClass( "vermelho" );
+                      } else if ( qtdestoque > qtdestoquemaximo ) {
+                        $(this).closest("td").addClass( "laranja" );    
+                      }
+                      
+                    });
+                    
+                    
+                    $(".produto").each(function(idx) {
+                      
+                      var descontinuado    = $(".descontinuado").eq(idx).text();
+                        
+                      if ( descontinuado == 'S' ) {
+                        $(this).closest("td").addClass( "azul" );
+                      }
+                      
+                    });
+                    ```
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+    )
+
+    dynamicAction destacar-informações-estoque-ao-clicar (
+        name: Destacar Informações Estoque ao Clicar
+        execution {
+            sequence: 40
+        }
+        when {
+            event: click
+            selectionType: region
+            region: @produtos-para-efetuar-compra-remessa
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    $(".qtdestoque").each(function(idx) {
+                        
+                      var qtdestoque       = $(".qtdestoque").eq(idx).text();
+                      var qtdestoqueminimo = $(".qtdestoqueminimo").eq(idx).text();
+                      var qtdestoquemaximo = $(".qtdestoquemaximo").eq(idx).text();
+                        
+                      qtdestoque        = parseInt(qtdestoque);
+                      qtdestoqueminimo  = parseInt(qtdestoqueminimo);
+                      qtdestoquemaximo  = parseInt(qtdestoquemaximo);
+                       
+                      if ( qtdestoque < qtdestoqueminimo ) {
+                        $(this).closest("td").addClass( "vermelho" );
+                      } else if ( qtdestoque > qtdestoquemaximo ) {
+                        $(this).closest("td").addClass( "laranja" );    
+                      }
+                      
+                    });
+                    
+                    
+                    $(".produto").each(function(idx) {
+                      
+                      var descontinuado    = $(".descontinuado").eq(idx).text();
+                        
+                      if ( descontinuado == 'S' ) {
+                        $(this).closest("td").addClass( "azul" );
+                      }
+                      
+                    });
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction redireciona-para-informar-edição-de-revista (
+        name: Redireciona para Informar Edição de Revista
+        execution {
+            sequence: 20
+        }
+        when {
+            event: ready
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where not exists ( select 1
+                                   from edicoesrevistascompras e 
+                                   where e.idcompratransferencia = :P76_IDCOMPRATRANSFERENCIA );
+                ```
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: SELECIONAR
+                showProcessing: false
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction tipo-de-pesquisa (
+        name: Tipo de Pesquisa
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P76_TIPOPESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P76_TIPOPESQUISA
+            value: R
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P76_REFERENCIA
+                    P76_IDPRODUTO
+                ]
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P76_PRODUTO
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P76_REFERENCIA
+                    P76_IDPRODUTO
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P76_PRODUTO
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    process atualiza-compras (
+        name: Atualiza Compras
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  pck_comprastransf_fav.prc_atualizacompratransf(:P76_IDCOMPRATRANSFERENCIA);
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        advanced {
+            executionMappingIdentifier: 202168959396824215
+        }
+        serverSideCondition {
+            type: request=Value
+            value: VOLTAR
+        }
+    )
+
+    process busca-produtos-da-compra (
+        name: Busca Produtos da Compra
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  pck_comprastransf_fav.prc_iniciacompra(pidcompratransferencia => :P76_IDCOMPRATRANSFERENCIA);
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 40
+        }
+        successMessage {
+            successMessage: Produtos buscados com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 338432316872702905
+        }
+        serverSideCondition {
+            whenButtonPressed: @buscar-produtos
+        }
+    )
+
+    process consulta-item (
+        name: Consulta Item
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vnumber             number;
+                begin
+                  --
+                  if :P76_IDITEMCOMPRATRANSFERENCIA is not null then
+                  PCK_COMPRASTRANSF_FAV.prc_itenscomprastransferencias ( piditemcompratransferencia   => :P76_iditemcompratransferencia
+                                                                       , pidcompratransferencia       => :P76_IDCOMPRATRANSFERENCIA
+                                                                       , pidprodutodetalhado          => :P76_PRODUTO
+                                                                       , pquantidadecomprada          => :P76_quantidadecomprada
+                                                                       , pquantidaderecebida          => :P76_quantidaderecebida
+                                                                       , pquantidadeavariada          => :P76_quantidadeavariada
+                                                                       , pobservacao                  => :P76_observacao
+                                                                       , pobservacaoavaria            => :P76_observacaoavaria
+                                                                       , pquantidaderecebidaadicional => vnumber
+                                                                       , pmd5                         => :P76_md5
+                                                                       , poperacao_dml                => 'S'
+                                                                       , pidestoquefilorigem          => :P76_idestoquefilorigem
+                                                                       , pidestoquefildestino         => :P76_idestoquefildestino 
+                                                                       , pvalorcusto                  => :P76_valorcusto);
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 12222681575759236
+        }
+    )
+
+    process produtos-compras-e-transferências-save-interactive-grid-data (
+        name: Produtos Compras e Transferências - Save Interactive Grid Data
+        type: interactiveGridAutoRowProcessing
+        editableRegion: @produtos-para-efetuar-compra-remessa
+        execution {
+            sequence: 20
+        }
+        advanced {
+            executionMappingIdentifier: 11887654739711849
+        }
+    )
+
+    branch (
+        name: Go To Page 76
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 76
+                items: {
+                    P76_IDCOMPRATRANSFERENCIA: &P76_IDCOMPRATRANSFERENCIA.
+                    P76_DATAINI: &P76_DATAINI.
+                    P76_DATAFIM: &P76_DATAFIM.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 20
+        }
+        behavior {
+            target: {
+                page: 240
+                items: {
+                    P240_IDCOMPRATRANSFERENCIA: &P76_IDCOMPRATRANSFERENCIA.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @selecionar
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 30
+        }
+        behavior {
+            target: {
+                page: 240
+                items: {
+                    P240_IDCOMPRATRANSFERENCIA: &P76_IDCOMPRATRANSFERENCIA.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: SELECIONAR
+        }
+    )
+
+)
+

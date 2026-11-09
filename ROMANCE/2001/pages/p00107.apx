@@ -1,0 +1,285 @@
+page 107 (
+    name: Acessos do Perfil
+    title: Acessos do Perfil
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration: var htmldb_delete_message='"DELETE_CONFIRM_MSG"';
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region acessos-do-perfil (
+        name: Acessos do Perfil
+        type: tabform
+        source {
+            sqlQuery:
+                ```sql
+                select idaplicacao
+                      ,descricao
+                      ,hierarquia
+                      ,decode( hierarquia , null , '<b>'||LPAD('* ', 3 * (level - 1)) || TO_CHAR(descricao) ||'</b>'
+                                                 , DECODE(LEVEL , 2 , '<i>'||LPAD('* ', 3 * (level - 1)) || TO_CHAR(descricao)||'</i>'
+                                                                , 3 , '<i>'||LPAD('-> ', 3 * (level - 1)) || TO_CHAR(descricao)||'</i>') ) nivel_hierarquico
+                  from ( select a.idaplicacao
+                              , a.descricao
+                              , a.hierarquia
+                         from aplicacoes a 
+                         where a.idsistema = 2001
+                           and exists ( select 1 
+                                        from perfilacesso p
+                                        where p.idaplicacao = a.idaplicacao
+                                          and p.idperfil = :P107_IDPERFIL )
+                         union
+                         select a.idaplicacao
+                              , a.descricao
+                              , a.hierarquia
+                         from aplicacoes a 
+                         where a.idsistema = 2001
+                           and a.hierarquia is null
+                         ORDER BY IDAPLICACAO)
+                 start with hierarquia is null
+                connect by prior idaplicacao = hierarquia
+                ```
+        }
+        layout {
+            sequence: 15
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        reportLayout {
+            numberOfRows: 500
+        }
+        componentAppearance {
+            template: @/standard
+            showNullValuesAs: (null)
+        }
+        pagination {
+            type: setPaginationSelectList
+            partialPageRefresh: false
+        }
+        performance {
+            maxRowsToProcess: 500
+        }
+        messages {
+            whenNoDataFound: No data found.
+        }
+        componentAdvanced {
+            stripHtml: true
+        }
+
+        column CHECK$01 (
+            reportColumnQueryId: 5
+            derivedColumn: Y
+            type: rowSelector
+            heading {
+                heading: Select Row
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+        )
+
+        column DESCRICAO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 3
+            }
+        )
+
+        column HIERARQUIA (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 4
+            }
+        )
+
+        column IDAPLICACAO (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 2
+            }
+        )
+
+        column NIVEL_HIERARQUICO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Nivel hierarquico
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+    )
+
+    pageItem P107_IDPERFIL (
+        type: hidden
+        layout {
+            sequence: 10
+            region: @acessos-do-perfil
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button delete (
+        buttonName: DELETE
+        label: Retirar Acessos
+        layout {
+            sequence: 20
+            region: @acessos-do-perfil
+            slot: delete
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button voltar (
+        buttonName: VOLTAR
+        label: Voltar
+        layout {
+            sequence: 10
+            region: @acessos-do-perfil
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 105
+                items: {
+                    P105_IDPERFIL: &P107_IDPERFIL.
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    validation idaplicacao-must-be-numeric (
+        name: IDAPLICACAO must be numeric
+        execution {
+            sequence: 40
+        }
+        validation {
+            editableRegion: @acessos-do-perfil
+            type: columnIsNumeric
+            column: IDAPLICACAO
+        }
+        error {
+            errorMessage: #COLUMN_HEADER# must be numeric.
+            associatedColumn: IDAPLICACAO
+        }
+    )
+
+    validation idperfil-must-be-numeric (
+        name: IDPERFIL must be numeric
+        execution {
+            sequence: 30
+        }
+        validation {
+            editableRegion: @acessos-do-perfil
+            type: columnIsNumeric
+            column: IDPERFIL
+        }
+        error {
+            errorMessage: #COLUMN_HEADER# must be numeric.
+            associatedColumn: IDPERFIL
+        }
+    )
+
+    process deletar-acessos (
+        name: deletar acessos
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                DECLARE
+                vpedido number;
+                begin
+                 FOR i IN 1.. HTMLDB_APPLICATION.G_F01.COUNT 
+                 loop
+                    --
+                    delete perfilacesso
+                    where idperfil = :P107_IDPERFIL
+                      and idaplicacao = HTMLDB_APPLICATION.G_F02(HTMLDB_APPLICATION.G_F01(i));
+                    --
+                  END LOOP;
+                end;
+                
+                
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 29119898748843285
+        }
+        serverSideCondition {
+            whenButtonPressed: @delete
+        }
+    )
+
+    branch (
+        name: Go To Page 107
+        execution {
+            sequence: 1
+        }
+        behavior {
+            target: {
+                page: 107
+            }
+        }
+    )
+
+)
+

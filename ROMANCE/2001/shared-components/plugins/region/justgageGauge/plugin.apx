@@ -1,0 +1,306 @@
+plugin justgageGauge (
+    name: JustGage Gauge
+    staticId: COM.ORACLE.APEX.RAPHAEL.JUSTGAGE
+    type: region
+    component {
+        standardAttributes: [
+            regionSourceIsSqlQuery
+            pageItemsToSubmitAttr
+        ]
+    }
+    source {
+        plsqlCode:
+            ```plsql
+            function render 
+            (
+                p_region                in  apex_plugin.t_region,
+                p_plugin                in  apex_plugin.t_plugin,
+                p_is_printer_friendly   in  boolean 
+            )
+            return apex_plugin.t_region_render_result
+            is
+                -- Assign readable names to plugin attributes. Omit data attributes, they'll be handled in ajax function.
+                -- Label configuration
+                c_show_labels           constant boolean        := p_region.attribute_04 = 'Y';
+                l_title                 varchar(200)            := nvl(p_region.attribute_05, '');
+                l_units                 varchar(200)            := nvl(p_region.attribute_06, '');
+                l_value_prefix          varchar(200)            := nvl(p_region.attribute_07, '');
+                l_value_suffix          varchar(200)            := nvl(p_region.attribute_08, '');
+                l_show_min_max          boolean                 := nvl(p_region.attribute_09, 'N') = 'Y';
+                c_description_template  constant varchar(2000)  := apex_plugin_util.replace_substitutions(
+                                                                       nvl(p_region.attribute_20, ''));
+                l_heading               varchar(200)            := apex_plugin_util.replace_substitutions(
+                                                                       nvl(p_region.attribute_21, ''));
+            
+                -- Shadow configuration
+                c_show_shadow           constant boolean        := nvl(p_region.attribute_10, 'N') = 'Y';
+                c_shadow_opacity        constant number         := nvl( apex_plugin_util.get_attribute_as_number( p_region.attribute_11, 'Shadow Opacity' ), 0 );
+                c_shadow_offset         constant number         := to_number(nvl(p_region.attribute_12, 0));
+            
+                -- Gauge configuration
+                c_gauge_width           constant number         := nvl( apex_plugin_util.get_attribute_as_number( p_region.attribute_13, 'Gauge Width Scale' ), 1 );
+                c_gauge_color_scheme    constant varchar(200)   := p_region.attribute_14;
+                l_gauge_colors          varchar(200)            := p_region.attribute_15;
+                l_gauge_bg_color        varchar(200)            := p_region.attribute_16;
+                c_gauge_mode            constant varchar(200)   := p_region.attribute_17;
+                c_width                 constant number         := p_region.attribute_18;
+                c_height                constant number         := p_region.attribute_19;
+                c_decimals              constant number         := greatest(nvl(p_region.attribute_24, 0), 0);
+                l_width_style           varchar(200)            := '';
+                l_height_style          varchar(200)            := '';
+            
+                -- Function constants
+                c_rgb_single_regex      constant varchar2(200)  := '^#[0-9a-fA-F]{6}$';
+                c_rgb_list_regex        constant varchar2(200)  := '^#[0-9a-fA-F]{6}(,#[0-9a-fA-F]{6})*$';
+            begin
+                -- Size style settings
+                if c_width is not null then 
+                    l_width_style := 'width:' || c_width || 'px;';
+                end if;
+                if c_height is not null then 
+                    l_height_style := 'height:' || c_height || 'px;';
+                end if;
+            
+                -- Add placeholder div
+                sys.htp.p (
+                    '<div class="a-BadgeChart a-BadgeChart--justGage" id="' || p_region.static_id || '_container">' ||
+                        '<div class="a-JustGage-desc"></div>' ||
+                        '<div id="' || p_region.static_id || '_gauge" class="a-JustGage-chart" style="' || l_width_style || l_height_style || '"></div>' ||
+                        '<div class="a-BadgeChart-text">' ||
+                            '<span class="a-BadgeChart-label"></span>' ||
+                            '<span class="a-BadgeChart-desc"></span>' ||
+                        '</div>' ||
+                    '</div>');
+            
+                -- Labels defaults
+                if not c_show_labels then
+                    l_title := '';
+                    l_units := '';
+                    l_value_prefix := '';
+                    l_value_suffix := '';
+                    l_show_min_max := false;
+                end if;
+            
+                -- Donut mode has no min/max value labels
+                l_show_min_max := l_show_min_max and c_gauge_mode <> 'donut';
+            
+                -- Validate shadow configuration
+                if c_show_shadow then
+                    if c_shadow_opacity < 0 or c_shadow_opacity > 1 then
+                        -- invalid option
+                        null;
+                    end if; 
+                end if;
+            
+                -- Validate gauge configuration
+                if c_gauge_width <= 0 then
+                    -- invalid option
+                    null;
+                end if;
+                case c_gauge_color_scheme
+                    when 'GTR' then
+                        l_gauge_colors := '#56bd0d,#f0dc05,#f52900';
+                    when 'RTG' then
+                        l_gauge_colors := '#f52900,#f0dc05,#56bd0d';
+                    else
+                        l_gauge_colors := replace(l_gauge_colors, ' ', '');
+                        if not regexp_like(l_gauge_colors, c_rgb_list_regex) then
+                            -- invalid option
+                            null;
+                        end if;
+                end case;
+                l_gauge_bg_color := replace(l_gauge_bg_color, ' ', '');
+                if not regexp_like(l_gauge_bg_color, c_rgb_single_regex) then
+                    -- invalid option
+                    null;
+                end if;
+            
+                -- Build the initial chart. Data will be loaded with ajax.
+                apex_javascript.add_onload_code (
+                    p_code => 'com_oracle_apex_raphael_justgage(' ||
+                        apex_javascript.add_value(p_region.static_id) ||
+                        '{' ||
+                            apex_javascript.add_attribute('regionId',       p_region.static_id || '_gauge') || 
+                            apex_javascript.add_attribute('title',          l_title) || 
+                            apex_javascript.add_attribute('units',          l_units) || 
+                            apex_javascript.add_attribute('valuePrefix',    l_value_prefix) || 
+                            apex_javascript.add_attribute('valueSuffix',    l_value_suffix) || 
+                            apex_javascript.add_attribute('roundTo',        c_decimals) || 
+                            apex_javascript.add_attribute('showMinMax',     l_show_min_max) || 
+                            apex_javascript.add_attribute('showShadow',     c_show_shadow) || 
+                            apex_javascript.add_attribute('shadowOpacity',  c_shadow_opacity) || 
+                            apex_javascript.add_attribute('shadowOffset',   c_shadow_offset) || 
+                            apex_javascript.add_attribute('gaugeWidth',     c_gauge_width) || 
+                            apex_javascript.add_attribute('gaugeColors',    l_gauge_colors) || 
+                            apex_javascript.add_attribute('gaugeBgColor',   l_gauge_bg_color) || 
+                            apex_javascript.add_attribute('gaugeMode',      c_gauge_mode) || 
+                            apex_javascript.add_attribute('heading',        l_heading) || 
+                            apex_javascript.add_attribute('description',    c_description_template) || 
+                            apex_javascript.add_attribute('pageItems',      apex_plugin_util.page_item_names_to_jquery(p_region.ajax_items_to_submit)) ||
+                            apex_javascript.add_attribute('ajaxIdentifier', apex_plugin.get_ajax_identifier, false, false) ||
+                        '});' );
+                return null;
+            end;
+            
+            
+            function ajax 
+            (
+                p_region    in  apex_plugin.t_region,
+                p_plugin    in  apex_plugin.t_plugin 
+            )
+            return apex_plugin.t_region_ajax_result
+            is
+                -- It's better to have named variables instead of using the generic ones, 
+                -- makes the code more readable. 
+                c_value_column          constant varchar2(255) := p_region.attribute_01;
+                c_min_column            constant varchar2(255) := p_region.attribute_02;
+                c_max_column            constant varchar2(255) := p_region.attribute_03;
+                c_heading_link          constant varchar2(4000) := p_region.attribute_22;
+                c_description_link      constant varchar2(4000) := p_region.attribute_23;
+            
+                l_value_column_no       pls_integer;
+                l_min_column_no         pls_integer;
+                l_max_column_no         pls_integer;
+                l_column_value_list     apex_plugin_util.t_column_value_list2;
+            
+                l_value                 number;
+                l_min                   number;
+                l_max                   number;
+                l_heading_link          varchar2(4000);
+                l_description_link      varchar2(4000);
+            begin
+                apex_plugin_util.print_json_http_header;
+            
+                l_column_value_list := apex_plugin_util.get_data2 (
+                    p_sql_statement     => p_region.source,
+                    p_min_columns       => 1,
+                    p_max_columns       => 3,
+                    p_component_name    => p_region.name );
+            
+                -- Get the actual column # for faster access and also verify that the data type
+                -- of the column matches with what we are looking for
+                l_value_column_no := apex_plugin_util.get_column_no (
+                    p_attribute_label       => 'value column',
+                    p_column_alias          => c_value_column,
+                    p_column_value_list     => l_column_value_list,
+                    p_is_required           => true,
+                    p_data_type             => apex_plugin_util.c_data_type_number );
+            
+                l_min_column_no := apex_plugin_util.get_column_no (
+                    p_attribute_label       => 'min value column',
+                    p_column_alias          => c_min_column,
+                    p_column_value_list     => l_column_value_list,
+                    p_is_required           => false,
+                    p_data_type             => apex_plugin_util.c_data_type_number );
+            
+                l_max_column_no := apex_plugin_util.get_column_no (
+                    p_attribute_label       => 'min value column',
+                    p_column_alias          => c_max_column,
+                    p_column_value_list     => l_column_value_list,
+                    p_is_required           => false,
+                    p_data_type             => apex_plugin_util.c_data_type_number );
+            
+                -- Fetch the data
+                if l_column_value_list(1).value_list.count = 1 then
+                    apex_plugin_util.set_component_values (
+                        p_column_value_list => l_column_value_list,
+                        p_row_num => 1 
+                    );
+                
+                    l_heading_link := case
+                        when c_heading_link is not null then
+                            apex_util.prepare_url (
+                                apex_plugin_util.replace_substitutions (
+                                    p_value  => c_heading_link,
+                                    p_escape => false
+                                )
+                            )
+                    end;
+                    
+                    l_description_link := case
+                        when c_description_link is not null then
+                            apex_util.prepare_url (
+                                apex_plugin_util.replace_substitutions (
+                                    p_value  => c_description_link,
+                                    p_escape => false
+                                )
+                            )
+                    end;
+                    
+                    l_value := l_column_value_list(l_value_column_no).value_list(1).number_value;
+                    if l_min_column_no is not null then
+                        l_min := l_column_value_list(l_min_column_no).value_list(1).number_value;
+                    end if;
+                    if l_max_column_no is not null then
+                        l_max := l_column_value_list(l_max_column_no).value_list(1).number_value;
+                    end if;
+                    
+                    apex_plugin_util.clear_component_values;
+                else
+                    --invalid number of rows
+                    null;
+                end if;
+            
+                -- Default value to 0.
+                l_value := nvl(l_value, 0);
+            
+                -- Default min value to 0.
+                l_min := nvl(l_min, 0);
+            
+                -- Default max value to the smallest power of 10 equal to or greater than the value, starting with 100.
+                if l_max is null then
+                    l_max := 100;
+                    loop
+                        exit when l_max >= l_value;
+                        l_max := l_max * 10;
+                    end loop;
+                end if;
+            
+                -- Print the actual, max and min values
+                sys.htp.prn (
+                    '[{' ||
+                        apex_javascript.add_attribute('headingLink',  l_heading_link) ||
+                        apex_javascript.add_attribute('descriptionLink',  l_description_link) ||
+                        apex_javascript.add_attribute('value',  l_value) ||
+                        apex_javascript.add_attribute('min',    l_min) ||
+                        apex_javascript.add_attribute('max',    l_max, false, false) ||
+                    '}]' );
+            
+                return null;
+            end;
+            ```
+    }
+    callbacks {
+        apiInterface: function
+        renderProcedureName: render
+        ajaxProcedureName: ajax
+    }
+    advanced {
+        filePrefix: #IMAGE_PREFIX#plugins/com.oracle.apex.raphael.justgage/1.0/
+    }
+    javaScript {
+        fileUrls: [
+            #PLUGIN_FILES#plugin.js
+            #PLUGIN_FILES#justgage.js
+            #IMAGE_PREFIX#libraries/raphaeljs/2.1.2/apex.raphael.min.js
+        ]
+    }
+    information {
+        version: 5.0.1
+        aboutUrl: http://apex.oracle.com/plugins
+        helpText: The JustGage plug-in is a simple JavaScript plug-in for displaying gauges.
+    }
+
+    standardAttributeConfig (
+        name: regionSourceIsSqlQuery
+        validation {
+            required: true
+        }
+        sqlQuery {
+            minColumns: 1
+            maxColumns: 3
+        }
+    )
+
+)
+

@@ -1,0 +1,1465 @@
+page 481 (
+    name: Relatório de Produção da Análise de Credito
+    title: Relatório de Produção da Análise de Credito
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region relatório-de-produção-da-análise-de-credito-detalhado (
+        name: Relatório de Produção da Análise de Credito Detalhado
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                -- #1 - traz pedidos APROVAOS, EXTERIOR
+                select pd.idpedido Numero_Pedido
+                     , 'Sim' Aprovado
+                     , favorita.pck_util_fav.fnc_nomeusuario(cp.idusuario) Usuario
+                     , cp.dataclassificado Data_Aprovado
+                     , pd.dataemissao
+                     , ( select listagg(vp.datavencimento,',') within group (order by 1 desc)
+                           from favorita.vencimentospedidos vp
+                          where vp.idpedido = pd.idpedido
+                            and vp.situacaovencimento = 'V') Data_Vencimento
+                     , null valor_spc
+                     , null qtd_spc
+                     , null idadespc
+                     , null ciclos_recorrencia
+                     , round(pd.valortotal * pd.fatorconversao,2) valortotal
+                     , round(pd.valorapagar * pd.fatorconversao,2) valorapagar
+                     , ( select round(avg(pp.valortotal * pp.fatorconversao),2) 
+                         from favorita.pedidos pp
+                         where pp.idvendedora = pd.idvendedora
+                           and pp.datacancelamento is null
+                           and trunc(pp.dataemissao) > (sysdate - 240)) TicketMedio8Meses
+                     , favorita.pck_util_fav.fnc_nomefilialromance(pd.idfilialromance) FilialRomance
+                     , favorita.pck_util_fav.fnc_nomefilialfavorita(pd.idfilialfavorita) FilialFavorita
+                     , '' Motivo
+                  from favorita.pedidos pd
+                     , favorita.classificacoespedidos cp
+                     , favorita.filiaisfavorita ff
+                 where cp.idpedido = pd.idpedido
+                   and cp.idcaracteristicapedido = 86
+                   and ff.idfilialfavorita = pd.idfilialfavorita
+                   and (:P481_IDUSUARIO is null or :P481_IDUSUARIO = cp.idusuario) 
+                   and cp.dataclassificado between to_date(:P481_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P481_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                   and :P481_TIPO = 'D'
+                   and (:P481_APROVADO = 'T' or :P481_APROVADO = 'S' )
+                   and (:P481_PEDIDOS_BRASIL = 'A' or (:P481_PEDIDOS_BRASIL = 'E' and ff.idpais > 1))
+                   
+                union
+                
+                -- #2 - traz pedidos NÃO APROVAOS, EXTERIOR
+                select pd.idpedido Numero_Pedido
+                     , 'Não' Aprovado
+                     , favorita.pck_util_fav.fnc_nomeusuario(pa.idusuarioatendeu) Usuario
+                     , pa.dataprotocolo Data_Aprovado
+                     , pd.dataemissao
+                     , '' Data_Vencimento
+                     , null valor_spc
+                     , null qtd_spc
+                     , null idadespc
+                     , null ciclos_recorrencia
+                     , round(pd.valortotal * pd.fatorconversao,2) valortotal
+                     , round(pd.valorapagar * pd.fatorconversao,2) valorapagar
+                     , ( select round(avg(pp.valortotal*pp.fatorconversao),2) 
+                         from favorita.pedidos pp
+                         where pp.idvendedora = pd.idvendedora
+                           and pp.datacancelamento is null
+                           and trunc(pp.dataemissao) > (sysdate - 240)) TicketMedio8Meses
+                     , favorita.pck_util_fav.fnc_nomefilialromance(pd.idfilialromance) FilialRomance
+                     , favorita.pck_util_fav.fnc_nomefilialfavorita(pd.idfilialfavorita) FilialFavorita
+                     , pa.justificativa Motivo
+                  from favorita.pedidos pd
+                     , favorita.protocolosatendimentos pa
+                     , favorita.filiaisfavorita ff
+                 where pd.idpedido = pa.idpedido
+                   and pd.datacancelamento is not null
+                   and pa.idtipoprotocolo = 1
+                   and pa.idmotivoprotocolo = 15
+                   and ff.idfilialfavorita = pd.idfilialfavorita
+                   and (:P481_IDUSUARIO is null or :P481_IDUSUARIO = pa.idusuarioatendeu)
+                   and pa.dataprotocolo between to_date(:P481_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P481_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                   and :P481_TIPO = 'D'
+                   and (:P481_APROVADO = 'T' or :P481_APROVADO = 'N' )
+                   and (:P481_PEDIDOS_BRASIL = 'A' or (:P481_PEDIDOS_BRASIL = 'E' and ff.idpais > 1))
+                   
+                union
+                
+                -- #3 - traz pedidos APROVAOS, BRASIL 
+                select pd.idpedido  Numero_Pedido
+                     , 'Sim' Aprovado
+                     , favorita.pck_util_fav.fnc_nomeusuario(cp.idusuario) Usuario 
+                     , cp.dataclassificado Data_Aprovado
+                     , pd.dataemissao
+                     , ( select listagg(vp.datavencimento,',') within group (order by 1 desc)
+                         from favorita.vencimentospedidos vp
+                         where vp.idpedido = pd.idpedido
+                           and vp.situacaovencimento = 'V') Data_Vencimento
+                     , spc.valor_spc
+                     , spc.qtd_spc
+                     , spc.idade idadespc
+                     , (( select count(1)
+                         from favorita.pedidos p
+                         where p.idvendedora = pd.idvendedora
+                           and p.datacancelamento is null)||'/'||( select count(1)
+                                                                 from favorita.pedidos p
+                                                                 where p.idvendedora = pd.idvendedora
+                                                                   and p.datacancelamento is null
+                                                                   and exists ( select 1 
+                                                                                from favorita.vencimentospedidos vp
+                                                                                where vp.idpedido = p.idpedido
+                                                                                  and vp.valorpago >= vp.valorpagar)))CICLOS_RECORRENCIA
+                     , pd.valortotal
+                     , pd.valorapagar
+                     , ( select round(avg(pp.valortotal),2) 
+                         from favorita.pedidos pp
+                         where pp.idvendedora = pd.idvendedora
+                           and pp.datacancelamento is null
+                           and trunc(pp.dataemissao) > (sysdate - 240)) TicketMedio8Meses
+                     , favorita.pck_util_fav.fnc_nomefilialromance(pd.idfilialromance) FilialRomance
+                     , favorita.pck_util_fav.fnc_nomefilialfavorita(pd.idfilialfavorita) FilialFavorita
+                     , '' Motivo
+                from favorita.pedidos pd
+                   , favorita.classificacoespedidos cp,
+                   (select sp.spc_valortotal as valor_spc,
+                           sp.spc_quantidade as qtd_spc,
+                           v.idvendedora,
+                           row_number() over (partition by sp.cpf order by sp.dataconsulta desc) as nr
+                           , p.idade
+                           , p.cpf
+                    from roman.consultaspc sp,
+                         catal.vendedoras v,
+                         catal.pessoas p
+                    where sp.cpf = p.cpf
+                    and p.idpessoa = v.idpessoa
+                    order by sp.dataconsulta desc) spc
+                   , favorita.filiaisfavorita ff
+                where cp.idpedido = pd.idpedido
+                  and cp.idcaracteristicapedido = 86
+                  and spc.idvendedora = pd.idvendedora
+                  and spc.nr = 1
+                  and ff.idfilialfavorita = pd.idfilialfavorita
+                  and cp.dataclassificado between to_date(:P481_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P481_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                  and (:P481_IDUSUARIO = cp.idusuario  or :P481_IDUSUARIO is null)
+                  and :P481_TIPO = 'D'
+                  and (:P481_APROVADO = 'T' or :P481_APROVADO = 'S' )
+                  and (:P481_PEDIDOS_BRASIL = 'A' or (:P481_PEDIDOS_BRASIL = 'B' and ff.idpais = 1))
+                  
+                union
+                
+                -- #4 - traz pedidos NÃO APROVAOS, BRASIL 
+                select pd.idpedido Numero_Pedido
+                     , 'Não' Aprovado
+                     , favorita.pck_util_fav.fnc_nomeusuario(pa.idusuarioatendeu) Usuari
+                     , pa.dataprotocolo Data_Aprovado
+                     , pd.dataemissao
+                     , '' Data_Vencimento
+                     , spc.valor_spc
+                     , spc.qtd_spc
+                     , spc.idade idadespc
+                     , (( select count(1)
+                         from favorita.pedidos p
+                         where p.idvendedora = pd.idvendedora
+                           and p.datacancelamento is null)||'/'||( select count(1)
+                                                                 from favorita.pedidos p
+                                                                 where p.idvendedora = pd.idvendedora
+                                                                   and p.datacancelamento is null
+                                                                   and exists ( select 1 
+                                                                                from favorita.vencimentospedidos vp
+                                                                                where vp.idpedido = p.idpedido
+                                                                                  and vp.valorpago >= vp.valorpagar)))CICLOS_RECORRENCIA
+                     , pd.valortotal    
+                     , pd.valorapagar
+                     , ( select round(avg(pp.valortotal),2) 
+                         from favorita.pedidos pp
+                         where pp.idvendedora = pd.idvendedora
+                           and pp.datacancelamento is null
+                           and trunc(pp.dataemissao) > (sysdate - 240)) TicketMedio8Meses
+                     , favorita.pck_util_fav.fnc_nomefilialromance(pd.idfilialromance) FilialRomance
+                     , favorita.pck_util_fav.fnc_nomefilialfavorita(pd.idfilialfavorita) FilialFavorita
+                     , pa.justificativa Motivo
+                from favorita.pedidos pd
+                   , favorita.protocolosatendimentos pa
+                   ,(select sp.spc_valortotal as valor_spc,
+                           sp.spc_quantidade as qtd_spc,
+                           v.idvendedora,
+                           row_number() over (partition by sp.cpf order by sp.dataconsulta desc) as nr
+                           , p.idade
+                           , p.cpf
+                    from roman.consultaspc sp,
+                         catal.vendedoras v,
+                         catal.pessoas p
+                    where sp.cpf = p.cpf
+                    and p.idpessoa = v.idpessoa
+                    order by sp.dataconsulta desc) spc
+                   , favorita.filiaisfavorita ff
+                where pd.idpedido = pa.idpedido
+                  and (:P481_APROVADO = 'T' or :P481_APROVADO = 'N' )
+                  and pd.datacancelamento is not null
+                  and pa.idtipoprotocolo = 1
+                  and pa.idmotivoprotocolo = 15
+                  and spc.idvendedora = pd.idvendedora
+                  and ff.idfilialfavorita = pd.idfilialfavorita
+                  and (:P481_IDUSUARIO = pa.idusuarioatendeu  or :P481_IDUSUARIO is null)
+                  and spc.nr = 1
+                  and pa.dataprotocolo between to_date(:P481_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P481_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                  and :P481_TIPO = 'D'
+                  and (:P481_PEDIDOS_BRASIL = 'A' or (:P481_PEDIDOS_BRASIL = 'B' and ff.idpais = 1));
+                  
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P481_TIPO
+            value: D
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        advanced {
+            savedReportMappingIdentifier: 79494712892148611
+        }
+
+        column APROVADO (
+            type: plainText
+            heading {
+                heading: Aprovado / Reprovado
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column CICLOS_RECORRENCIA (
+            type: plainText
+            heading {
+                heading: Ciclos/ Recorrência
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Data Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column DATA_APROVADO (
+            type: plainText
+            heading {
+                heading: Data Aprovado / Reprovado
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DATA_VENCIMENTO (
+            type: plainText
+            heading {
+                heading: Data Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column FILIALFAVORITA (
+            type: plainText
+            heading {
+                heading: Filial Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column FILIALROMANCE (
+            type: plainText
+            heading {
+                heading: Filial Romance
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column IDADESPC (
+            type: plainText
+            heading {
+                heading: Idade
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column MOTIVO (
+            type: plainText
+            heading {
+                heading: Motivo
+                alignment: center
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column NUMERO_PEDIDO (
+            type: plainText
+            heading {
+                heading: Número Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column QTD_SPC (
+            type: plainText
+            heading {
+                heading: Qtd Spc
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column TICKETMEDIO8MESES (
+            type: plainText
+            heading {
+                heading: Ticket Médio 8 Meses
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column USUARIO (
+            type: plainText
+            heading {
+                heading: Usuário
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column VALOR_SPC (
+            type: plainText
+            heading {
+                heading: Valor Spc
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 884781 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn APROVADO (
+                sequence: 2
+            )
+
+            displayColumn CICLOS_RECORRENCIA (
+                sequence: 10
+            )
+
+            displayColumn DATAEMISSAO (
+                sequence: 5
+            )
+
+            displayColumn DATA_APROVADO (
+                sequence: 4
+            )
+
+            displayColumn DATA_VENCIMENTO (
+                sequence: 6
+            )
+
+            displayColumn FILIALFAVORITA (
+                sequence: 15
+            )
+
+            displayColumn FILIALROMANCE (
+                sequence: 14
+            )
+
+            displayColumn IDADESPC (
+                sequence: 9
+            )
+
+            displayColumn MOTIVO (
+                sequence: 16
+            )
+
+            displayColumn NUMERO_PEDIDO (
+                sequence: 1
+            )
+
+            displayColumn QTD_SPC (
+                sequence: 8
+            )
+
+            displayColumn TICKETMEDIO8MESES (
+                sequence: 13
+            )
+
+            displayColumn USUARIO (
+                sequence: 3
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 12
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 11
+            )
+
+            displayColumn VALOR_SPC (
+                sequence: 7
+            )
+
+        )
+
+    )
+
+    region relatório-de-produção-da-análise-de-credito-resumido (
+        name: Relatório de Produção da Análise de Credito Resumido
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select Usuario
+                     , count(1) QtdPedidos
+                     , Aprovado
+                     , sum(valor_spc) Soma_Valor_SPC
+                     , sum(qtd_spc) Soma_QTD_SPC
+                     , (sum(Ciclos)||'/'||sum(Recorrencia)) Ciclos_Recorrencia
+                     , sum(valortotal) Soma_Valor_Total
+                     , sum(valorapagar) Soma_Valor_Pagar
+                     , round(avg(nvl(idadespc,0)),2) Media_Idade
+                     , round(avg(nvl(TicketMedio8Meses,0)),2) Media_Ticket_8_Meses
+                     , FilialRomance
+                     , FilialFavorita
+                     , listagg(Motivo,';') within group (order by 1 desc) Motivo
+                from 
+                (
+                -- #1 - traz pedidos NÃO APROVAOS, EXTERIOR
+                select pd.idpedido Numero_Pedido
+                     , 'Não' Aprovado
+                     , favorita.pck_util_fav.fnc_nomeusuario(pa.idusuarioatendeu) Usuario
+                     , null valor_spc
+                     , null qtd_spc
+                     , null idadespc
+                     , ( select count(1)
+                         from favorita.pedidos p
+                         where p.idvendedora = pd.idvendedora
+                           and p.datacancelamento is null) Ciclos
+                     , ( select count(1)
+                         from favorita.pedidos p
+                         where p.idvendedora = pd.idvendedora
+                           and p.datacancelamento is null
+                           and exists ( select 1 
+                                        from favorita.vencimentospedidos vp
+                                        where vp.idpedido = p.idpedido
+                                          and vp.valorpago >= vp.valorpagar)) Recorrencia
+                     , (pd.valortotal * pd.fatorconversao) valortotal
+                     , (pd.valorapagar * pd.fatorconversao) valorapagar
+                     , ( select round(avg(pp.valortotal * pp.valortotal),2) 
+                         from favorita.pedidos pp
+                         where pp.idvendedora = pd.idvendedora
+                           and pp.datacancelamento is null
+                           and trunc(pp.dataemissao) > (sysdate - 240)) TicketMedio8Meses
+                     , favorita.pck_util_fav.fnc_nomefilialromance(pd.idfilialromance) FilialRomance
+                     , favorita.pck_util_fav.fnc_nomefilialfavorita(pd.idfilialfavorita) FilialFavorita
+                     , pa.justificativa Motivo
+                from favorita.pedidos pd
+                   , favorita.protocolosatendimentos pa
+                   , favorita.filiaisfavorita ff
+                where pd.idpedido = pa.idpedido
+                  and pd.datacancelamento is not null
+                  and pa.idtipoprotocolo = 1
+                  and pa.idmotivoprotocolo = 15
+                  and ff.idfilialfavorita = pd.idfilialfavorita
+                  and (:P481_APROVADO = 'T' or :P481_APROVADO = 'N' )
+                  and (:P481_IDUSUARIO = pa.idusuarioatendeu  or :P481_IDUSUARIO is null)
+                  and pa.dataprotocolo between to_date(:P481_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P481_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                  and exists (select 1-- exists pra pegar somente pedidos de fora do brasil
+                                from catal.filiais ff,
+                                     catal.pessoas pp
+                               where pp.idpessoa = ff.idpessoa
+                                 and ff.idfilial = pd.idfilialromance
+                                 and pp.idpais > 1)
+                  and (:P481_PEDIDOS_BRASIL = 'A' or :P481_PEDIDOS_BRASIL = 'E' and ff.idpais > 1)  
+                
+                union all
+                
+                -- #2 - traz pedidos APROVAOS, EXTERIOR
+                select pd.idpedido      Numero_Pedido
+                     , 'Sim' Aprovado
+                     , favorita.pck_util_fav.fnc_nomeusuario(cp.idusuario) Usuario 
+                     , null valor_spc
+                     , null qtd_spc
+                     , null idadespc
+                     , ( select count(1)
+                         from favorita.pedidos p
+                         where p.idvendedora = pd.idvendedora
+                           and p.datacancelamento is null) Ciclos
+                     , ( select count(1)
+                         from favorita.pedidos p
+                         where p.idvendedora = pd.idvendedora
+                           and p.datacancelamento is null
+                           and exists ( select 1 
+                                        from favorita.vencimentospedidos vp
+                                        where vp.idpedido = p.idpedido
+                                          and vp.valorpago >= vp.valorpagar)) Recorrencia
+                     , (pd.valortotal * pd.fatorconversao) valortotal
+                     , (pd.valorapagar * pd.fatorconversao) valorapagar
+                     , ( select round(avg(pp.valortotal * pp.fatorconversao),2) 
+                         from favorita.pedidos pp
+                         where pp.idvendedora = pd.idvendedora
+                           and pp.datacancelamento is null
+                           and trunc(pp.dataemissao) > (sysdate - 240)) TicketMedio8Meses
+                     , favorita.pck_util_fav.fnc_nomefilialromance(pd.idfilialromance) FilialRomance
+                     , favorita.pck_util_fav.fnc_nomefilialfavorita(pd.idfilialfavorita) FilialFavorita
+                     , '' Motivo
+                from favorita.pedidos pd
+                   , favorita.classificacoespedidos cp
+                   , favorita.filiaisfavorita ff
+                where cp.idpedido = pd.idpedido
+                  and cp.idcaracteristicapedido = 86
+                  and :P481_TIPO = 'R'
+                  and ff.idfilialfavorita = pd.idfilialfavorita
+                  and (:P481_APROVADO = 'T' or :P481_APROVADO = 'S' )
+                  and cp.dataclassificado between to_date(:P481_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P481_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                  and (:P481_IDUSUARIO = cp.idusuario or :P481_IDUSUARIO is null)
+                  and exists (select 1-- exists pra pegar somente pedidos de fora do brasil
+                                from catal.filiais ff,
+                                     catal.pessoas pp
+                               where pp.idpessoa = ff.idpessoa
+                                 and ff.idfilial = pd.idfilialromance
+                                 and pp.idpais > 1)
+                  and (:P481_PEDIDOS_BRASIL = 'A' or :P481_PEDIDOS_BRASIL = 'E' and ff.idpais > 1)  
+                
+                union all
+                
+                -- #3 - traz pedidos APROVAOS, BRASIL 
+                select pd.idpedido      Numero_Pedido
+                     , 'Sim' Aprovado
+                     , favorita.pck_util_fav.fnc_nomeusuario(cp.idusuario) Usuario 
+                     , spc.valor_spc
+                     , spc.qtd_spc
+                     , spc.idade idadespc
+                     , ( select count(1)
+                         from favorita.pedidos p
+                         where p.idvendedora = pd.idvendedora
+                           and p.datacancelamento is null) Ciclos
+                     , ( select count(1)
+                         from favorita.pedidos p
+                         where p.idvendedora = pd.idvendedora
+                           and p.datacancelamento is null
+                           and exists ( select 1 
+                                        from favorita.vencimentospedidos vp
+                                        where vp.idpedido = p.idpedido
+                                          and vp.valorpago >= vp.valorpagar)) Recorrencia
+                     , pd.valortotal
+                     , pd.valorapagar
+                     , ( select round(avg(pp.valortotal),2) 
+                         from favorita.pedidos pp
+                         where pp.idvendedora = pd.idvendedora
+                           and pp.datacancelamento is null
+                           and trunc(pp.dataemissao) > (sysdate - 240)) TicketMedio8Meses
+                     , favorita.pck_util_fav.fnc_nomefilialromance(pd.idfilialromance) FilialRomance
+                     , favorita.pck_util_fav.fnc_nomefilialfavorita(pd.idfilialfavorita) FilialFavorita
+                     , '' Motivo
+                from favorita.pedidos pd
+                   , favorita.classificacoespedidos cp,
+                   (select sp.spc_valortotal as valor_spc,
+                           sp.spc_quantidade as qtd_spc,
+                           v.idvendedora,
+                           row_number() over (partition by sp.cpf order by sp.dataconsulta desc) as nr
+                           , p.idade
+                           , p.cpf
+                    from roman.consultaspc sp,
+                         catal.vendedoras v,
+                         catal.pessoas p
+                    where sp.cpf = p.cpf
+                    and p.idpessoa = v.idpessoa
+                    order by sp.dataconsulta desc) spc
+                  , favorita.filiaisfavorita ff
+                where cp.idpedido = pd.idpedido
+                  and :P481_TIPO = 'R'
+                  and (:P481_APROVADO = 'T' or :P481_APROVADO = 'S' )
+                  and cp.idcaracteristicapedido = 86
+                  and spc.idvendedora = pd.idvendedora
+                  and spc.nr = 1
+                  and ff.idfilialfavorita = pd.idfilialfavorita
+                  and cp.dataclassificado between to_date(:P481_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P481_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                  and (:P481_IDUSUARIO = cp.idusuario or :P481_IDUSUARIO is null)
+                  and (:P481_PEDIDOS_BRASIL = 'A' or :P481_PEDIDOS_BRASIL = 'B' and ff.idpais = 1)  
+                  
+                union all 
+                
+                -- #4 - traz pedidos NÃO APROVAOS, BRASIL 
+                select pd.idpedido Numero_Pedido
+                     , 'Não' Aprovado
+                     , favorita.pck_util_fav.fnc_nomeusuario(pa.idusuarioatendeu) Usuari
+                     , spc.valor_spc
+                     , spc.qtd_spc
+                     , spc.idade idadespc
+                     , ( select count(1)
+                         from favorita.pedidos p
+                         where p.idvendedora = pd.idvendedora
+                           and p.datacancelamento is null) Ciclos
+                     , ( select count(1)
+                         from favorita.pedidos p
+                         where p.idvendedora = pd.idvendedora
+                           and p.datacancelamento is null
+                           and exists ( select 1 
+                                        from favorita.vencimentospedidos vp
+                                        where vp.idpedido = p.idpedido
+                                          and vp.valorpago >= vp.valorpagar)) Recorrencia
+                     , pd.valortotal    
+                     , pd.valorapagar
+                     , ( select round(avg(pp.valortotal),2) 
+                         from favorita.pedidos pp
+                         where pp.idvendedora = pd.idvendedora
+                           and pp.datacancelamento is null
+                           and trunc(pp.dataemissao) > (sysdate - 240)) TicketMedio8Meses
+                     , favorita.pck_util_fav.fnc_nomefilialromance(pd.idfilialromance) FilialRomance
+                     , favorita.pck_util_fav.fnc_nomefilialfavorita(pd.idfilialfavorita) FilialFavorita
+                     , pa.justificativa Motivo
+                from favorita.pedidos pd
+                   , favorita.protocolosatendimentos pa
+                   ,(select sp.spc_valortotal as valor_spc,
+                           sp.spc_quantidade as qtd_spc,
+                           v.idvendedora,
+                           row_number() over (partition by sp.cpf order by sp.dataconsulta desc) as nr
+                           , p.idade
+                           , p.cpf
+                    from roman.consultaspc sp,
+                         catal.vendedoras v,
+                         catal.pessoas p
+                    where sp.cpf = p.cpf
+                    and p.idpessoa = v.idpessoa
+                    order by sp.dataconsulta desc) spc
+                    , favorita.filiaisfavorita ff
+                where pd.idpedido = pa.idpedido
+                  and (:P481_APROVADO = 'T' or :P481_APROVADO = 'N' )
+                  and pd.datacancelamento is not null
+                  and pa.idtipoprotocolo = 1
+                  and pa.idmotivoprotocolo = 15
+                  and spc.idvendedora = pd.idvendedora
+                  and spc.nr = 1
+                  and ff.idfilialfavorita = pd.idfilialfavorita
+                  and (:P481_IDUSUARIO = pa.idusuarioatendeu  or :P481_IDUSUARIO is null)
+                  and pa.dataprotocolo between to_date(:P481_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P481_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                  and (:P481_PEDIDOS_BRASIL = 'A' or :P481_PEDIDOS_BRASIL = 'B' and ff.idpais = 1)  
+                )
+                where :P481_TIPO = 'R'
+                group by usuario, Aprovado, FilialRomance, FilialFavorita, Motivo
+                
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P481_TIPO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        advanced {
+            savedReportMappingIdentifier: 79494517278148609
+        }
+
+        column APROVADO (
+            type: plainText
+            heading {
+                heading: Aprovado / Reprovado
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column CICLOS_RECORRENCIA (
+            type: plainText
+            heading {
+                heading: Ciclos/ Recorrência
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column FILIALFAVORITA (
+            type: plainText
+            heading {
+                heading: Filial Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column FILIALROMANCE (
+            type: plainText
+            heading {
+                heading: Filial Romance
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column MEDIA_IDADE (
+            type: plainText
+            heading {
+                heading: Media Idade
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column MEDIA_TICKET_8_MESES (
+            type: plainText
+            heading {
+                heading: Média Ticket 8 meses
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column MOTIVO (
+            type: plainText
+            heading {
+                heading: Motivo
+                alignment: center
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column QTDPEDIDOS (
+            type: plainText
+            heading {
+                heading: Qtd Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column SOMA_QTD_SPC (
+            type: plainText
+            heading {
+                heading: Soma QTD Spc
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column SOMA_VALOR_PAGAR (
+            type: plainText
+            heading {
+                heading: Soma Valor Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column SOMA_VALOR_SPC (
+            type: plainText
+            heading {
+                heading: Soma Valor Spc
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column SOMA_VALOR_TOTAL (
+            type: plainText
+            heading {
+                heading: Soma Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column USUARIO (
+            type: plainText
+            heading {
+                heading: Usuário
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 884775 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn APROVADO (
+                sequence: 3
+            )
+
+            displayColumn CICLOS_RECORRENCIA (
+                sequence: 6
+            )
+
+            displayColumn FILIALFAVORITA (
+                sequence: 12
+            )
+
+            displayColumn FILIALROMANCE (
+                sequence: 11
+            )
+
+            displayColumn MEDIA_IDADE (
+                sequence: 9
+            )
+
+            displayColumn MEDIA_TICKET_8_MESES (
+                sequence: 10
+            )
+
+            displayColumn MOTIVO (
+                sequence: 13
+            )
+
+            displayColumn QTDPEDIDOS (
+                sequence: 2
+            )
+
+            displayColumn SOMA_QTD_SPC (
+                sequence: 5
+            )
+
+            displayColumn SOMA_VALOR_PAGAR (
+                sequence: 8
+            )
+
+            displayColumn SOMA_VALOR_SPC (
+                sequence: 4
+            )
+
+            displayColumn SOMA_VALOR_TOTAL (
+                sequence: 7
+            )
+
+            displayColumn USUARIO (
+                sequence: 1
+            )
+
+        )
+
+    )
+
+    pageItem P481_APROVADO (
+        type: radioGroup
+        label {
+            label: Aprovado
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Todos;T,Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P481_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Data Final Aprovado / Reprovado
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P481_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: Data Inicial Aprovado / Reprovado
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P481_IDUSUARIO (
+        type: selectList
+        label {
+            label: Usuario
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select u.usuario showvalue
+                     , u.idusuario returnvalue
+                from usuarios u
+                where u.ativo = 'S'
+                  and exists ( select 1
+                               from roman.usuariosgruposatendimento ug
+                               where ug.usuario = u.usuario
+                                 and ug.idgrupoatendimento = 9)
+                ```
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P481_PEDIDOS_BRASIL (
+        type: radioGroup
+        label {
+            label: Pedidos:
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Do Brasil;B,Exterior;E,Ambos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: B
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P481_TIPO (
+        type: radioGroup
+        label {
+            label: Tipo
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Detalhado;D,Resumido;R
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconRight
+                t-Button--stretch
+            ]
+            icon: fa-filter
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+)
+

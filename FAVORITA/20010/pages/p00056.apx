@@ -1,0 +1,1118 @@
+page 56 (
+    name: Estoque
+    title: Estoque
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region necessidade-de-compra (
+        name: Necessidade de Compra
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select idfilialorigem_abatecedor
+                     , filialorigem_abatecedor
+                
+                
+                     , idfornecedor
+                     , idprodutodetalhado
+                     , nomeproduto
+                     , disponivel              
+                     , idcategoria
+                     , nomecategoria
+                     , descontinuado
+                     --  
+                     , '|' s1            
+                     , ciclo_1
+                     , ciclo_2
+                     , ciclo_3 
+                     , media_anterior   
+                     --      
+                     , '|' s2       
+                     , ciclo_4
+                     , ciclo_5
+                     , ciclo_6                                         
+                     , media_atual 
+                     --         
+                     , '|' s3  
+                     , media_geral
+                     --    
+                     , '|' s4
+                     , comprado        
+                     --
+                     , '|' s5    
+                     , cobertura_ciclo  
+                     , lead_transit_time 
+                     , necessidadecompraciclo   
+                     , necessidade_compra        
+                     --
+                     , case
+                         when cobertura_ciclo < lead_transit_time then
+                           1
+                         when cobertura_ciclo between lead_transit_time and lead_transit_time+ 1 then
+                           2
+                         else --when cobertura_ciclo > lead_transit_time + 2 then
+                           3
+                        -- else
+                         --  4
+                           end prioridade   
+                     , idpais
+                     , nomepais     
+                from ( select t.idfilialorigem_abatecedor
+                             , t.filialorigem_abatecedor
+                             , t.idfornecedor
+                             , t.idprodutodetalhado
+                             , t.nomeproduto
+                             , t.disponivel
+                             --                    
+                             , t.idcategoria
+                             , t.nomecategoria
+                             , decode(t.descontinuado,'S','Sim') descontinuado
+                             --  
+                             , t.ciclo_1
+                             , t.ciclo_2
+                             , t.ciclo_3 
+                             , t.media_anterior   
+                             --      
+                             , t.ciclo_4
+                             , t.ciclo_5
+                             , t.ciclo_6                                         
+                             , t.media_atual 
+                             --         
+                             , t.media_geral
+                             --    
+                             , t.comprado        
+                             --
+                             , case
+                                  when t.media_geral > 0 then
+                                      round( t.disponivel/t.media_geral,1 )   
+                                  end cobertura_ciclo
+                             --      
+                             , t.lead_transit_time
+                             --
+                             , case
+                                 when ( t.lead_transit_time - case
+                                                      when t.media_geral > 0 then
+                                                          round( t.disponivel/t.media_geral,1 )   
+                                                      end )   + 1     - nvl(t.comprado,0) < 0 then   
+                                    0
+                                  else
+                                    ( t.lead_transit_time - case
+                                                      when t.media_geral > 0 then
+                                                          round( t.disponivel/t.media_geral,1 )   
+                                                      end )   + 1     - nvl(t.comprado,0)
+                                  end necessidadecompraciclo
+                             ,  case
+                                  when round(( t.media_geral *  ( ( t.lead_transit_time - case
+                                                                                when t.media_geral > 0 then
+                                                                                    round( t.disponivel/t.media_geral,1 )   
+                                                                                end )   + 1)  ) - nvl(t.comprado,0) ) < 0 then
+                                     0
+                                   else
+                                     round(( t.media_geral *  ( ( t.lead_transit_time - case
+                                                                                when t.media_geral > 0 then
+                                                                                    round( t.disponivel/t.media_geral,1 )   
+                                                                                end )   + 1)  ) - nvl(t.comprado,0) ) 
+                                   end                                                            necessidade_compra    
+                              , idpais
+                              , nomepais         
+                        from ( select idfilialorigem_abatecedor -- t.idfilialfavorita_est
+                                    , filialorigem_abatecedor  --t.filialfavorita_est
+                                    , t.idfornecedor
+                                    , t.idprodutodetalhado       
+                                    , t.idcategoria
+                                    , t.nomecategoria
+                                    , t.descontinuado
+                                    , t.nomeproduto
+                                    , t.idpais       
+                                    , ( select nome
+                                        from roman.paises p
+                                        where p.idpais = t.idpais ) nomepais    
+                                    --
+                                    , round( ( select tempoproducao+tempoentrega                   
+                                                from favorita.fornecedorestemposentrega ff         
+                                                where ff.idfornecedor      = t.idfornecedor                                   
+                                                  and ff.idfilialfavorita  = t.idfilialorigem_abatecedor ) /42,1)  lead_transit_time   
+                                    --
+                                    , (  select round(  sum(quantidadevendida) / count(distinct idcicloedicao) )
+                                               from favorita.vw_itensvenda_dia_fav_mv  w                     
+                                                  , favorita.ciclosedicoes             c
+                                               where w.dataemissao between c.datainicio and c.datafim
+                                                 and c.identificacaorelatorio  in ('Ciclo_1','Ciclo_2','Ciclo_3')
+                                                 and w.idprodutodetalhado    = t.idprodutodetalhado
+                                                 and w.idfilialfavorita_est in ( select a.idfilialfavoritadestino
+                                                                                  from favorita.atendimentosestoques a
+                                                                                  where a.idfilialfavoritaorigem = t.idfilialorigem_abatecedor )
+                                                 
+                                                and c.datafim              < sysdate )  media_anterior     
+                                    --
+                                    , (  select round(  sum(quantidadevendida) / count(distinct idcicloedicao) )
+                                               from favorita.vw_itensvenda_dia_fav_mv  w                     
+                                                  , favorita.ciclosedicoes             c
+                                               where w.dataemissao between c.datainicio and c.datafim
+                                                 and c.identificacaorelatorio  in ('Ciclo_4','Ciclo_5','Ciclo_6')
+                                                 and w.idprodutodetalhado    = t.idprodutodetalhado
+                                                 and w.idfilialfavorita_est in ( select a.idfilialfavoritadestino
+                                                                                  from favorita.atendimentosestoques a
+                                                                                  where a.idfilialfavoritaorigem = t.idfilialorigem_abatecedor )
+                                                 
+                                                and c.datafim              < sysdate )  media_atual 
+                                    --           
+                                    , (  select round(  sum(quantidadevendida) / count(distinct idcicloedicao) )
+                                               from favorita.vw_itensvenda_dia_fav_mv  w                     
+                                                  , favorita.ciclosedicoes             c
+                                               where w.dataemissao between c.datainicio and c.datafim
+                                                 and w.idprodutodetalhado    = t.idprodutodetalhado
+                                                 and w.idfilialfavorita_est in ( select a.idfilialfavoritadestino
+                                                                                  from favorita.atendimentosestoques a
+                                                                                  where a.idfilialfavoritaorigem = t.idfilialorigem_abatecedor )
+                                                 
+                                                and c.datafim              < sysdate ) media_geral
+                                    --            
+                                    , ( select sum(nvl(ict.quantidadecomprada, 0))
+                                          from favorita.itenscomprastransferencias ict
+                                             , favorita.comprastransferencias ct
+                                          where ict.idcompratransferencia = ct.idcompratransferencia
+                                            and ct.idtipocomptransrem     in ( 0,1) --compra e transferencia
+                                            and ct.idsituacao             in (10,20,11,30)
+                                            and ct.idfilialfavoritadestino = t.idfilialorigem_abatecedor
+                                            and ict.idprodutodetalhado    = t.idprodutodetalhado ) comprado    
+                
+                                    , sum(t.disponivel)    disponivel
+                                    , sum(t.ciclo_1   )    ciclo_1
+                                    , sum(t.ciclo_2   )    ciclo_2
+                                    , sum(t.ciclo_3   )    ciclo_3  
+                                    , sum(t.ciclo_4   )    ciclo_4
+                                    , sum(t.ciclo_5   )    ciclo_5
+                                    , sum(t.ciclo_6   )    ciclo_6   
+                                from FAVORITA.temp_analisenecessidadecompras t 
+                                where t.idprodutodetalhado = :P56_IDPRODUTODETALHADO   
+                                  and idfilialorigem_abatecedor    != :P56_IDFILIALFAVORITA
+                                  and t.idpais             = :P56_IDPAIS
+                                  --
+                                  and t.descontinuado = :P51_DESCONTINUADO
+                                  --
+                                   --and t.idprodutodetalhado = :P48_IDPRODUTODETALHADO           
+                                group by idfilialorigem_abatecedor -- t.idfilialfavorita_est
+                                       , filialorigem_abatecedor  --t.filialfavorita_est
+                                       , t.idprodutodetalhado       
+                                       , t.idcategoria
+                                       , t.nomecategoria
+                                       , t.descontinuado
+                                                           
+                                       , t.idfornecedor
+                                       
+                                       , t.nomeproduto
+                                       
+                                        , t.idpais       
+                             ) t     
+                     )
+                ```
+            pageItemsToSubmit: [
+                P56_IDPRODUTODETALHADO
+                " P56_IDPAIS"
+                P56_IDFILIALFAVORITA
+            ]
+        }
+        layout {
+            sequence: 30
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        advanced {
+            savedReportMappingIdentifier: 13657115714778988053
+        }
+
+        column CICLO_1 (
+            type: plainText
+            heading {
+                heading: Ciclo 1
+                alignment: center
+            }
+            layout {
+                sequence: 240
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column CICLO_2 (
+            type: plainText
+            heading {
+                heading: Ciclo 2
+                alignment: center
+            }
+            layout {
+                sequence: 250
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column CICLO_3 (
+            type: plainText
+            heading {
+                heading: Ciclo 3
+                alignment: center
+            }
+            layout {
+                sequence: 260
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        column CICLO_4 (
+            type: plainText
+            heading {
+                heading: Ciclo 4
+                alignment: center
+            }
+            layout {
+                sequence: 270
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AI
+            }
+        )
+
+        column CICLO_5 (
+            type: plainText
+            heading {
+                heading: Ciclo 5
+                alignment: center
+            }
+            layout {
+                sequence: 280
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AJ
+            }
+        )
+
+        column CICLO_6 (
+            type: plainText
+            heading {
+                heading: Ciclo 6
+                alignment: center
+            }
+            layout {
+                sequence: 290
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AK
+            }
+        )
+
+        column COBERTURA_CICLO (
+            type: plainText
+            heading {
+                heading: Cobertura ciclo
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D0
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column COMPRADO (
+            type: plainText
+            heading {
+                heading: Comprado
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column DESCONTINUADO (
+            type: plainText
+            heading {
+                heading: Descontinuado
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AB
+            }
+        )
+
+        column DISPONIVEL (
+            type: plainText
+            heading {
+                heading: Disponivel
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column FILIALORIGEM_ABATECEDOR (
+            type: plainText
+            heading {
+                heading: CD
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AO
+            }
+        )
+
+        column IDCATEGORIA (
+            type: plainText
+            heading {
+                heading: Idcategoria
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column IDFILIALORIGEM_ABATECEDOR (
+            type: plainText
+            heading {
+                heading: Idfilialorigem abatecedor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AN
+            }
+        )
+
+        column IDFORNECEDOR (
+            type: plainText
+            heading {
+                heading: Idfornecedor
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column IDPAIS (
+            type: plainText
+            heading {
+                heading: Idpais
+                alignment: center
+            }
+            layout {
+                sequence: 300
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AL
+            }
+        )
+
+        column IDPRODUTODETALHADO (
+            type: plainText
+            heading {
+                heading: Idprodutodetalhado
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column LEAD_TRANSIT_TIME (
+            type: plainText
+            heading {
+                heading: Lead transit time
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D0
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column MEDIA_ANTERIOR (
+            type: plainText
+            heading {
+                heading: Media anterior
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column MEDIA_ATUAL (
+            type: plainText
+            heading {
+                heading: Media atual
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column MEDIA_GERAL (
+            type: plainText
+            heading {
+                heading: Media geral
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column NECESSIDADECOMPRACICLO (
+            type: plainText
+            heading {
+                heading: Necessidade Compra Ciclo
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D0
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column NECESSIDADE_COMPRA (
+            type: plainText
+            heading {
+                heading: Necessidade compra
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column NOMECATEGORIA (
+            type: plainText
+            heading {
+                heading: Categoria
+                alignment: center
+            }
+            layout {
+                sequence: 210
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column NOMEPAIS (
+            type: plainText
+            heading {
+                heading: Nomepais
+                alignment: center
+            }
+            layout {
+                sequence: 310
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AM
+            }
+        )
+
+        column NOMEPRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column PRIORIDADE (
+            type: plainText
+            heading {
+                heading: Prioridade
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column S1 (
+            type: plainText
+            heading {
+                heading: " |"
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column S2 (
+            type: plainText
+            heading {
+                heading: " |"
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column S3 (
+            type: plainText
+            heading {
+                heading: " |"
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column S4 (
+            type: plainText
+            heading {
+                heading: " |"
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column S5 (
+            type: plainText
+            heading {
+                heading: " |"
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 45312757 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CICLO_1 (
+                sequence: 5
+            )
+
+            displayColumn CICLO_2 (
+                sequence: 6
+            )
+
+            displayColumn CICLO_3 (
+                sequence: 7
+            )
+
+            displayColumn CICLO_4 (
+                sequence: 10
+            )
+
+            displayColumn CICLO_5 (
+                sequence: 11
+            )
+
+            displayColumn CICLO_6 (
+                sequence: 12
+            )
+
+            displayColumn COBERTURA_CICLO (
+                sequence: 19
+            )
+
+            displayColumn COMPRADO (
+                sequence: 13
+            )
+
+            displayColumn DISPONIVEL (
+                sequence: 3
+            )
+
+            displayColumn FILIALORIGEM_ABATECEDOR (
+                sequence: 1
+            )
+
+            displayColumn LEAD_TRANSIT_TIME (
+                sequence: 20
+            )
+
+            displayColumn MEDIA_ANTERIOR (
+                sequence: 8
+            )
+
+            displayColumn MEDIA_ATUAL (
+                sequence: 15
+            )
+
+            displayColumn MEDIA_GERAL (
+                sequence: 17
+            )
+
+            displayColumn NECESSIDADECOMPRACICLO (
+                sequence: 21
+            )
+
+            displayColumn NECESSIDADE_COMPRA (
+                sequence: 22
+            )
+
+            displayColumn NOMEPRODUTO (
+                sequence: 2
+            )
+
+            displayColumn S1 (
+                sequence: 9
+            )
+
+            displayColumn S2 (
+                sequence: 14
+            )
+
+            displayColumn S3 (
+                sequence: 4
+            )
+
+            displayColumn S4 (
+                sequence: 16
+            )
+
+            displayColumn S5 (
+                sequence: 18
+            )
+
+            sort (
+                column: NOMEPRODUTO
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: ANTERIOR_CICLO_1
+            )
+
+            aggregate (
+                column: ANTERIOR_CICLO_2
+            )
+
+            aggregate (
+                column: ANTERIOR_CICLO_3
+            )
+
+            aggregate (
+                column: ATUAL_CICLO_1
+            )
+
+            aggregate (
+                column: ATUAL_CICLO_2
+            )
+
+            aggregate (
+                column: ATUAL_CICLO_3
+            )
+
+            aggregate (
+                column: COMPRADO
+            )
+
+            aggregate (
+                column: MEDIA_GERAL
+            )
+
+            aggregate (
+                column: NECESSIDADE_COMPRA
+            )
+
+            aggregate (
+                column: DISPONIVEL
+            )
+
+            aggregate (
+                column: CICLO_1
+            )
+
+            aggregate (
+                column: CICLO_2
+            )
+
+            aggregate (
+                column: CICLO_3
+            )
+
+            aggregate (
+                column: CICLO_4
+            )
+
+            aggregate (
+                column: CICLO_5
+            )
+
+            aggregate (
+                column: CICLO_6
+            )
+
+            controlBreak (
+                column: NOMEPRODUTO
+                layout {
+                    sequence: 1
+                }
+            )
+
+            highlight ir-condition (
+                name: Prioridade 1
+                condition {
+                    column: PRIORIDADE
+                    value: 1
+                }
+                colors {
+                    background: #FCB3B9
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Prioridade 2
+                condition {
+                    column: PRIORIDADE
+                    value: 2
+                }
+                colors {
+                    background: #F7F291
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-3 (
+                name: Prioridade 3
+                condition {
+                    column: PRIORIDADE
+                    value: 3
+                }
+                colors {
+                    background: #7EF282
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P56_IDFILIALFAVORITA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 20
+            region: @necessidade-de-compra
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P56_IDPAIS (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 30
+            region: @necessidade-de-compra
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P56_IDPRODUTODETALHADO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @necessidade-de-compra
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+)
+

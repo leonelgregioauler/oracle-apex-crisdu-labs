@@ -1,0 +1,737 @@
+page 28 (
+    name: Dashboard Cobrança
+    title: Dashboard Cobrança
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function doLoad()
+            {
+               setTimeout( "refresh()", 15*1000 );
+            }
+            
+            function refresh()
+            {
+            window.location.href = window.location;
+             apex.submit('TROCAPAGINA');
+            }
+            
+            ```
+        executeWhenPageLoads: doLoad();
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region acompanhamento-online (
+        name: Acompanhamento Online
+        type: chart
+        layout {
+            sequence: 60
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        chart {
+            type: lineWithArea
+        }
+        performance {
+            lazyLoading: true
+        }
+        dataCursor {
+            dimOnHover: false
+        }
+        tooltip {
+            showGroupName: false
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series resumo (
+            name: Resumo
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select to_char(data,'hh24:mi:ss') data, dado, sum(quantidade) quantidade
+                      from beecobranca.snapshot_atendimento h
+                     where data >= sysdate-(15/60/24)
+                     group by to_char(data,'hh24:mi:ss'), dado
+                    order by 1
+                    ```
+            }
+            columnMapping {
+                seriesName: DADO
+                label: DATA
+                value: QUANTIDADE
+            }
+            line {
+                type: curved
+            }
+        )
+
+        axis x (
+            name: x
+            title: Horário
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            title: Quantidade
+            value {
+                format: decimal
+                baselineScaling: min
+            }
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y-1 (
+            name: y2
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    region atendimentos-hoje (
+        name: Atendimentos Hoje
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select t.qtde qtde
+                     , 'Tempo Médio: '||nvl(t.tempo,'0:00') tempo
+                 from ( select sum(h.atendimentos) qtde
+                             , beeadmin.retorna_segundos_em_horas(trunc(sum(h.tempo_atendimentos)/sum(h.atendimentos))) tempo
+                          from beecobranca.historico_atendimentos h
+                         where h.data = trunc(sysdate)
+                      ) t
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        security {
+            escapeSpecialChars: false
+        }
+        settings {
+            value: QTDE
+            bottomLabel: TEMPO
+            color: yes
+        }
+    )
+
+    region em-atendimento (
+        name: Em Atendimento
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select t.qtde qtde, 'Tempo Médio: '||nvl(t.tempo,'0:00') tempo
+                 from ( select count(1) qtde
+                             , beeadmin.retorna_segundos_em_horas(avg(trunc((sysdate - p.data_ultimo_resgate) * 86400))) TEMPO
+                          FROM favorita.vw_tarefas_bee t, beecobranca.prospects_original po, beecobranca.prospects p, beecobranca.parametros par
+                         where to_number(po.coluna_19) = t.nrtarefa
+                           and po.cod_campanha = p.cod_campanha 
+                           and po.codigo = p.codigo
+                           and p.cod_status = par.cod_status_em_uso
+                           and p.data_ultimo_resgate > sysdate-(2/24)
+                      ) t
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        security {
+            escapeSpecialChars: false
+        }
+        settings {
+            value: QTDE
+            bottomLabel: TEMPO
+            color: yes
+        }
+    )
+
+    region em-pausa (
+        name: Em Pausa
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select t.qtde qtde
+                     , 'Tempo Médio: '||nvl(t.tempo_medio,'0:00') tempo
+                 from ( select count(1) qtde
+                             , beeadmin.retorna_segundos_em_horas(avg((sysdate-cu.data_inicio) * 86400)) tempo_medio
+                             , beeadmin.retorna_segundos_em_horas(max((sysdate-cu.data_inicio) * 86400)) maior_tempo
+                          from beepeople.compromissos_usuarios cu, beepeople.controle_frequencia cf, beeadmin.usuarios u, beeadmin.sistemas s
+                         where cu.cod_usuario = u.codigo
+                           and u.cod_pessoa = cf.cod_pessoa
+                           and u.empresa = cf.empresa
+                           and cf.cod_centro_custo = s.cod_centro_custo_padrao
+                           and upper(s.db_username) = 'BEECOBRANCA'
+                           and cu.data_inicio > trunc(sysdate)
+                           and cu.data_termino is null
+                           and cu.data_inicio between cf.data_entrada_efetiva and nvl(cf.data_saida_efetiva,cf.data_saida_prevista)) t
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        security {
+            escapeSpecialChars: false
+        }
+        settings {
+            value: QTDE
+            bottomLabel: TEMPO
+            color: yes
+        }
+    )
+
+    region quantidade-de-negociações (
+        name: Quantidade de Negociações
+        type: chart
+        layout {
+            sequence: 90
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        performance {
+            lazyLoading: true
+        }
+        dataCursor {
+            dimOnHover: false
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series contratos (
+            name: Contratos
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select to_char(t.data,'dd/mm') data, pedidos
+                      from (
+                            select trunc(h.data) data
+                                 , sum(h.produtos) pedidos
+                              from beecobranca.historico_atendimentos h
+                             where h.data >= trunc(sysdate-14)
+                             --  and h.id_tipo_tarefa in (9,10)
+                             group by trunc(h.data)) t
+                      order by t.data
+                    ```
+            }
+            columnMapping {
+                label: DATA
+                value: PEDIDOS
+            }
+        )
+
+        axis x (
+            name: x
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    region ranking-hoje (
+        name: Ranking Hoje
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select posicao "POSIÇÃO"
+                     , atendente
+                     , to_char(valores,'FM999G999G990D00') valor
+                     , to_char(pedidos) "NEGOCIAÇÕES"
+                     , to_char(valores/decode(pedidos,0,1,pedidos),'FM999G999G990D00') "TICKET MÉDIO"
+                  from (
+                        select rownum posicao, atendente, valores, pedidos
+                          from ( 
+                                select t.pessoa atendente
+                                     , t.valores
+                                     , t.pedidos
+                                  from (
+                                        select pessoa, sum(pedidos) pedidos, sum(valores) valores
+                                          from beecobranca.historico_ranking h
+                                         where data = trunc(sysdate)
+                                         group by pessoa) t
+                                 where t.valores > 0
+                                 order by 2 desc
+                                 )
+                       )
+                 where posicao <= 10
+                ```
+        }
+        layout {
+            sequence: 70
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--stretch
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+                t-Report--noBorders
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToYNoPagination
+        }
+        componentAdvanced {
+            sortNulls: first
+        }
+
+        column ATENDENTE (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+        )
+
+        column NEGOCIAÇÕES (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Negociações
+                alignment: end
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+        )
+
+        column POSIÇÃO (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Posição
+                alignment: center
+            }
+            layout {
+                sequence: 1
+                columnAlignment: center
+            }
+        )
+
+        column "TICKET MÉDIO" (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Ticket Médio
+                alignment: end
+            }
+            layout {
+                sequence: 5
+                columnAlignment: end
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Valor
+                alignment: end
+            }
+            layout {
+                sequence: 3
+                columnAlignment: end
+            }
+        )
+
+    )
+
+    region resumo-de-atividade (
+        name: Resumo de Atividade
+        type: chart
+        layout {
+            sequence: 120
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        chart {
+            type: donut
+        }
+        performance {
+            lazyLoading: true
+        }
+        dataCursor {
+            dimOnHover: false
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series atividade (
+            name: Atividade
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select ca.atividade
+                         , count(1) quantidade
+                      from beeweb.controle_atividade ca
+                         , beecobranca.usuarios_atendimento ua
+                         , beecobranca.grupos_atendimento ga 
+                     where ca.cod_usuario = ua.cod_usuario
+                       and ua.cod_grupo = ga.codigo
+                       and ca.atividade != 'LOGOUT'
+                       and ca.data_termino is null
+                       and ca.data_inicio > sysdate - (6/24)
+                     group by ca.atividade
+                    ```
+            }
+            columnMapping {
+                label: ATIVIDADE
+                value: QUANTIDADE
+            }
+            link {
+                type: redirectThisApp
+                target: {
+                    page: 29
+                    items: {
+                        P29_VALOR: &ATIVIDADE.
+                    }
+                    action: resetPagination
+                }
+            }
+        )
+
+    )
+
+    region tarefas-novas (
+        name: Tarefas Novas
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select t.qtde qtde
+                     , 'Maior Tempo: '||nvl(t.tempo,'0:00') tempo
+                 from ( select count(1) qtde
+                             , beeadmin.retorna_segundos_em_horas(trunc((sysdate-min(t.datainclusao)) * 86400)) tempo
+                          from favorita.tarefas t, catal.usuarios cau, beeadmin.usuarios u
+                         where t.idusuario = cau.idusuario(+)
+                           and cau.usuario = u.nome_login(+)
+                           and t.idgrupoatendimento = 3
+                           and t.idsituacao = 0 
+                           and (u.codigo in (select cod_usuario 
+                                               from beecobranca.usuarios_atendimento 
+                                              where cod_usuario = u.codigo) or
+                               (t.idusuario is null 
+                                   and exists (select 1 
+                                                 from favorita.codigoareaatendentes ca 
+                                                where ca.idusuario = t.idusuario 
+                                                  and ca.codigoarea = t.codigoarea)))) t
+                
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        security {
+            escapeSpecialChars: false
+        }
+        settings {
+            value: QTDE
+            bottomLabel: TEMPO
+            color: yes
+        }
+    )
+
+    region ticket-médio (
+        name: Ticket Médio
+        type: chart
+        layout {
+            sequence: 100
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        performance {
+            lazyLoading: true
+        }
+        dataCursor {
+            dimOnHover: false
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series valor (
+            name: Valor
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select to_char(t.data,'dd/mm')  data, valor
+                      from (
+                            select trunc(h.data) data
+                                 , trunc(sum(h.valores)/sum(h.produtos),2) VALOR
+                              from beecobranca.historico_atendimentos h
+                             where h.data >= trunc(sysdate-14)
+                             --  and h.id_tipo_tarefa in (9,10)
+                               and nvl(h.produtos,0) > 0
+                             group by trunc(h.data)) t
+                     order by t.data
+                    ```
+            }
+            columnMapping {
+                label: DATA
+                value: VALOR
+            }
+        )
+
+        axis x (
+            name: x
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    region valor-total (
+        name: Valor Total
+        type: chart
+        layout {
+            sequence: 80
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        performance {
+            lazyLoading: true
+        }
+        dataCursor {
+            dimOnHover: false
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series valor (
+            name: Valor
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select to_char(data,'dd/mm') data, valor
+                      from (
+                            select trunc(h.data) data
+                                 , sum(nvl(h.valores,0)) VALOR
+                              from beecobranca.historico_atendimentos h
+                             where h.data >= trunc(sysdate-14)
+                             --  and h.id_tipo_tarefa in (9,10)
+                             group by trunc(data)) t
+                     order by t.data
+                    ```
+            }
+            columnMapping {
+                label: DATA
+                value: VALOR
+            }
+        )
+
+        axis x (
+            name: x
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 42
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: TROCAPAGINA
+        }
+    )
+
+)
+

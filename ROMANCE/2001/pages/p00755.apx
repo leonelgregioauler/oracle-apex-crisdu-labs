@@ -1,0 +1,375 @@
+page 755 (
+    name: Consulta Equifax
+    title: Consulta Equifax
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region informações (
+        name: Informações
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <script type="text/javascript" src="https://websocket.romancemoda.com.br/romance_equifax.js"></script>
+                <script type="text/javascript" src="https://websocket.romancemoda.com.br/romance_equifax_py.js"></script>
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            htmlDomId: INFORMACOES
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P755_DOCESTRANGEIRO (
+        type: textField
+        label {
+            label: Doc. Estrangeiro
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @informações
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P755_IDFILIAL (
+        type: selectList
+        label {
+            label: Franquia
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefilial(u.idfilial) empresa
+                     , u.idfilial 
+                from usuariosfiliais u
+                where u.usuario = v('APP_USER')
+                order by 1
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @informações
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P755_RUT (
+        type: textField
+        label {
+            label: RUT
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @informações
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from catal.filiais
+                 where idfilial = :P755_IDFILIAL 
+                   and ididioma =6
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P755_RUT_MD5 (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 40
+            region: @informações
+            slot: regionBody
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  v_input VARCHAR2(2000) := :P755_RUT;--replace(replace(:P755_RUT,'.',''),'-','');
+                  --hexkey VARCHAR2(32) := NULL;
+                  vmd5 varchar2(300);
+                BEGIN
+                  --
+                  --3hexkey := rawtohex(dbms_obfuscation_toolkit.md5(input => utl_raw.cast_to_raw(v_input)));
+                  --
+                  vmd5 := roman.pck_ti.fnc_md5(v_input);
+                  --
+                  return vmd5;
+                  --
+                exception
+                  when others then
+                    return null;
+                END;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P755_USUARIO (
+        type: hidden
+        layout {
+            sequence: 60
+            region: @informações
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button consultar (
+        buttonName: CONSULTAR
+        label: Consultar
+        layout {
+            sequence: 70
+            region: @informações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+                t-Button--iconLeft
+                t-Button--pillStart
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction altera-md (
+        name: Altera MD5
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P755_RUT
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    apex.server.process('ATUALIZAR_RUT_MD5', {
+                        pageItems: '#P755_RUT'
+                    }, {
+                        success: function(pData) {
+                            $s('P755_RUT_MD5', pData.P755_RUT_MD5);
+                        }
+                    });
+                    
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction consulta-chile (
+        name: Consulta Chile
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @consultar
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from catal.filiais
+                 where idfilial = :P755_IDFILIAL 
+                   and ididioma = 6
+                ```
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    javascript: 
+                    ConsultarEquifax(document.getElementById('P755_RUT').value
+                    ,document.getElementById('P755_DOCESTRANGEIRO').value
+                    ,document.getElementById('P755_RUT_MD5').value
+                    ,document.getElementById('P755_IDFILIAL').value
+                    ,document.getElementById('P755_USUARIO').value
+                    ,function(dados){window.location.reload()});
+                    
+                    
+                    ```
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction consulta-paraguai (
+        name: Consulta Paraguai
+        execution {
+            sequence: 20
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @consultar
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from catal.filiais
+                 where idfilial = :P755_IDFILIAL 
+                   and ididioma = 4
+                ```
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    var lSpinner = apex.util.showSpinner($("#INFORMACOES"));
+                    
+                    setTimeout(function() {
+                        lSpinner.remove();
+                    
+                        apex.message.showPageSuccess(
+                            'Processo concluído com sucesso!'
+                        );
+                    
+                    }, 2000);
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action native-javascript-code-2 (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    javascript: ConsultarEquifaxPY(document.getElementById('P755_DOCESTRANGEIRO').value
+                    ,document.getElementById('P755_RUT_MD5').value
+                    ,document.getElementById('P755_IDFILIAL').value
+                    ,document.getElementById('P755_USUARIO').value
+                    ,function(dados){window.location.reload()});
+                    
+                    ```
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process atualizar-rut-md (
+        name: ATUALIZAR_RUT_MD5
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                DECLARE
+                  v_input VARCHAR2(2000) := :P755_RUT;
+                  vmd5 VARCHAR2(300);
+                BEGIN
+                  vmd5 := roman.pck_ti.fnc_md5(v_input);
+                  apex_json.open_object;
+                  apex_json.write('P755_RUT_MD5', vmd5);
+                  apex_json.close_all;
+                END;
+                
+                ```
+        }
+        execution {
+            sequence: 10
+            point: ajaxCallback
+        }
+        advanced {
+            executionMappingIdentifier: 3076219769486921118
+        }
+    )
+
+)
+

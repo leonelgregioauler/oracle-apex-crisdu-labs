@@ -1,0 +1,864 @@
+page 84 (
+    name: Saídas
+    title: Saídas Diversas
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region saídas (
+        name: Saídas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select null Editar
+                     , e.idsaida
+                     , e.idfilial
+                     , substr(f.semana,4,4) ano
+                     , substr(f.semana,1,2) semana
+                     , pck_romance.fnc_nomefilial(e.idfilial) "Empresa"
+                     , pck_romance.fnc_nomefilial(e.idfilialdest) "Empresa Destino"
+                     , f.semana fechamento
+                     , e.data
+                     , e.fechamentoorig
+                     , e.valortotal
+                     , e.descricao
+                     , decode(e.tipo,'D','Dinheiro','Pagamento de Conta') "Tipo"
+                     , pck_romance.fnc_nomecontafinan(e.idcontacontabil) "Conta Contabil" 
+                     , pck_romance.fnc_nomesubcontafinan(e.idsubcontacontabil) "Sub Conta Contabil"
+                     , ( select count(1)
+                         from anexossaidas a
+                         where a.idsaida = e.idsaida ) qtdanexos
+                     , case
+                         when exists ( select 1
+                                       from subcontasfinanceiras ss
+                                       where ss.idsubcontafinan = ( select sd.idsubcontacontabil
+                                                                    from saidasdiversas sd
+                                                                    where sd.idsaida = e.idsaida ) 
+                                         and ss.tipo is not null ) and e.idsubcontacontabil is not null then
+                           ( select decode(sf.tipo,'F','Fixa','V','Variável')
+                             from subcontasfinanceiras sf
+                             where sf.idsubcontafinan = ( select sd.idsubcontacontabil
+                                                          from saidasdiversas sd
+                                                          where sd.idsaida = e.idsaida ) )
+                         else
+                           ( select decode(c.tipo,'F','Fixa','V','Variável')
+                             from contasfinanceiras c
+                             where c.idcontafinan = ( select se.idcontacontabil
+                                                      from saidasdiversas se
+                                                      where se.idsaida = e.idsaida )
+                               and c.tipo is not null )
+                       end tiposaida
+                     , observacaocontrole  
+                     , e.fatorconversao
+                     , case 
+                         when e.ididiomaorigem in (2,3,4,6,12,13) and e.ididiomadestino = 1 then -- 12 e 13 add no T11826220
+                           e.valortotal * nvl(f.fatorconversao,1)
+                         when e.ididiomadestino = 1 and e.ididiomaorigem in (2,3,4,6,12,13) then
+                           e.valortotal / nvl(e.fatorconversao,f.fatorconversao)
+                         when e.ididiomaorigem in (2,3,4,6,12,13) and e.ididiomaorigem != e.ididiomadestino then
+                           round( ( e.valortotal * f.fatorconversao ) / e.fatorconversao,2)
+                         else
+                           e.valortotal
+                       end valorconversao
+                     , ( select md.classificacaodespesa
+                         from matrizclassificacoesdespesas md
+                         where md.idmatrizclassificacao = e.idmatrizclassificacao ) classificacao
+                     , (select cnpj
+                          from razoessociaisfiliais
+                         where idrazaosocialfilial = e.idrazaosocialfilial) "CNPJ Despesa"
+                     , lu.usuariocriacao "Usuário Criação"
+                from saidasdiversas e
+                   , fechamentossemanais f
+                   , ( select l.idsaida
+                            , min(l.usuarioalteracao) keep (dense_rank first order by l.idlog) usuariocriacao
+                       from logroman.log_saidasdiversas l
+                       where l.tipoalteracao = 'INSERT'
+                         and l.idsaida in ( select s.idsaida
+                                            from saidasdiversas s
+                                            where s.idfilial = :P0_IDFILIAL )
+                       group by l.idsaida ) lu
+                where e.idfilial     = :P0_IDFILIAL
+                  and f.idfechamento = e.idfechamento
+                  and lu.idsaida(+)  = e.idsaida
+                  and (:P0_IDFECHAMENTO = 999999999999 or e.idfechamento = :P0_IDFECHAMENTO)
+                ORDER BY 1 DESC
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        messages {
+            whenNoDataFound: Nenhuma saída incluída.
+            whenMoreDataFound: This query returns more than #MAX_ROW_COUNT# rows, please filter your data to ensure complete results.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            rowsPerPage: false
+            pivot: false
+            savePublicReport: true
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 1
+        }
+
+        column ANO (
+            type: plainText
+            heading {
+                heading: Ano
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column CLASSIFICACAO (
+            type: plainText
+            heading {
+                heading: Classificação
+                alignment: center
+            }
+            layout {
+                sequence: 210
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column "CNPJ Despesa" (
+            type: plainText
+            heading {
+                heading: Cnpj Saida
+            }
+            layout {
+                sequence: 220
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column "Conta Contabil" (
+            type: plainText
+            heading {
+                heading: Conta contabil
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column DATA (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column DESCRICAO (
+            type: plainText
+            heading {
+                heading: Descrição
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column EDITAR (
+            type: link
+            heading {
+                heading: Editar
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            link {
+                target: {
+                    page: 86
+                    items: {
+                        P86_IDSAIDA: #IDSAIDA#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil.png" class="apex-edit-pencil" alt="">
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from acessos ac
+                    where ac.usuario = v('APP_USER')
+                    and ac.idaplicacao = 3581 
+                    ```
+            }
+        )
+
+        column Empresa (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Empresa Destino" (
+            type: plainText
+            heading {
+                heading: Empresa destino
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column FATORCONVERSAO (
+            type: plainText
+            heading {
+                heading: Fator Conversão
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column FECHAMENTO (
+            type: plainText
+            heading {
+                heading: Fechamento
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column FECHAMENTOORIG (
+            type: plainText
+            heading {
+                heading: Fechamentoorig
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column IDFILIAL (
+            type: plainText
+            heading {
+                heading: Idfilial
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column IDSAIDA (
+            type: plainText
+            heading {
+                heading: Idsaida
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column OBSERVACAOCONTROLE (
+            type: plainText
+            heading {
+                heading: Revisão
+                alignment: center
+            }
+            layout {
+                sequence: 180
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column QTDANEXOS (
+            type: plainText
+            heading {
+                heading: Qtd Anexos
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column SEMANA (
+            type: plainText
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: SEMANA
+                endUserAlias: A
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Sub Conta Contabil" (
+            type: plainText
+            heading {
+                heading: Sub conta contabil
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column TIPOSAIDA (
+            type: plainText
+            heading {
+                heading: Tipo de Saída
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column Tipo (
+            type: plainText
+            heading {
+                heading: Tipo
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column "Usuário Criação" (
+            type: plainText
+            heading {
+                heading: Usuário Criação
+                alignment: center
+            }
+            layout {
+                sequence: 230
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column VALORCONVERSAO (
+            type: plainText
+            heading {
+                heading: Valor Conversão
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        savedReport 1525907 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn ANO (
+                sequence: 1
+            )
+
+            displayColumn CLASSIFICACAO (
+                sequence: 17
+            )
+
+            displayColumn "CNPJ Despesa" (
+                sequence: 10
+            )
+
+            displayColumn "Conta Contabil" (
+                sequence: 11
+            )
+
+            displayColumn DATA (
+                sequence: 6
+            )
+
+            displayColumn DESCRICAO (
+                sequence: 8
+            )
+
+            displayColumn EDITAR (
+                sequence: 4
+            )
+
+            displayColumn "Empresa Destino" (
+                sequence: 5
+            )
+
+            displayColumn FATORCONVERSAO (
+                sequence: 15
+            )
+
+            displayColumn OBSERVACAOCONTROLE (
+                sequence: 14
+            )
+
+            displayColumn QTDANEXOS (
+                sequence: 13
+            )
+
+            displayColumn SEMANA (
+                sequence: 2
+            )
+
+            displayColumn "Sub Conta Contabil" (
+                sequence: 12
+            )
+
+            displayColumn TIPOSAIDA (
+                sequence: 3
+            )
+
+            displayColumn "Tipo" (
+                sequence: 9
+            )
+
+            displayColumn VALORCONVERSAO (
+                sequence: 16
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 7
+            )
+
+            sort (
+                column: VALORTOTAL
+                sort {
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: ANO
+                sort {
+                    direction: desc
+                    sequence: 2
+                }
+            )
+
+            sort (
+                column: SEMANA
+                sort {
+                    direction: desc
+                    sequence: 3
+                }
+            )
+
+            sort (
+                column: IDSAIDA
+                sort {
+                    direction: desc
+                    sequence: 4
+                }
+            )
+
+            sort (
+                column: TIPOSAIDA
+                sort {
+                    sequence: 5
+                }
+            )
+
+            controlBreak (
+                column: ANO
+                layout {
+                    sequence: 1
+                }
+            )
+
+            controlBreak (
+                column: SEMANA
+                layout {
+                    sequence: 2
+                }
+            )
+
+            controlBreak (
+                column: TIPOSAIDA
+                layout {
+                    sequence: 3
+                }
+            )
+
+        )
+
+    )
+
+    button confirmasaida (
+        buttonName: CONFIRMASAIDA
+        label: Confirmar Saídas
+        layout {
+            sequence: 20
+            region: @saídas
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 87
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button novasaida (
+        buttonName: NOVASAIDA
+        label: Nova Saída
+        layout {
+            sequence: 40
+            region: @saídas
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconRight
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 86
+                items: {
+                    P86_IDFECHAMENTO: &P0_IDFECHAMENTO.
+                    P86_IDFILIAL: &P0_IDFILIAL.
+                    P86_IDSAIDA:
+                }
+                clearCache: 86
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from fechamentossemanais
+                where idfechamento = :P0_IDFECHAMENTO
+                  and concluido = 'N'
+                ```
+        }
+    )
+
+    button novo-questionamento (
+        buttonName: NOVO_QUESTIONAMENTO
+        label: Novo Questionamento
+        layout {
+            sequence: 10
+            region: @saídas
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 389
+                items: {
+                    P389_IDQUESTIONAMENTO:
+                    P389_IDFILIAL: &P0_IDFILIAL.
+                    P389_IDFECHAMENTO: &P0_IDFECHAMENTO.
+                    P389_PAGINA: 84
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from usuariosgruposatendimento ug
+                where ug.idgrupoatendimento in ( 2 , 0 )
+                  and ug.usuario = v('APP_USER')
+                  and :P0_IDFECHAMENTO is not null
+                ```
+        }
+    )
+
+    button revisarsaidas (
+        buttonName: REVISARSAIDAS
+        label: Revisar Saídas
+        layout {
+            sequence: 30
+            region: @saídas
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconRight
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 250
+                items: {
+                    P250_ORIGEM: S
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where pck_util.fnc_verificaacesso(2309,v('APP_USER')) = 'S'
+                ```
+        }
+    )
+
+)
+

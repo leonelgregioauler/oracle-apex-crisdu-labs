@@ -1,0 +1,1532 @@
+page 91 (
+    name: Fechamento Semanal
+    title: Fechamento Semanal
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        authorizationScheme: @acesso-fechamentos
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region anual-favorita (
+        name: Anual Favorita
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select trim(to_char(sysdate,'RRRR') ) "Ano"
+                     , nvl( round( ( select sum(p.valorcobrado)
+                                     from boletos p
+                                     where p.idfilial = :P0_IDFILIAL
+                                       and p.situacao != 'Z'
+                                       and extract ( year from p.databaixa ) = trim(to_char(sysdate,'RRRR')) )) ,0)
+                     + nvl(( select sum(pp.vlrtotalsemcomissao)
+                             from pedidos pp
+                             where pp.idfilial = :P0_IDFILIAL
+                               and extract ( year from pp.dtemissao ) = trim(to_char(sysdate,'RRRR'))
+                               and pp.situacao        = 'O'),0)
+                     + nvl(( select sum(pf.valorapagar)
+                             from favorita.pedidos pf
+                             where pf.idfilialromance = :P0_IDFILIAL
+                               and pf.idsituacaoentrega = 30000
+                               and extract ( year from pf.dataemissao ) = trim(to_char(sysdate,'RRRR')) ),0)
+                     + nvl( round( ( select sum(pg.valorpago)
+                                     from favorita.pagamentospedidos pg
+                                     where extract ( year from pg.datapagamento ) = trim(to_char(sysdate,'RRRR') )
+                                       and pg.valorpago    > 0
+                                       and exists ( select 1
+                                                    from favorita.vencimentospedidos v
+                                                    where v.idvencimentopedido = pg.idvencimentopedido
+                                                      and v.situacaovencimento = 'V'
+                                                      and exists ( select 1
+                                                                   from favorita.pedidos pf
+                                                                   where pf.idpedido = v.idpedido
+                                                                     and pf.idfilialromance = :P0_IDFILIAL ) ) ) ) ,0) "Total Venda Favorita"
+                from dual
+                ```
+        }
+        layout {
+            sequence: 20
+            parentRegion: @venda-favorita
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+
+        column Ano (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Ano
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column "Total Venda Favorita" (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Total Venda Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region fechamento-semanal (
+        name: Fechamento Semanal
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.idfechamento
+                     , substr(f.semana,4,4) "Ano"
+                     , f.semana
+                     , pck_romance.fnc_nomefilial(f.idfilial) Filial
+                     , f.saldoanteriorgaveta
+                     , f.totalcobranca
+                     , f.totalentradasdiversas
+                     , f.totalvendasdiretas
+                     , f.totalchqsemfundorecebidos
+                     , f.totalboletosfavorita
+                     , f.totaldespesas
+                     , nvl(f.totalcomissoesrepresentantes,0) + nvl( totalcomissaogerente,0)  comissoesromance
+                     , nvl( f.totalcomissoesfavoritarepres,0)     + nvl( totalcomissoesfavoritagerente,0) comissoesfavorita
+                     , nvl( f.totalcomissoesfavoritarepres,0) comissoesfavoritarepres
+                     , nvl( f.totalcomissoesfavoritagerente,0) comissoesfavoritagerente
+                     , f.totaldepositosespecie
+                     , f.totaldepsitoscheques
+                     , f.saldofinalespecie
+                     , f.saldofinalcheque
+                     , f.subtotalgaveta
+                     , f.totalsaidasdiversas
+                     , f.totalgaveta
+                     , decode(f.concluido,'S','Sim','Não') concluido
+                     , decode(nvl(f.totalcobranca,0), 0, 0, ( ( f.totalcomissoesrepresentantes + f.totalcomissaogerente + (f.totaldespesas+totaldespesacusto)) / f.totalcobranca * 100 )) percdespesa
+                     , ( select sum(nvl(fr.qtdnotasnovas,0))+sum(nvl(fr.qtdnotasnovasoutrareg,0))
+                         from fechamentorepresentantes fr
+                         where fr.idfechamento = f.idfechamento ) "Notas novas"
+                     , ( select count(1)
+                         from fechamentorepresentantes fr
+                         where fr.idfechamento = f.idfechamento ) "Nro de Acertos"
+                     , f.fatorconversao "Fator Conversor"
+                     ,  nvl( f.totalcomissaogerente,0) "Vlr Gerente"
+                     , NVL(( select sum(t.valorpago)
+                          from pagamentosmanutencoes t
+                          where t.idfechamentorepres in ( select ff.idfechamentorepres 
+                                                          from fechamentorepresentantes fF
+                                                          where ff.idfechamento = f.IDFECHAMENTO ) ),0) "Vlr Manutenções"
+                     , f.totaldebitosemaberto 
+                     , decode(f.totalcobranca,0,0,(round(( nvl(f.totaldebitosemaberto,1)/nvl(f.totalcobranca,1)*100 ),2))) percdebitosemaberto
+                     , f.idsemana
+                     , f.totalresgate
+                     , nvl( ( select sum(c.valor)
+                              from cheques2 c
+                              where c.idfilial = f.idfilial
+                                and c.idsemanadtinclusao = f.idsemana
+                                and c.semfundo = 'S' ),0 ) chequesemfundo
+                     , nvl(f.totalcomissaocobrakirepres,0) comissaocobraki
+                     , nvl(f.totalcomissaoacordoakirepres,0) comissaoacordoaki
+                     , nvl(f.TOTALCOMISSAOBALANCO,0) comissaobalancogestor
+                     , ( nvl(totalcobranca,0) + nvl(totaldebitosemaberto,0) ) total_venda
+                     , case
+                         when f.totaldebitosemaberto > 0 then
+                           round( ( f.totaldebitosemaberto / ( nvl(f.totalcobranca,0) + nvl(f.totaldebitosemaberto,0) ) ) * 100,2 )
+                         else
+                           0
+                       end perc_inad
+                from fechamentossemanais f
+                where f.idfilial = :P0_IDFILIAL  --(:P0_IDFILIAL = -1 or f.idfilial = :P0_IDFILIAL )
+                   and ( :P0_IDFECHAMENTO = 999999999999 or f.idfechamento = :P0_IDFECHAMENTO)
+                order by 1 desc
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText: <font color="blue"><b> Cálculo de % de Despesa: <br> Comissões Distribuidores + Gerente + Total Despesas <br> / Total da Cobrança <br> Multiplicado por 100 para trazer o valor percentual. </b></font>
+        }
+        link {
+            linkColumn: customTarget
+            target: {
+                page: 92
+                items: {
+                    P92_IDFECHAMENTO: #IDFECHAMENTO#
+                }
+            }
+            linkIcon: <img src="#IMAGE_PREFIX#menu/pencil16x16.gif"  border="0">
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        messages {
+            whenNoDataFound: Nenhum fechamento feito.
+            whenMoreDataFound: This query returns more than #MAX_ROW_COUNT# rows, please filter your data to ensure complete results.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            rowsPerPage: false
+            pivot: false
+            savePublicReport: true
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 1
+        }
+
+        column Ano (
+            type: plainText
+            heading {
+                heading: Ano
+                alignment: center
+            }
+            layout {
+                sequence: 25
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Ano
+                endUserAlias: AA
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column CHEQUESEMFUNDO (
+            type: plainText
+            heading {
+                heading: Cheque S/ Fundo
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AO
+            }
+        )
+
+        column COMISSAOACORDOAKI (
+            type: plainText
+            heading {
+                heading: Comissão Acordo Aki
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AS
+            }
+        )
+
+        column COMISSAOBALANCOGESTOR (
+            type: plainText
+            heading {
+                heading: Comissão Gestor de Balanço
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AT
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression: pck_util.fnc_verificaacesso(2818,v('APP_USER')) = 'N'
+            }
+        )
+
+        column COMISSAOCOBRAKI (
+            type: plainText
+            heading {
+                heading: Comissão Cobraki
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AR
+            }
+        )
+
+        column COMISSOESFAVORITA (
+            type: plainText
+            heading {
+                heading: Comis Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AJ
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression: pck_util.fnc_verificaacesso(2818,v('APP_USER')) = 'N'
+            }
+        )
+
+        column COMISSOESFAVORITAGERENTE (
+            type: plainText
+            heading {
+                heading: Comis. Favorita Gerente
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AQ
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression: pck_util.fnc_verificaacesso(2818,v('APP_USER')) = 'N'
+            }
+        )
+
+        column COMISSOESFAVORITAREPRES (
+            type: plainText
+            heading {
+                heading: Comi. Favorita Dist.
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AP
+            }
+        )
+
+        column COMISSOESROMANCE (
+            type: plainText
+            heading {
+                heading: Comis Romance
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AI
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression: pck_util.fnc_verificaacesso(2818,v('APP_USER')) = 'N'
+            }
+        )
+
+        column CONCLUIDO (
+            type: plainText
+            heading {
+                heading: Concluído
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: CONCLUIDO
+                endUserAlias: V
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 21
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: FILIAL
+                endUserAlias: W
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Fator Conversor" (
+            type: plainText
+            heading {
+                heading: Fator Conversor
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 0D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Fator Conversor
+                endUserAlias: AF
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDFECHAMENTO (
+            type: plainText
+            heading {
+                heading: Idfechamento
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDFECHAMENTO
+                endUserAlias: A
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDSEMANA (
+            type: plainText
+            heading {
+                heading: Idsemana
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AM
+            }
+        )
+
+        column "Notas novas" (
+            type: plainText
+            heading {
+                heading: Notas Novas
+                alignment: center
+            }
+            layout {
+                sequence: 23
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Notas novas
+                endUserAlias: Y
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Nro de Acertos" (
+            type: plainText
+            heading {
+                heading: Nro De Acertos
+                alignment: center
+            }
+            layout {
+                sequence: 24
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Nro de Acertos
+                endUserAlias: Z
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column PERCDEBITOSEMABERTO (
+            type: plainText
+            heading {
+                heading: % Deb. em Aberto
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00MI
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AL
+            }
+        )
+
+        column PERCDESPESA (
+            type: plainText
+            heading {
+                heading: % de Despesa
+                alignment: center
+            }
+            layout {
+                sequence: 22
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: PERCDESPESA
+                endUserAlias: X
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column PERC_INAD (
+            type: plainText
+            heading {
+                heading: % Inad.
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AV
+            }
+        )
+
+        column SALDOANTERIORGAVETA (
+            type: plainText
+            heading {
+                heading: Gaveta Anterior
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: SALDOANTERIORGAVETA
+                endUserAlias: B
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SALDOFINALCHEQUE (
+            type: hidden
+            heading {
+                heading: Saldofinalcheque
+            }
+            layout {
+                sequence: 11
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: SALDOFINALCHEQUE
+                endUserAlias: N
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SALDOFINALESPECIE (
+            type: plainText
+            heading {
+                heading: Valor Espécie
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: SALDOFINALESPECIE
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SEMANA (
+            type: plainText
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 19
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: SEMANA
+                endUserAlias: U
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SUBTOTALGAVETA (
+            type: hidden
+            heading {
+                heading: Subtotalgaveta
+            }
+            layout {
+                sequence: 12
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: SUBTOTALGAVETA
+                endUserAlias: O
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALBOLETOSFAVORITA (
+            type: hidden
+            heading {
+                heading: Totalboletosfavorita
+            }
+            layout {
+                sequence: 6
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALBOLETOSFAVORITA
+                endUserAlias: F
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALCHQSEMFUNDORECEBIDOS (
+            type: hidden
+            heading {
+                heading: Totalchqsemfundorecebidos
+            }
+            layout {
+                sequence: 5
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALCHQSEMFUNDORECEBIDOS
+                endUserAlias: E
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALCOBRANCA (
+            type: plainText
+            heading {
+                heading: Total Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 3
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALCOBRANCA
+                endUserAlias: C
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALDEBITOSEMABERTO (
+            type: plainText
+            heading {
+                heading: Débitos em Aberto
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AK
+            }
+        )
+
+        column TOTALDEPOSITOSESPECIE (
+            type: plainText
+            heading {
+                heading: Depósito
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALDEPOSITOSESPECIE
+                endUserAlias: J
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALDEPSITOSCHEQUES (
+            type: hidden
+            heading {
+                heading: Totaldepsitoscheques
+            }
+            layout {
+                sequence: 9
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALDEPSITOSCHEQUES
+                endUserAlias: K
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALDESPESAS (
+            type: plainText
+            heading {
+                heading: Total Despesas
+                alignment: center
+            }
+            layout {
+                sequence: 13
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALDESPESAS
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALENTRADASDIVERSAS (
+            type: plainText
+            heading {
+                heading: Entradas
+                alignment: center
+            }
+            layout {
+                sequence: 29
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALENTRADASDIVERSAS
+                endUserAlias: AE
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column TOTALGAVETA (
+            type: plainText
+            heading {
+                heading: Total Gaveta
+                alignment: center
+            }
+            layout {
+                sequence: 15
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALGAVETA
+                endUserAlias: Q
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALRESGATE (
+            type: plainText
+            heading {
+                heading: Resgates Efetuados
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AN
+            }
+        )
+
+        column TOTALSAIDASDIVERSAS (
+            type: plainText
+            heading {
+                heading: Total Saidas Diversas
+                alignment: center
+            }
+            layout {
+                sequence: 14
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALSAIDASDIVERSAS
+                endUserAlias: P
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALVENDASDIRETAS (
+            type: hidden
+            heading {
+                heading: Totalvendasdiretas
+            }
+            layout {
+                sequence: 4
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALVENDASDIRETAS
+                endUserAlias: D
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTAL_VENDA (
+            type: plainText
+            heading {
+                heading: Total Venda
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AU
+            }
+        )
+
+        column "Vlr Gerente" (
+            type: plainText
+            heading {
+                heading: Vlr gerente
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AG
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression: pck_util.fnc_verificaacesso(2818,v('APP_USER')) = 'N'
+            }
+        )
+
+        column "Vlr Manutenções" (
+            type: plainText
+            heading {
+                heading: Vlr manutenções
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        savedReport 1531667 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 15
+            }
+
+            displayColumn CHEQUESEMFUNDO (
+                sequence: 20
+            )
+
+            displayColumn COMISSAOACORDOAKI (
+                sequence: 22
+            )
+
+            displayColumn COMISSAOBALANCOGESTOR (
+                sequence: 23
+            )
+
+            displayColumn COMISSAOCOBRAKI (
+                sequence: 21
+            )
+
+            displayColumn COMISSOESFAVORITAGERENTE (
+                sequence: 14
+            )
+
+            displayColumn COMISSOESFAVORITAREPRES (
+                sequence: 13
+            )
+
+            displayColumn COMISSOESROMANCE (
+                sequence: 12
+            )
+
+            displayColumn CONCLUIDO (
+                sequence: 2
+            )
+
+            displayColumn "Fator Conversor" (
+                sequence: 10
+            )
+
+            displayColumn IDSEMANA (
+                sequence: 19
+            )
+
+            displayColumn "Notas novas" (
+                sequence: 5
+            )
+
+            displayColumn "Nro de Acertos" (
+                sequence: 6
+            )
+
+            displayColumn PERCDEBITOSEMABERTO (
+                sequence: 18
+            )
+
+            displayColumn PERCDESPESA (
+                sequence: 4
+            )
+
+            displayColumn PERC_INAD (
+                sequence: 17
+            )
+
+            displayColumn SEMANA (
+                sequence: 1
+            )
+
+            displayColumn TOTALCOBRANCA (
+                sequence: 3
+            )
+
+            displayColumn TOTALDEBITOSEMABERTO (
+                sequence: 15
+            )
+
+            displayColumn TOTALENTRADASDIVERSAS (
+                sequence: 9
+            )
+
+            displayColumn TOTALGAVETA (
+                sequence: 7
+            )
+
+            displayColumn TOTALRESGATE (
+                sequence: 8
+            )
+
+            displayColumn TOTAL_VENDA (
+                sequence: 16
+            )
+
+            displayColumn "Vlr Gerente" (
+                sequence: 11
+            )
+
+            sort (
+                column: FILIAL
+                sort {
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: IDFECHAMENTO
+                sort {
+                    direction: desc
+                    sequence: 2
+                }
+            )
+
+            highlight ir-condition (
+                name: Meta Negativa
+                condition {
+                    column: "% Venda Favorita"
+                    operator: <
+                    value: 10
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #C20000
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Meta Positiva
+                condition {
+                    column: "% Venda Favorita"
+                    operator: >=
+                    value: 10
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #006E0D
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-3 (
+                name: "Despesas "
+                condition {
+                    column: PERCDESPESA
+                    operator: <
+                    value: 28
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #006300
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-4 (
+                name: Despesas Altas
+                condition {
+                    column: PERCDESPESA
+                    operator: >
+                    value: 28
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #FC0000
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    region semana-atual-da-favorita (
+        name: Semana Atual da Favorita
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select trim(to_char(sysdate,'IW/RRRR') ) "Semana"
+                     , nvl( round( ( select sum(p.valorcobrado)
+                                     from boletos p
+                                     where p.idfilial = :P0_IDFILIAL
+                                       and p.situacao != 'Z'
+                                       and p.semanabaixa =  trim(to_char(sysdate,'IW/RRRR') ) )) ,0)
+                     + nvl(( select sum(pp.vlrtotalsemcomissao)
+                             from pedidos pp
+                             where pp.idfilial = :P0_IDFILIAL
+                               and pp.semanaemissao = trim(to_char(sysdate,'IW/RRRR') )
+                               and pp.situacao        = 'O'),0)
+                     + nvl(( select sum(pf.valorapagar)
+                             from favorita.pedidos pf
+                             where pf.idfilialromance = :P0_IDFILIAL
+                               and pf.idsituacaoentrega = 30000
+                               and to_char(pf.dataemissao,'IW/RRRR') = trim(to_char(sysdate,'IW/RRRR') )),0)
+                     + nvl( round( ( select sum(pg.valorpago)
+                                     from favorita.pagamentospedidos pg
+                                     where pg.idsemanapago = pck_util.fnc_idsemana(trim(to_char(sysdate,'IW/RRRR')))
+                                       and pg.valorpago    > 0
+                                       and exists ( select 1
+                                                    from favorita.vencimentospedidos v
+                                                    where v.idvencimentopedido = pg.idvencimentopedido
+                                                      and v.situacaovencimento = 'V'
+                                                      and exists ( select 1
+                                                                   from favorita.pedidos pf
+                                                                   where pf.idpedido = v.idpedido
+                                                                     and pf.idfilialromance = :P0_IDFILIAL ) ) ) ) ,0) "Total Venda Favorita"
+                from dual
+                ```
+        }
+        layout {
+            sequence: 10
+            parentRegion: @venda-favorita
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: " - "
+        }
+        performance {
+            maxRowsToProcess: 500
+        }
+        messages {
+            whenNoDataFound: dados não encontrados
+        }
+
+        column Semana (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column "Total Venda Favorita" (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Total Venda Favorita
+            }
+            layout {
+                sequence: 2
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region venda-favorita (
+        name: Venda Favorita
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    button create (
+        buttonName: CREATE
+        label: Novo Fechamento
+        layout {
+            sequence: 30
+            region: @fechamento-semanal
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--iconRight
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 92
+                items: {
+                    P92_IDFECHAMENTO:
+                }
+                clearCache: 92
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: noRowsReturned
+            sqlQuery:
+                ```sql
+                select * 
+                from fechamentossemanais f
+                where nvl(f.concluido,'N') = 'N'
+                AND F.idfilial = :P0_IDFILIAL
+                ```
+        }
+    )
+
+    process atualiza (
+        name: atualiza
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare 
+                  vidsemana number := pck_util.fnc_idsemanadata(sysdate)-52;
+                begin
+                  --
+                  for i in (select idfechamento
+                             from fechamentossemanais 
+                             where idfilial = :P0_IDFILIAL       
+                               and idsemana > vidsemana
+                             ORDER BY 1)
+                  LOOP
+                    --
+                    pck_acertosfechamento.prc_atualiza_fechamento(i.idfechamento);
+                    --
+                  END LOOP;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeRegions
+        }
+        advanced {
+            executionMappingIdentifier: 302905463574998887
+        }
+    )
+
+)
+

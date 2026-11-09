@@ -1,0 +1,1636 @@
+page 119 (
+    name: "Vencimentos de Pedidos "
+    title: "Vencimentos de Pedidos "
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function imprimeboleto(vidpedido,vidvendedora)
+            {   
+              /*vurl = 'https://boleto.romancemoda.com.br/boleto_bb_favorita_sem_iframe_com_pix_v2.php?cod1='+vidpedido+'&cod2='+vidvendedora;*/
+              vurl = document.getElementById('P0_URLBOLETOBASE').value+'?cod1='+vidpedido+'&cod2='+vidvendedora;
+              pjan = window.open(vurl,'boleto','toolbar=no,location=no,status=no,menubar=yes,scrollbars=yes,resizable=no,width=1024,height=1000,left=20,top=10','_blank'); 
+              pjan.focus();
+            }
+            
+            function fnc_gerartarefa(pid)
+            {
+              document.getElementById("P119_IDEDITAR").value = pid;
+              apex.submit('GERARTAREFA');
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region vencimentos-de-pedidos (
+        name: Vencimentos de Pedidos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select v.idvencimentopedido
+                     , case 
+                         when favorita.pck_util_fav.fnc_retornapedidowidecommerce(p.idpedido) is null then
+                           '<a href="javascript:window.open('''||APEX_UTIL.PREPARE_URL('f?p=' || 2000 || ':68:'||v('APP_SESSION')||'::NO::P68_IDPEDIDO:'||p.idpedido ,'SESSION')||''',''_blank''); void(0)">'||p.idpedido||'</a>' 
+                         when favorita.pck_util_fav.fnc_retornapedidowidecommerce(p.idpedido) is not null then
+                           '<a href="javascript:window.open('''||APEX_UTIL.PREPARE_URL('f?p=' || 2000 || ':415:'||v('APP_SESSION')||'::NO::P415_IDPEDIDO:'||p.idpedido ,'SESSION')||''',''_blank''); void(0)">'||p.idpedido||'</a>' 
+                       end nrpedidos     
+                     , v.datavencimento
+                     , (p.vendedora||' - '||p.cpf) vendedora
+                     , v.valorpagar
+                     , v.valorpago
+                     , v.saldo
+                     , v.verificarnaconta
+                     , v.idtarefa
+                     , case
+                         when p.idsituacaocobranca = 600 then
+                           v.situacaovencimento||' (Incobrável)'
+                         when v.datavencimento >= trunc(sysdate) and v.saldo = 0 then
+                           v.situacaovencimento||' (Quitado)'
+                         when v.datavencimento >= trunc(sysdate) then 
+                           v.situacaovencimento||' (Aberto)'
+                         when v.datavencimento < trunc(sysdate) and v.saldo > 0 then
+                           v.situacaovencimento||' (Vencido)'
+                         when v.datavencimento < trunc(sysdate) and v.saldo = 0 then
+                           v.situacaovencimento||' (Quitado)'
+                       end situacaodovencimento
+                     , v.codsituacaovencimento
+                     , null efetuarpagamento
+                     , case 
+                         when (select 1 
+                               from pagamentospedidos pg
+                               where pg.idvencimentopedido = v.idvencimentopedido
+                                 and pg.idformapagamento   = 1
+                                 and rownum = 1 ) = 1 then
+                           '<a href=javascript:imprimeboleto('||p.idpedido||','||p.idvendedora||');><img src="#IMAGE_PREFIX#magnifying_glass_white_bg.gif" alt=""/></a>' 
+                         else
+                          '-'
+                       end url
+                     , case 
+                         when v.saldo > 0 and :P119_DATAATUALIZADO > v.datavencimento then
+                           pck_util_fav.fnc_calculajuros(pvalororiginal      => v.saldo,
+                                                         pdatavencimentoorig => v.datavencimento,
+                                                         pdatavencimentonovo => to_date(:P119_DATAATUALIZADO,'DD/MM/RRRR'),
+                                                         ppercmulta          => 2,
+                                                         ppercjuros          => 1)
+                         when v.saldo > 0 and trunc(sysdate) > v.datavencimento then
+                           pck_util_fav.fnc_calculajuros(pvalororiginal      => v.saldo,
+                                                         pdatavencimentoorig => v.datavencimento,
+                                                         pdatavencimentonovo => to_date(:P119_DATAATUALIZADO,'DD/MM/RRRR'),
+                                                         ppercmulta          => 2,
+                                                         ppercjuros          => 1)         else
+                           v.saldo
+                       end valoratualizado
+                     , idvencimentopedido verpagamentos
+                     , p.filialromance
+                     , p.representante 
+                     , p.idpedido verhistoricos
+                     , case
+                         when ( select 1
+                                from classificacoespedidos c
+                                where c.idcaracteristicapedido = 28
+                                  and c.idpedido               = v.idpedido
+                                  and not exists ( select 1
+                                                   from classificacoespedidos c
+                                                   where c.idcaracteristicapedido = 27
+                                                     and c.idpedido               = v.idpedido ) ) = 1 then
+                           'Sim'
+                         else 
+                           'Não'
+                       end pedidoproprio
+                      , ( select roman.pck_romance.fnc_nomecidade(idcidade)
+                          from pessoas pp
+                             , vendedoras vv
+                          where vv.idvendedora = p.idvendedora
+                            and vv.idpessoa    = pp.idpessoa ) nomecidade
+                      , p.idpedido
+                      , case 
+                          when v.datavencimento < trunc(sysdate) and not exists ( select 1
+                                                                                  from tarefas t
+                                                                                  where t.idpedido = p.idpedido
+                                                                                    and t.idtipotarefa = 4 
+                                                                                    and t.idsituacao in (0,10,20,40) ) then
+                            '<a href="javascript:fnc_gerartarefa('|| p.idpedido ||')" ><img src="#APP_IMAGES#ok.png"  border="0"></a>' 
+                          else
+                           '<font color="red">Tarefa já Gerada '||(select idtarefa 
+                                                                   from tarefas t
+                                                                   where t.idpedido = p.idpedido
+                                                                     and t.idtipotarefa = 4
+                                                                     and t.idsituacao = 0)||'</font>'
+                        end tarefacobranca
+                      , p.situacaocobrancainterno
+                      , null smsboleto
+                from vw_vencimentospedidos_fav v
+                   , vw_pedidos_fav            p
+                where p.idpedido = v.idpedido
+                  and p.ididioma = :P0_IDIDIOMA
+                  and ( :P119_FILTRARDATA = 'N' or :P119_FILTRARDATA = 'E' or ( :P119_FILTRARDATA = 'V' and v.datavencimento between to_date(:P119_DATAINI,'DD/MM/RRRR') and to_date(:P119_DATAFIM,'DD/MM/RRRR') ) )
+                  and ( :P119_FILTRARDATA = 'N' or :P119_FILTRARDATA = 'V' or ( :P119_FILTRARDATA = 'E' and p.dataemissao between to_date(:P119_DATAINI,'DD/MM/RRRR') and to_date(:P119_DATAFIM,'DD/MM/RRRR') ) )
+                 -- and ( :P119_FILTRARDATA = 'N' or ( :P119_FILTRARDATA = 'V' and v.datavencimento between to_date(:P119_DATAINI,'DD/MM/RRRR') and to_date(:P119_DATAFIM,'DD/MM/RRRR') ) or ( :P119_FILTRARDATA = 'E' and p.dataemissao between to_date(:P119_DATAINI,'DD/MM/RRRR') and to_date(:P119_DATAFIM,'DD/MM/RRRR') ) )
+                  and ( :P119_SITUACAO is null or v.codsituacaovencimento = :P119_SITUACAO )
+                   and ( ( ( :P119_VISUALIZATODOS = 'S' and :P119_FILIALROMANCE is null) 
+                            or p.idfilialromance = :P119_FILIALROMANCE )
+                        or (( select nvl(u.atendenteloja,'N') 
+                               from usuarios u   
+                               where idusuario =  :P0_IDUSUARIO ) = 'N' and p.idfilialromance = roman.pck_romance.fnc_filialusuario(v('APP_USER')) )
+                        or ((( select nvl(u.atendenteloja,'N') 
+                               from usuarios u   
+                               where idusuario =  :P0_IDUSUARIO )= 'S' and :P119_FILIALROMANCE is null) 
+                               or p.idfilialromance = :P119_FILIALROMANCE ))
+                  and ( :P119_FILIALFAVORITA is null or p.idfilialfavorita = :P119_FILIALFAVORITA )
+                  and ( :P119_DISTRIBUIDORA is null or p.idrepresentante = :P119_DISTRIBUIDORA )
+                  and ( :P119_CONSULTORA is null or p.idvendedora = :P119_CONSULTORA )
+                  and ( :P119_NRPEDIDO is null or v.idpedido = :P119_NRPEDIDO )
+                  and ( :P119_IDCIDADE is null or exists ( select 1
+                                                           from pessoas pp
+                                                              , vendedoras vv
+                                                           where vv.idvendedora = p.idvendedora
+                                                             and vv.idpessoa    = pp.idpessoa
+                                                             and pp.idcidade    = :P119_IDCIDADE ) )
+                  and ( :P119_NRBOLETO is null or exists ( select 1
+                                                           from pagamentospedidos pg
+                                                           where pg.idvencimentopedido = v.IDVENCIMENTOPEDIDO
+                                                             and pg.idformapagamento   = 1
+                                                             and pg.numeroboleto = :P119_NRBOLETO ) )
+                                       
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression:
+                ```sql
+                :P119_DATAINI is not null
+                or :P119_DATAFIM is not null
+                or :P119_SITUACAO is not null
+                or :P119_FILIALFAVORITA is not null
+                or :P119_FILIALROMANCE is not null
+                or :P119_FILIALFAVORITA is not null
+                or :P119_DISTRIBUIDORA is not null
+                or :P119_CONSULTORA is not null
+                or :P119_IDCIDADE is not null
+                or :P119_NRPEDIDO is not null
+                or :P119_NRBOLETO is not null
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToYOfZ
+        }
+        performance {
+            maxRowsToProcess: 100000
+        }
+        messages {
+            whenNoDataFound: Nenhum Vencimento encontrado!
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            savePublicReport: true
+            subscription: false
+        }
+        componentAdvanced {
+            maxRowsPerPageInSelector: 1000
+        }
+        advanced {
+            savedReportMappingIdentifier: 16658447763982786393
+        }
+
+        column CODSITUACAOVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Cod. Situação Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 121
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column DATAVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 11
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/rrrr
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column EFETUARPAGAMENTO (
+            type: link
+            heading {
+                heading: Efetuar Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 61
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 321
+                    items: {
+                        P321_IDVENCIMENTOPEDIDO: #IDVENCIMENTOPEDIDO#
+                        P321_IDPAGAMENTOPEDIDO:
+                        P321_PAGINAORIGEM: 119
+                        P321_DATAPAGAMENTO:
+                        P321_OBSERVACAO:
+                        P321_NUMEROCOMPROVANTE:
+                        P321_DESCONTO:
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil.png" class="apex-edit-pencil" alt="">
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column FILIALROMANCE (
+            type: plainText
+            heading {
+                heading: Filial Romance
+                alignment: center
+            }
+            layout {
+                sequence: 141
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column IDPEDIDO (
+            type: hidden
+            heading {
+                heading: Idpedido
+            }
+            layout {
+                sequence: 191
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDTAREFA (
+            type: plainText
+            heading {
+                heading: Tarefa
+                alignment: center
+            }
+            layout {
+                sequence: 71
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column IDVENCIMENTOPEDIDO (
+            type: plainText
+            heading {
+                heading: Cód. Pedido
+                alignment: end
+            }
+            layout {
+                sequence: 1
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NOMECIDADE (
+            type: plainText
+            heading {
+                heading: Cidade
+                alignment: center
+            }
+            layout {
+                sequence: 181
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column NRPEDIDOS (
+            type: plainText
+            heading {
+                heading: Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 231
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column PEDIDOPROPRIO (
+            type: plainText
+            heading {
+                heading: Pedido Próprio
+                alignment: center
+            }
+            layout {
+                sequence: 171
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 151
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo Devedor
+                alignment: center
+            }
+            layout {
+                sequence: 51
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column SITUACAOCOBRANCAINTERNO (
+            type: plainText
+            heading {
+                heading: Situação Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 211
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column SITUACAODOVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Situação Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 91
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column SMSBOLETO (
+            type: link
+            heading {
+                heading: Enviar SMS Boleto/Depósito
+                alignment: center
+            }
+            layout {
+                sequence: 221
+            }
+            link {
+                target: {
+                    page: 384
+                    items: {
+                        P384_IDPEDIDO: #IDPEDIDO#
+                        P384_TELEFONE:
+                    }
+                    action: resetPagination
+                }
+                linkText: <b>Enviar SMS<b>
+                linkAttributes: class="t-Button t-Button--sucess"
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column TAREFACOBRANCA (
+            type: plainText
+            heading {
+                heading: Gerar Tarefa Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 201
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from dual
+                    where pck_util_fav.fnc_verificaacesso(36012,:P0_IDUSUARIO) = 'S';
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column URL (
+            type: plainText
+            heading {
+                heading: Ver Boleto
+                alignment: center
+            }
+            layout {
+                sequence: 101
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column VALORATUALIZADO (
+            type: plainText
+            heading {
+                heading: Valor Atualizado P/ Data Selecionada
+                alignment: center
+            }
+            layout {
+                sequence: 111
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column VALORPAGAR (
+            type: plainText
+            heading {
+                heading: Valor Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 21
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column VALORPAGO (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 31
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column VENDEDORA (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 81
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column VERHISTORICOS (
+            type: link
+            heading {
+                heading: Ver Históricos
+                alignment: center
+            }
+            layout {
+                sequence: 161
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 215
+                    items: {
+                        P215_IDPEDIDO: #IDPEDIDO#
+                    }
+                    action: resetPagination
+                }
+                linkText: <b>Ver Históricos</b>
+                linkAttributes: class="t-Button t-Button--sucess"
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column VERIFICARNACONTA (
+            type: plainText
+            heading {
+                heading: Verificar na Conta
+                alignment: center
+            }
+            layout {
+                sequence: 41
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column VERPAGAMENTOS (
+            type: link
+            heading {
+                heading: Ver Pagamentos
+                alignment: center
+            }
+            layout {
+                sequence: 131
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 208
+                    items: {
+                        P208_IDVENCIMENTOPEDIDO: #IDVENCIMENTOPEDIDO#
+                    }
+                    action: resetPagination
+                }
+                linkText: <b>Ver Pagamentos</b>
+                linkAttributes: class="t-Button t-Button--sucess"
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 50520071 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CODSITUACAOVENCIMENTO (
+                sequence: 11
+            )
+
+            displayColumn DATAVENCIMENTO (
+                sequence: 3
+            )
+
+            displayColumn EFETUARPAGAMENTO (
+                sequence: 12
+            )
+
+            displayColumn FILIALROMANCE (
+                sequence: 16
+            )
+
+            displayColumn IDPEDIDO (
+                sequence: 21
+            )
+
+            displayColumn IDTAREFA (
+                sequence: 9
+            )
+
+            displayColumn IDVENCIMENTOPEDIDO (
+                sequence: 1
+            )
+
+            displayColumn NOMECIDADE (
+                sequence: 20
+            )
+
+            displayColumn NRPEDIDOS (
+                sequence: 2
+            )
+
+            displayColumn PEDIDOPROPRIO (
+                sequence: 19
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 17
+            )
+
+            displayColumn SALDO (
+                sequence: 7
+            )
+
+            displayColumn SITUACAOCOBRANCAINTERNO (
+                sequence: 23
+            )
+
+            displayColumn SITUACAODOVENCIMENTO (
+                sequence: 10
+            )
+
+            displayColumn SMSBOLETO (
+                sequence: 24
+            )
+
+            displayColumn TAREFACOBRANCA (
+                sequence: 22
+            )
+
+            displayColumn URL (
+                sequence: 13
+            )
+
+            displayColumn VALORATUALIZADO (
+                sequence: 14
+            )
+
+            displayColumn VALORPAGAR (
+                sequence: 5
+            )
+
+            displayColumn VALORPAGO (
+                sequence: 6
+            )
+
+            displayColumn VENDEDORA (
+                sequence: 4
+            )
+
+            displayColumn VERHISTORICOS (
+                sequence: 18
+            )
+
+            displayColumn VERIFICARNACONTA (
+                sequence: 8
+            )
+
+            displayColumn VERPAGAMENTOS (
+                sequence: 15
+            )
+
+            filter ir-condition (
+                column: SITUACAODOVENCIMENTO
+                operator: in
+                value: Válido (Aberto),Válido (Vencido),Válido (Quitado),Válido (Incobrável),Válido (Incobrável)
+            )
+
+            controlBreak (
+                column: VENDEDORA
+                layout {
+                    sequence: 1
+                }
+            )
+
+            controlBreak (
+                column: SITUACAODOVENCIMENTO
+                layout {
+                    sequence: 2
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P119_CONSULTORA (
+        type: popupLov
+        label {
+            label: Cliente
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(p.nomepessoa)||' ('||nvl(p.cpf,p.documentoestrangeiro)||')' display_value
+                     , v.idvendedora
+                from vendedoras v
+                   , pessoas p
+                where p.idpessoa = v.idpessoa
+                  and (:P119_DISTRIBUIDORA is null or v.idrepresentante = :P119_DISTRIBUIDORA) 
+                order by 1
+                ```
+            nullDisplayValue: - Todas -
+        }
+        cascadingLov {
+            parentItems: P119_DISTRIBUIDORA
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_DATAATUALIZADO (
+        type: datePickerJquery
+        label {
+            label: Valor Atualizado P/
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @vencimentos-de-pedidos
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+            column: 9
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 8
+        }
+        default {
+            type: expression
+            plsqlExpression: sysdate
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_DATAINI (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_DISTRIBUIDORA (
+        type: popupLov
+        label {
+            label: Distribuidora
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ROMAN.pck_romance.fnc_nomerepresentante(idrepresentante) DISPLAY_VALUE
+                     , idrepresentante RETURN_VALUE
+                from representantes
+                where (:P119_FILIALROMANCE is null or
+                    ( :P119_FILIALROMANCE is not null and idgerente in ( select idgerente from gerentes where idfilial = :P119_FILIALROMANCE) ))
+                order by 1
+                ```
+            nullDisplayValue: - Todas -
+        }
+        cascadingLov {
+            parentItems: P119_FILIALROMANCE
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where pck_util_fav.fnc_verificaacesso(58005,:P0_IDUSUARIO) = 'S'
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_FILIALFAVORITA (
+        type: popupLov
+        label {
+            label: Filiais Favorita
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sharedComponent
+            lov: @lov-filiaisfavorita
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where pck_util_fav.fnc_verificaacesso(58005,:P0_IDUSUARIO) = 'S'
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_FILIALROMANCE (
+        type: popupLov
+        label {
+            label: Filiais Romance
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sharedComponent
+            lov: @lov-filiaisromance
+            nullDisplayValue: "- Todas - "
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where pck_util_fav.fnc_verificaacesso(58005,:P0_IDUSUARIO) = 'S'
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_FILTRARDATA (
+        type: radioGroup
+        label {
+            label: Filtrar Data
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Não;N,Vencimento;V,Emissão;E
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_IDCIDADE (
+        type: popupLov
+        label {
+            label: Cidade
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sharedComponent
+            lov: @lov-cidades
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where pck_util_fav.fnc_verificaacesso(58005,:P0_IDUSUARIO) = 'S'
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_IDEDITAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 20
+            region: @vencimentos-de-pedidos
+            slot: regionBody
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_NRBOLETO (
+        type: textField
+        label {
+            label: Nr Boleto
+            alignment: left
+        }
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_NRPEDIDO (
+        type: numberField
+        label {
+            label: Nr Pedido
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_SITUACAO (
+        type: selectList
+        label {
+            label: Situação
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Válido;V,Cancelado;C
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P119_VISUALIZATODOS (
+        type: hidden
+        layout {
+            sequence: 30
+            region: @vencimentos-de-pedidos
+            slot: regionBody
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  vvalor varchar2(1);
+                begin
+                  --
+                  vvalor := pck_util_fav.fnc_verificaacesso(58005,:P0_IDUSUARIO);
+                  --
+                  return vvalor;
+                  --
+                exception
+                when others then
+                  vvalor := 'N';
+                end;
+                ```
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  vvalor varchar2(1);
+                begin
+                  --
+                  vvalor := pck_util_fav.fnc_verificaacesso(58005,:P0_IDUSUARIO);
+                  --
+                  return vvalor;
+                  --
+                exception
+                when others then
+                  vvalor := 'N';
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 120
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction atualiza-valor-de-juros (
+        name: Atualiza Valor de Juros
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P119_DATAATUALIZADO
+        }
+        clientSideCondition {
+            type: itemIsNotNull
+            item: P119_DATAATUALIZADO
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: DATAATUALIZADO
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction mostra-data (
+        name: Mostra Data
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P119_FILTRARDATA
+        }
+        clientSideCondition {
+            type: itemIsInList
+            item: P119_FILTRARDATA
+            list: [
+                E
+                V
+            ]
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P119_DATAINI
+                    P119_DATAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P119_DATAINI
+                    P119_DATAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    validation existe-filtro (
+        name: Existe Filtro
+        execution {
+            sequence: 20
+        }
+        validation {
+            plsqlExpression:
+                ```plsql
+                :P119_DATAINI is not null
+                or :P119_DATAFIM is not null
+                or :P119_SITUACAO is not null
+                or :P119_FILIALFAVORITA is not null
+                or :P119_FILIALROMANCE is not null
+                or :P119_FILIALFAVORITA is not null
+                or :P119_DISTRIBUIDORA is not null
+                or :P119_CONSULTORA is not null
+                or :P119_IDCIDADE is not null
+                or :P119_NRPEDIDO is not null
+                or :P119_NRBOLETO is not null
+                ```
+        }
+        error {
+            errorMessage: Não é possivel filtrar sem nenhum filtro, favor filtrar alguma informação
+        }
+    )
+
+    validation valida-uso-da-data-atualizada (
+        name: Valida Uso da Data Atualizada
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: noRowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where to_date(:P119_DATAATUALIZADO,'DD/MM/RRRR') < trunc(sysdate)
+                ```
+        }
+        error {
+            errorMessage: Data não permitida, utilize uma data maior ou igual ao dia de hoje!
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P119_DATAATUALIZADO
+        }
+    )
+
+    process gerar-tarefa-de-cobrança (
+        name: Gerar Tarefa de Cobrança
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  -- Call the procedure
+                  pck_tarefas_fav.prc_geratarefacobrancacall(pidpedido => :P119_IDEDITAR,
+                                                             pidusuario => :P0_IDUSUARIO);
+                end;
+                
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Tarefa de Cobrança gerada com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 5052022830394241933
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERARTAREFA
+        }
+    )
+
+    branch (
+        name: go to page 119
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 119
+                items: {
+                    P119_SITUACAO: &P119_SITUACAO.
+                    P119_CONSULTORA: &P119_CONSULTORA.
+                    P119_NRPEDIDO: &P119_NRPEDIDO.
+                    P119_NRBOLETO: &P119_NRBOLETO.
+                    P119_FILIALFAVORITA: &P119_FILIALFAVORITA.
+                    P119_FILIALROMANCE: &P119_FILIALROMANCE.
+                    P119_DISTRIBUIDORA: &P119_DISTRIBUIDORA.
+                    P119_FILTRARDATA: &P119_FILTRARDATA.
+                    P119_DATAINI: &P119_DATAINI.
+                    P119_DATAFIM: &P119_DATAFIM.
+                    P119_IDCIDADE: &P119_IDCIDADE.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+    branch (
+        name: go to page 119
+        execution {
+            sequence: 20
+        }
+        behavior {
+            target: {
+                page: 119
+                items: {
+                    P119_DATAINI: &P119_DATAINI.
+                    P119_DATAFIM: &P119_DATAFIM.
+                    P119_SITUACAO: &P119_SITUACAO.
+                    P119_CONSULTORA: &P119_CONSULTORA.
+                    P119_NRPEDIDO: &P119_NRPEDIDO.
+                    P119_NRBOLETO: &P119_NRBOLETO.
+                    P119_DATAATUALIZADO: &P119_DATAATUALIZADO.
+                    P119_FILTRARDATA: &P119_FILTRARDATA.
+                    P119_IDCIDADE: &P119_IDCIDADE.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: DATAATUALIZADO
+        }
+    )
+
+    branch (
+        name: go to page 119
+        execution {
+            sequence: 30
+        }
+        behavior {
+            target: {
+                page: 119
+                items: {
+                    P119_DATAINI: &P119_DATAINI.
+                    P119_DATAFIM: &P119_DATAFIM.
+                    P119_SITUACAO: &P119_SITUACAO.
+                    P119_CONSULTORA: &P119_CONSULTORA.
+                    P119_NRPEDIDO: &P119_NRPEDIDO.
+                    P119_NRBOLETO: &P119_NRBOLETO.
+                    P119_DATAATUALIZADO: &P119_DATAATUALIZADO.
+                    P119_FILTRARDATA: &P119_FILTRARDATA.
+                    P119_IDCIDADE: &P119_IDCIDADE.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERARTAREFA
+        }
+    )
+
+)
+

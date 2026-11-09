@@ -1,0 +1,1936 @@
+page 191 (
+    name: Pedidos Vencidos
+    title: Pedidos Vencidos
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region débitos-clientes-sistema-novo (
+        name: Débitos clientes Sistema Novo
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select fv.idpedido numero
+                     , trunc(fv.datavencimentomenor) datavencimento
+                     , trunc(sysdate) - to_date(trunc(fv.datavencimentomenor),'dd/mm/rrrr') DiasAtrasado
+                     , fv.situacaovencimento
+                     , fv.vendedora
+                     , nvl(fv.cpf,(select documentoestrangeiro
+                                   from pessoas p
+                                   where idpessoa = fv.idpessoa)) documento
+                     , (select p.enderecoprincipal||'- n? '||p.numero||', Bairro: '||p.bairro||'- '||roman.pck_romance.fnc_nomecidade(p.idcidade)
+                        from pessoas p
+                        where idpessoa = (select idpessoa 
+                                          from vendedoras v 
+                                          where v.idvendedora = fv.idvendedora)) Endereco
+                     , ( select decode(ativo,'S','Sim','Não') 
+                         from catal.representantes r 
+                         where r.idrepresentante = fv.idrepresentante) RepresAtivo
+                     , fv.valortotal
+                     , fv.valorapagar
+                     , favorita.pck_util_fav.fnc_calculajurosporvencimento( pidpedido   => fv.idpedido,
+                                                                            ppercmulta  => 2,
+                                                                            ppercjuros  => 1) valoratualizado
+                     , fv.idrepresentante
+                     , fv.representante
+                     , pck_romance.fnc_retornatelefones(fv.idvendedora) telefones
+                     , fv.situacaocliente "Cliente Ativa"
+                     , fv.situacaopagamento
+                     , nvl(( select max(dataretorno)
+                             from notasvendas nv
+                             where nv.idvendedora = fv.idvendedora
+                               and nv.idsituacaonotavenda = 3 ),( select max(nv.dataacerto)
+                                                                  from notasvendas nv
+                                                                  where nv.idvendedora = fv.idvendedora
+                                                                    and nv.idsituacaonotavenda = 4 )) retorno
+                     , nvl( ( select 'S'
+                              from dual
+                              where ( select count(1)
+                                      from notasvendas nv
+                                      where nv.datanota <= fv.dataemissao
+                                        and nv.idvendedora = fv.idvendedora ) = 1 ),'N') abertura
+                     , nvl( ( select 'S'
+                              from dual
+                              where ( select count(1)
+                                      from notasvendas nv
+                                      where nv.idvendedora = fv.idvendedora
+                                        and nv.idsemanacobranca - nv.idsemanadistribuicao > 6 ) >= 1 ),'N') remarcada
+                     , nvl( ( select 'S'
+                              from favorita.classificacoespedidos cp
+                              where cp.idpedido = fv.idpedido 
+                                and cp.idcaracteristicapedido = 100 ),'N' ) impressao_errada
+                from favorita.vw_pedidos_fav_new fv
+                where trunc(fv.datavencimentomenor) between to_date(:P191_DATAINICIO) and to_date(:P191_DATAFIM) 
+                  and fv.idfilialromance = :P0_IDFILIAL
+                  and (:P191_REPRESENTANTE is null or :P191_REPRESENTANTE = fv.idrepresentante)
+                  and ( :P191_SITUACAO_CONSULTORA is null or (:P191_SITUACAO_CONSULTORA = 'A' or exists ( select 1
+                                                                    from vendedoras v
+                                                                    where v.idvendedora = fv.idvendedora
+                                                                      and v.ativo       = :P191_SITUACAO_CONSULTORA )  ) )
+                  and ( :P191_SITUACAO_ROMANCE = 'A' 
+                     or ( :P191_SITUACAO_ROMANCE = 'S' and exists ( select 1
+                                                                    from notasvendas nv
+                                                                    where nv.idvendedora         = fv.idvendedora
+                                                                      and nv.idsituacaonotavenda = 3 ) )
+                     or ( :P191_SITUACAO_ROMANCE = 'N' and not exists ( select 1
+                                                                        from notasvendas nv
+                                                                        where nv.idvendedora         = fv.idvendedora
+                                                                          and nv.idsituacaonotavenda = 3 ) ) )
+                  and exists ( select 1
+                               from favorita.vencimentospedidos vp
+                               where vp.situacaovencimento    = 'V'
+                                 and vp.idpedido              = fv.idpedido
+                                 and trunc(vp.datavencimento) < trunc(sysdate)
+                                 and nvl(vp.valorpago,0)      < vp.valorpagar )    
+                  and fv.datacancelamento is null
+                  and not exists ( select 1
+                                   from favorita.parcelamentospedidos pc
+                                   where pc.idpedido              = fv.idpedido )
+                  -- Maicon Aimi - 22/10/2025 - Projeto Melhorias Menu Favorita
+                  and favorita.pck_pedidos_fav.fnc_situacaopagamentoped(fv.idpedido) not in ('Pago com Juros','Incobravel')
+                ```
+            pageItemsToSubmit: [
+                P191_REPRESENTANTE
+                P191_DATAINICIO
+                P191_DATAFIM
+            ]
+        }
+        layout {
+            sequence: 20
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P191_TIPO_RELATORIO
+            value: D
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 767009789744110202
+        }
+
+        column ABERTURA (
+            type: plainText
+            heading {
+                heading: Abertura
+                alignment: center
+            }
+            layout {
+                sequence: 300
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AI
+            }
+        )
+
+        column "Cliente Ativa" (
+            type: plainText
+            heading {
+                heading: Cliente ativa
+                alignment: center
+            }
+            layout {
+                sequence: 240
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AB
+            }
+        )
+
+        column DATAVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Datavencimento
+                alignment: center
+            }
+            layout {
+                sequence: 280
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column DIASATRASADO (
+            type: plainText
+            heading {
+                heading: Dias Atrasado
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column DOCUMENTO (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 270
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column ENDERECO (
+            type: plainText
+            heading {
+                heading: Endereço
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column IDREPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Idrepresentante
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column IMPRESSAO_ERRADA (
+            type: plainText
+            heading {
+                heading: Impressao Errada?
+                alignment: center
+            }
+            layout {
+                sequence: 320
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AK
+            }
+        )
+
+        column NUMERO (
+            type: plainText
+            heading {
+                heading: Número
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column REMARCADA (
+            type: plainText
+            heading {
+                heading: Remarcada
+                alignment: center
+            }
+            layout {
+                sequence: 310
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AJ
+            }
+        )
+
+        column REPRESATIVO (
+            type: plainText
+            heading {
+                heading: Distribuidor Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 220
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column RETORNO (
+            type: plainText
+            heading {
+                heading: Retorno ao Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 290
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        column SITUACAOPAGAMENTO (
+            type: plainText
+            heading {
+                heading: Situação Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 260
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AE
+            }
+        )
+
+        column SITUACAOVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 190
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column TELEFONES (
+            type: plainText
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 230
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Total a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column VALORATUALIZADO (
+            type: plainText
+            heading {
+                heading: Valor Atualizado p/ Hoje
+                alignment: center
+            }
+            layout {
+                sequence: 250
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AD
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor total
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column VENDEDORA (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 200
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 7670215 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Cliente Ativa" (
+                sequence: 15
+            )
+
+            displayColumn DIASATRASADO (
+                sequence: 2
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 5
+            )
+
+            displayColumn ENDERECO (
+                sequence: 9
+            )
+
+            displayColumn IMPRESSAO_ERRADA (
+                sequence: 16
+            )
+
+            displayColumn NUMERO (
+                sequence: 1
+            )
+
+            displayColumn REPRESATIVO (
+                sequence: 10
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 14
+            )
+
+            displayColumn RETORNO (
+                sequence: 7
+            )
+
+            displayColumn SITUACAOPAGAMENTO (
+                sequence: 4
+            )
+
+            displayColumn SITUACAOVENCIMENTO (
+                sequence: 3
+            )
+
+            displayColumn TELEFONES (
+                sequence: 8
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 12
+            )
+
+            displayColumn VALORATUALIZADO (
+                sequence: 13
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 11
+            )
+
+            displayColumn VENDEDORA (
+                sequence: 6
+            )
+
+            aggregate (
+                column: VALORTOTAL
+            )
+
+            aggregate (
+                column: VALORAPAGAR
+            )
+
+            aggregate (
+                column: VALORATUALIZADO
+            )
+
+            controlBreak (
+                column: REPRESENTANTE
+                layout {
+                    sequence: 1
+                }
+            )
+
+            highlight ir-condition (
+                name: Abertura
+                condition {
+                    column: ABERTURA
+                    value: S
+                }
+                colors {
+                    background: #FF73FF
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Possui Nota Remarcada
+                condition {
+                    column: REMARCADA
+                    value: S
+                }
+                colors {
+                    background: #FFFF99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    region débitos-clientes-sistema-novo-2 (
+        name: Débitos clientes Sistema Novo
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(fv.idrepresentante) representante
+                     , count(distinct fv.idpedido) qtdpedidos
+                     , sum(fv.valortotal) valortotal
+                     , sum(fv.valorapagar) valorapagar
+                     , sum((favorita.pck_util_fav.fnc_calculajurosporvencimento( pidpedido   => fv.idpedido,
+                                                                            ppercmulta  => 2,
+                                                                            ppercjuros  => 1) )) valoratualizado 
+                from favorita.vw_pedidos_fav_new fv
+                where trunc(fv.datavencimentomenor) between to_date(:P191_DATAINICIO) and to_date(:P191_DATAFIM)
+                  and fv.idfilialromance = :P0_IDFILIAL
+                  and ( :P191_REPRESENTANTE is null or :P191_REPRESENTANTE = fv.idrepresentante)
+                  and ( :P191_SITUACAO_CONSULTORA is null or (:P191_SITUACAO_CONSULTORA = 'A' or exists ( select 1
+                                                                    from vendedoras v
+                                                                    where v.idvendedora = fv.idvendedora
+                                                                      and v.ativo       = :P191_SITUACAO_CONSULTORA ) ))
+                  and ( :P191_SITUACAO_ROMANCE = 'A' 
+                     or ( :P191_SITUACAO_ROMANCE = 'S' and exists ( select 1
+                                                                    from notasvendas nv
+                                                                    where nv.idvendedora         = fv.idvendedora
+                                                                      and nv.idsituacaonotavenda = 3 ) )
+                     or ( :P191_SITUACAO_ROMANCE = 'N' and not exists ( select 1
+                                                                        from notasvendas nv
+                                                                        where nv.idvendedora         = fv.idvendedora
+                                                                          and nv.idsituacaonotavenda = 3 ) ) )
+                  and exists ( select 1
+                               from favorita.vencimentospedidos vp
+                               where vp.situacaovencimento    = 'V'
+                                 and vp.idpedido              = fv.idpedido
+                                 and trunc(vp.datavencimento) < trunc(sysdate)       
+                                 and nvl(vp.valorpago,0)      < vp.valorpagar )    
+                  and fv.datacancelamento is null
+                  and not exists ( select 1
+                                   from favorita.parcelamentospedidos pc
+                                   where pc.idpedido              = fv.idpedido )
+                  -- Maicon Aimi - 22/10/2025 - Projeto Melhorias Menu Favorita
+                  and favorita.pck_pedidos_fav.fnc_situacaopagamentoped(fv.idpedido) not in ('Pago com Juros','Incobravel')
+                group by idrepresentante
+                ```
+            pageItemsToSubmit: [
+                P191_REPRESENTANTE
+                P191_DATAINICIO
+                P191_DATAFIM
+            ]
+        }
+        layout {
+            sequence: 30
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P191_TIPO_RELATORIO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 4769453973990185213
+        }
+
+        column QTDPEDIDOS (
+            type: plainText
+            heading {
+                heading: QTD Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 190
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Total a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column VALORATUALIZADO (
+            type: plainText
+            heading {
+                heading: Valor Atualizado p/ Hoje
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column VALORTOTAL (
+            type: hidden
+            heading {
+                heading: Valor Total
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 47734597 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn QTDPEDIDOS (
+                sequence: 2
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 1
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 3
+            )
+
+            displayColumn VALORATUALIZADO (
+                sequence: 5
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 4
+            )
+
+            sort (
+                column: VALORATUALIZADO
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: QTDPEDIDOS
+            )
+
+            aggregate (
+                column: VALORAPAGAR
+            )
+
+            aggregate (
+                column: VALORATUALIZADO
+            )
+
+            aggregate (
+                column: VALORTOTAL
+            )
+
+        )
+
+    )
+
+    region débitos-de-cliente-sistema-antigo (
+        name: Débitos de Cliente Sistema Antigo
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select /*FIRST_ROWS(15)*/ b.idboleto
+                     , numero
+                     , empresa "Empresa"
+                     , representante "Representante"
+                     , consultora "Consultora"
+                     , cpf "CPF"
+                     , valortotal "Valor Total"
+                     , b.datavencimento "Vencimento"
+                     , diasatrasado "Dias Atrasado"
+                     , situacao "Situação"
+                     , Telefones "Telefones"
+                     , Endereco "Endereço"
+                     , RepresAtivo "Repres Ativo"
+                     , b.valoratualizado "Valor Atualizado p/ Hoje"
+                     , b.clienteativa "Cliente Ativa"
+                     , b.spc "SPC"
+                from vw_debitosvendedfavorita b
+                where b.idfilial = :P0_IDFILIAL
+                  and (:P191_REPRESENTANTE is null or :P191_REPRESENTANTE = b.idrepresentante)
+                  and  trunc(datavencimento) between to_date(:P191_DATAINICIO) and to_date(:P191_DATAFIM) 
+                  and ( :P191_SITUACAO_CONSULTORA is null or ( :P191_SITUACAO_CONSULTORA = 'A' or b.clienteativa = :P191_SITUACAO_CONSULTORA ) )
+                ```
+            pageItemsToSubmit: [
+                P191_REPRESENTANTE
+                P191_DATAFIM
+                P191_DATAINICIO
+                P191_SITUACAO_CONSULTORA
+            ]
+        }
+        layout {
+            sequence: 50
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P191_TIPO_RELATORIO
+            value: D
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum débito encontrado!
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        actionsMenu {
+            pivot: false
+            savePublicReport: true
+            subscription: false
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 235554118278741838
+        }
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 83
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: CPF
+                endUserAlias: J
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Cliente Ativa" (
+            type: plainText
+            heading {
+                heading: Cliente ativa
+                alignment: center
+            }
+            layout {
+                sequence: 133
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column Consultora (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 73
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Consultora
+                endUserAlias: I
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Dias Atrasado" (
+            type: plainText
+            heading {
+                heading: Dias Atrasado
+                alignment: center
+            }
+            layout {
+                sequence: 53
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Dias Atrasado
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Empresa (
+            type: hidden
+            heading {
+                heading: Empresa
+            }
+            layout {
+                sequence: 43
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Empresa
+                endUserAlias: C
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Endereço (
+            type: plainText
+            heading {
+                heading: Endereço
+                alignment: center
+            }
+            layout {
+                sequence: 93
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Endereço
+                endUserAlias: L
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDBOLETO (
+            type: hidden
+            heading {
+                heading: IDBOLETO
+            }
+            layout {
+                sequence: 33
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDBOLETO
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NUMERO (
+            type: plainText
+            heading {
+                heading: Número
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: NUMERO
+                endUserAlias: B
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Repres Ativo" (
+            type: plainText
+            heading {
+                heading: Distribuidor Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 103
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Repres Ativo
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Representante
+                endUserAlias: D
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SPC (
+            type: plainText
+            heading {
+                heading: Spc
+                alignment: center
+            }
+            layout {
+                sequence: 143
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column Situação (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 63
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Situação
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Telefones (
+            type: plainText
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 113
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Telefones
+                endUserAlias: N
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Valor Atualizado p/ Hoje" (
+            type: plainText
+            heading {
+                heading: Valor Atualizado p/ Hoje
+                alignment: center
+            }
+            layout {
+                sequence: 123
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column "Valor Total" (
+            type: plainText
+            heading {
+                heading: Valor total
+                alignment: center
+            }
+            layout {
+                sequence: 13
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column Vencimento (
+            type: plainText
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            appearance {
+                formatMask: dd/mm/rrrr
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                htmlDomId: Vencimento
+                endUserAlias: F
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        savedReport 2355553 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 15
+            }
+
+            displayColumn CPF (
+                sequence: 9
+            )
+
+            displayColumn "Cliente Ativa" (
+                sequence: 15
+            )
+
+            displayColumn "Consultora" (
+                sequence: 8
+            )
+
+            displayColumn "Dias Atrasado" (
+                sequence: 6
+            )
+
+            displayColumn "Empresa" (
+                sequence: 5
+            )
+
+            displayColumn "Endereço" (
+                sequence: 10
+            )
+
+            displayColumn IDBOLETO (
+                sequence: 4
+            )
+
+            displayColumn NUMERO (
+                sequence: 2
+            )
+
+            displayColumn "Repres Ativo" (
+                sequence: 11
+            )
+
+            displayColumn "Representante" (
+                sequence: 1
+            )
+
+            displayColumn SPC (
+                sequence: 16
+            )
+
+            displayColumn "Situação" (
+                sequence: 7
+            )
+
+            displayColumn "Telefones Atualizado" (
+                sequence: 12
+            )
+
+            displayColumn "Valor Atualizado p/ Hoje" (
+                sequence: 14
+            )
+
+            displayColumn "Valor Total" (
+                sequence: 13
+            )
+
+            displayColumn "Vencimento" (
+                sequence: 3
+            )
+
+            aggregate (
+                column: "Valor Total"
+            )
+
+            aggregate (
+                column: "Valor Atualizado p/ Hoje"
+            )
+
+            controlBreak (
+                column: "Representante"
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region débitos-sistema-novo-empresas (
+        name: Débitos Sistema Novo Empresas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomefilial(fv.idfilialromance) empresa
+                     , count(distinct fv.idpedido) qtdpedidos
+                     , sum(fv.valortotal*fv.fatorconversao) valortotal
+                     , sum(fv.valorapagar*fv.fatorconversao) valorapagar
+                     , sum((favorita.pck_util_fav.fnc_calculajurosporvencimento( pidpedido   => fv.idpedido,
+                                                                            ppercmulta  => 2,
+                                                                            ppercjuros  => 1) )*fv.fatorconversao) valoratualizado 
+                from favorita.vw_pedidos_fav_new fv
+                where trunc(fv.datavencimentomenor) between to_date(:P191_DATAINICIO) and to_date(:P191_DATAFIM)
+                  and ( :P191_SITUACAO_CONSULTORA is null or ( :P191_SITUACAO_CONSULTORA = 'A' or exists ( select 1
+                                                                    from vendedoras v
+                                                                    where v.idvendedora = fv.idvendedora
+                                                                      and v.ativo       = :P191_SITUACAO_CONSULTORA ) ) )
+                  and ( :P191_SITUACAO_ROMANCE = 'A' 
+                     or ( :P191_SITUACAO_ROMANCE = 'S' and exists ( select 1
+                                                                    from notasvendas nv
+                                                                    where nv.idvendedora         = fv.idvendedora
+                                                                      and nv.idsituacaonotavenda = 3 ) )
+                     or ( :P191_SITUACAO_ROMANCE = 'N' and not exists ( select 1
+                                                                        from notasvendas nv
+                                                                        where nv.idvendedora         = fv.idvendedora
+                                                                          and nv.idsituacaonotavenda = 3 ) ) )
+                  and :P191_TIPO_RELATORIO = 'E'
+                  and fv.datacancelamento is null
+                  and exists ( select 1
+                               from favorita.vencimentospedidos vp
+                               where vp.situacaovencimento    = 'V'
+                                 and vp.idpedido              = fv.idpedido
+                                 and trunc(vp.datavencimento) < trunc(sysdate)       
+                                 and nvl(vp.valorpago,0)      < vp.valorpagar )    
+                  and not exists ( select 1
+                                   from favorita.parcelamentospedidos pc
+                                   where pc.idpedido              = fv.idpedido )
+                  -- Maicon Aimi - 22/10/2025 - Projeto Melhorias Menu Favorita
+                  and favorita.pck_pedidos_fav.fnc_situacaopagamentoped(fv.idpedido) not in ('Pago com Juros','Incobravel')
+                group by idfilialromance
+                ```
+            pageItemsToSubmit: [
+                P191_REPRESENTANTE
+                P191_DATAINICIO
+                P191_DATAFIM
+            ]
+        }
+        layout {
+            sequence: 40
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P191_TIPO_RELATORIO
+            value: E
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 4769456178240185235
+        }
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column QTDPEDIDOS (
+            type: plainText
+            heading {
+                heading: QTD Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Total a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column VALORATUALIZADO (
+            type: plainText
+            heading {
+                heading: Valor Atualizado p/ Hoje
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column VALORTOTAL (
+            type: hidden
+            heading {
+                heading: Valor Total
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 47734957 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn EMPRESA (
+                sequence: 1
+            )
+
+            displayColumn QTDPEDIDOS (
+                sequence: 2
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 3
+            )
+
+            displayColumn VALORATUALIZADO (
+                sequence: 5
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 4
+            )
+
+            sort (
+                column: VALORATUALIZADO
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: QTDPEDIDOS
+            )
+
+            aggregate (
+                column: VALORATUALIZADO
+            )
+
+            aggregate (
+                column: VALORTOTAL
+            )
+
+            aggregate (
+                column: VALORAPAGAR
+            )
+
+        )
+
+    )
+
+    region filtro (
+        name: Filtro
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+    )
+
+    pageItem P191_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: até
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P191_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: Vencimento de
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P191_REPRESENTANTE (
+        type: popupLov
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sharedComponent
+            lov: @representantes-2
+            displayExtraValues: false
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 40
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        validation {
+            maxLength: 4000
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P191_SITUACAO_CONSULTORA (
+        type: radioGroup
+        label {
+            label: Sit. Consultora
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Ativa;S,Inativa;N,Ambas;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 60
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select * 
+                from dual 
+                where v('APP_USER') in ('BRUNOMULLER','EZEQUIAS','GUILHERME')
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P191_SITUACAO_ROMANCE (
+        type: radioGroup
+        label {
+            label: Sit. na Romance
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Com Mercadoria;S,Sem Mercadoria;N,Ambas;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 70
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P191_TIPO_RELATORIO (
+        type: radioGroup
+        label {
+            label: Relatório
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Detalhado'
+                     , 'D'
+                from dual
+                union
+                select 'Resumido'
+                     , 'R'
+                from dual
+                union
+                select 'Empresas'
+                     , 'E'
+                from dual
+                where pck_romance.fnc_filialusuario(v('APP_USER')) != :P0_IDFILIAL
+                   -- 11138525 - Maicon Aimi - 29/09/2025
+                  and exists (  select 1
+                                  from roman.usuariosgruposatendimento u
+                                 where u.idgrupoatendimento = 10
+                                   and u.usuario = v('APP_USER'))
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: R
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button p191-filtrar (
+        buttonName: P191_FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 90
+            region: @filtro
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--iconRight
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+        advanced {
+            htmlDomId: P191_FILTRAR
+        }
+    )
+
+    branch (
+        name: filtrar
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 191
+                items: {
+                    P191_REPRESENTANTE: &P191_REPRESENTANTE.
+                    P191_DATAINICIO: &P191_DATAINICIO.
+                    P191_DATAFIM: &P191_DATAFIM.
+                    P191_TIPO_RELATORIO: &P191_TIPO_RELATORIO.
+                    P191_SITUACAO_CONSULTORA: &P191_SITUACAO_CONSULTORA.
+                    P191_SITUACAO_ROMANCE: &P191_SITUACAO_ROMANCE.
+                }
+                successMessage: false
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @p191-filtrar
+        }
+    )
+
+)
+

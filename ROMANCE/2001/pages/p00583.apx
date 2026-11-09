@@ -1,0 +1,1090 @@
+page 583 (
+    name: Ranking Favorita
+    title: Ranking Favorita
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function fnc_imprimelista()   
+            {
+              if ( document.getElementById('P187_TIPODATA_0').value != "" )  {
+                  var vtipodata = 'E';
+              }
+                
+              if ( document.getElementById('P187_TIPODATA_1').value != "" )  {
+                  var vtipodata = 'A';
+              }
+                
+              var vdtini = document.getElementById('P187_DTINI').value;
+              var vdtfim = document.getElementById('P187_DTFIM').value;
+              var vidrepresentante = document.getElementById('P187_IDREPRESENTANTE').value;
+                  
+              var pjanela1=window.open('f?p=&APP_ID.:49:&SESSION.::NO::P49_TIPODATA,P49_DATAINI,P49_DATAFIM,P49_IDREPRESENTANTE:'+vtipodata+','+vdtini+','+vdtfim+','+vidrepresentante,'Lista de Pedidos', 'toolbar=no,location=no,status=no,menubar=yes,scrollbars=yes,resizable=no,width=700,height=800,left=600,top=100','_blank'); pjanela1.focus(); void(0);
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region pedidos-feitos (
+        name: Pedidos Feitos
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+    )
+
+    region pedidos-resumido (
+        name: Pedidos resumido
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(r.idrepresentante )  "Representante"
+                     , nvl(ped.valorapagar,0) "Valor Total"
+                     , nvl(ped.qtd,0) "Qtd Pedidos"
+                     , nvl(paris.valorapagar,0) "Valor Total Paris"
+                     , nvl(paris.qtd,0) "Qtd Paris"
+                     , nvl(ped.valorapagar,0) + nvl(paris.valorapagar,0) "Total"
+                     , nvl(ped.qtd,0) + nvl(paris.qtd,0) "QTD Total"
+                     , '=' s1
+                     , '|' s2
+                     , '|' s3
+                     , '+' s4
+                     , m.cnpj
+                     , nvl(paris.qtd_perfumes,0) qtd_perfumes
+                     , pck_romance.fnc_nomefilial(pck_romance.fnc_filialrepresentante(r.idrepresentante)) empresa
+                from representantes r
+                   , mei m
+                   , ( select idrepresentante
+                            , sum(( select sum(v.valorpagar)
+                                 from favorita.vw_vencimentospedidos_fav v
+                                 where v.codsituacaovencimento = 'V' -- <-- valido
+                                   and v.idpedido              = pp.idpedido )) valorapagar--sum(pp.valorapagar) valorapagar -- ticket 8901701
+                            , sum(pp.valortotal) valortotal
+                            , count(distinct idpedido) qtd
+                       from favorita.pedidos pp
+                       where pp.idsituacaoentrega >= 20000
+                         and pp.tipopedido in ('P', 'T', 'V', 'R')
+                         and not exists ( select 1
+                                          from favorita.classificacoespedidos cp
+                                          where cp.idpedido = pp.idpedido 
+                                            and cp.idcaracteristicapedido = 73 )
+                         
+                         and not exists ( select 1
+                                          from favorita.classificacoespedidos c
+                                          where c.idcaracteristicapedido = 8
+                                            and c.idvalorcaracteristica  = 16
+                                            and c.idpedido               = pp.idpedido )
+                         and pp.valorapagar > 0
+                         and pp.datacancelamento is null
+                         and ( :P0_IDFILIAL is null 
+                             or ( :P0_IDFILIAL = 1135 and pp.idfilialromance in (1089,1090,1132,124,122,320,221,1070,1072,1071,1082,1083,1210,1106,1227,1223,1243) )
+                             or ( :P0_IDFILIAL != 1135 and pp.idfilialromance  = :P0_IDFILIAL ) )
+                         and ( :P583_TIPO_PESQUISA is null
+                           or ( :P583_TIPO_PESQUISA = 'D' and ( :P583_TIPODATA = 'E' and trunc(pp.dataemissao) between to_date(:P583_DTINI,'DD/MM/RRRR') and to_date(:P583_DTFIM,'DD/MM/RRRR')
+                                                             or :P583_TIPODATA = 'A' and trunc(pp.dataentrega) between to_date(:P583_DTINI,'DD/MM/RRRR') and to_date(:P583_DTFIM,'DD/MM/RRRR') ) )
+                           or ( :P583_TIPO_PESQUISA = 'S' and pp.idsemanaemissao = :P583_IDSEMANA )
+                           or ( :P583_TIPO_PESQUISA = 'P' and pp.idsemanaemissao between :P583_IDSEMANA_INI and :P583_IDSEMANA_FIM ) )  
+                       /* and (:P583_PEDIDOBRINDE = 'S' -- Mostra todos
+                           or ( :P583_PEDIDOBRINDE = 'N' and not exists (select 1
+                                                                           from favorita.classificacoespedidos c
+                                                                          where c.idpedido               = pp.idpedido
+                                                                            and c.idcaracteristicapedido = 49
+                                                                            and c.idvalorcaracteristica  = 2610 ) ) ) -- pedido de brinde*/
+                       group by idrepresentante ) ped
+                    , ( select idrepresentante
+                             , sum(pp.valorapagar) valorapagar
+                             , count(distinct idpedido) qtd
+                             , sum(( select nvl(sum(it.quantidade),0)
+                                     from favorita.itenspedidos it
+                                     where it.idpedido = pp.idpedido
+                                       and it.idprodutodetalhado in (2350,2352,2351,2349,2348,2347,2346,2345,2344,2343,2817,2818,2819,2820,2821,2822,2824,2825,2826,2827,4235,4232,4233,4234,4227,4228,4229,4230,4231,4236) )) qtd_perfumes
+                        from favorita.pedidos pp
+                        where pp.idsituacaoentrega >= 20000
+                          and ( pp.tipopedido = 'F'
+                             or exists ( select 1
+                                         from favorita.classificacoespedidos cp
+                                          where cp.idpedido = pp.idpedido 
+                                           and cp.idcaracteristicapedido = 73 ) )
+                          
+                          and not exists ( select 1
+                                           from favorita.classificacoespedidos c
+                                           where c.idcaracteristicapedido = 8
+                                             and c.idvalorcaracteristica  = 16
+                                             and c.idpedido               = pp.idpedido )
+                          and pp.valorapagar > 0
+                          and pp.datacancelamento is null
+                          and ( :P0_IDFILIAL is null 
+                             or ( :P0_IDFILIAL = 1135 and pp.idfilialromance in (1089,1090,1132,124,122,320,221,1070,1072,1071,1082,1083,1210,1106,1227,1223,1243) )
+                             or ( :P0_IDFILIAL != 1135 and pp.idfilialromance  = :P0_IDFILIAL ) )
+                          and ( :P583_TIPO_PESQUISA is null
+                           or ( :P583_TIPO_PESQUISA = 'D' and ( :P583_TIPODATA = 'E' and trunc(pp.dataemissao) between to_date(:P583_DTINI,'DD/MM/RRRR') and to_date(:P583_DTFIM,'DD/MM/RRRR')
+                                                             or :P583_TIPODATA = 'A' and trunc(pp.dataentrega) between to_date(:P583_DTINI,'DD/MM/RRRR') and to_date(:P583_DTFIM,'DD/MM/RRRR') ) )
+                           or ( :P583_TIPO_PESQUISA = 'S' and pp.idsemanaemissao = :P583_IDSEMANA )
+                           or ( :P583_TIPO_PESQUISA = 'P' and pp.idsemanaemissao between :P583_IDSEMANA_INI and :P583_IDSEMANA_FIM ) )  
+                        group by idrepresentante ) paris
+                where ( :P0_IDFILIAL is null
+                      or ( :P0_IDFILIAL = 1135 and exists ( select 1
+                                                            from gerentes g
+                                                            where g.idgerente = r.idgerente  
+                                                              and g.idfilial  in (1089,1090,1132,124,122,320,221,1070,1072,1071,1082,1083,1210,1106,1227,1223,1243) ) )
+                      or ( :P0_IDFILIAL != 1135 and r.idgerente = ( select idgerente
+                                                                    from gerentes g
+                                                                    where g.idfilial = :P0_IDFILIAL ) ) )
+                  and r.ativo = 'S' -- Esta linha estava comentada, foi reativada no ticket de suporte 13527232
+                  and nvl(ped.qtd,0) > 0
+                  and r.idpessoa        = m.idpessoa(+)
+                  and r.idrepresentante = ped.idrepresentante(+)
+                  and r.idrepresentante = paris.idrepresentante(+)
+                ```
+        }
+        layout {
+            sequence: 60
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1578547293212916027
+        }
+
+        column CNPJ (
+            type: plainText
+            heading {
+                heading: CNPJ
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Empresa
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column "QTD Total" (
+            type: plainText
+            heading {
+                heading: QTD
+                alignment: end
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column QTD_PERFUMES (
+            type: plainText
+            heading {
+                heading: Qtd Perfumes
+                alignment: end
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "Qtd Paris" (
+            type: plainText
+            heading {
+                heading: Qtd Paris
+                alignment: end
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "Qtd Pedidos" (
+            type: plainText
+            heading {
+                heading: QTD
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Distribuidor
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column S1 (
+            type: plainText
+            heading {
+                heading: S1
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column S2 (
+            type: plainText
+            heading {
+                heading: S2
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column S3 (
+            type: plainText
+            heading {
+                heading: S3
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column S4 (
+            type: plainText
+            heading {
+                heading: S4
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column Total (
+            type: plainText
+            heading {
+                heading: Pontos Total
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column "Valor Total" (
+            type: plainText
+            heading {
+                heading: Total Pontos
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Valor Total Paris" (
+            type: plainText
+            heading {
+                heading: Valor Total Paris
+                alignment: end
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 408459 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CNPJ (
+                sequence: 2
+            )
+
+            displayColumn "Qtd Pedidos" (
+                sequence: 3
+            )
+
+            displayColumn "Representante" (
+                sequence: 1
+            )
+
+            displayColumn "Valor Total" (
+                sequence: 4
+            )
+
+            sort (
+                column: "Valor Total"
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: "Qtd Pedidos"
+            )
+
+            aggregate (
+                column: "Valor Total"
+            )
+
+        )
+
+    )
+
+    pageItem P583_DTFIM (
+        type: datePickerJquery
+        label {
+            label: até
+            alignment: left
+        }
+        layout {
+            sequence: 60
+            region: @pedidos-feitos
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: dd/mm/rrrr
+            width: 10
+        }
+        validation {
+            maxLength: 4000
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  v number;
+                  d date;
+                begin
+                
+                  select idsemana+1
+                  into v
+                  from semana_dias
+                  where semana = to_number(substr( :P583_SEMANA,1,2))
+                    and ano    = substr( :P583_SEMANA,4,4);
+                
+                  select dt_fim
+                  into d
+                  from semana_dias
+                  where idsemana = v;
+                  return d;
+                exception
+                  when others then
+                    return null;
+                end;
+                
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P583_DTINI (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @pedidos-feitos
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: dd/mm/rrrr
+            width: 10
+        }
+        validation {
+            maxLength: 4000
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  v number;
+                  d date;
+                begin
+                
+                  select idsemana+1
+                  into v
+                  from semana_dias
+                  where semana = to_number(substr( :P583_SEMANA,1,2))
+                    and ano    = substr( :P583_SEMANA,4,4);
+                
+                  select dt_ini
+                  into d
+                  from semana_dias
+                  where idsemana = v;
+                  return d;
+                exception
+                  when others then
+                    return null;
+                end;
+                
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P583_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sharedComponent
+            lov: @representantes-2
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 100
+            region: @pedidos-feitos
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P583_IDSEMANA (
+        type: selectOne
+        label {
+            label: Semana
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select s.semanacompleta
+                     , s.idsemana
+                from semana_dias s
+                where s.ano >= 2019
+                order by idsemana
+                ```
+        }
+        layout {
+            sequence: 70
+            region: @pedidos-feitos
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P583_IDSEMANA_FIM (
+        type: selectOne
+        label {
+            label: Até Semana
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select s.semanacompleta
+                     , s.idsemana
+                from semana_dias s
+                where s.ano >= 2019
+                order by idsemana
+                ```
+        }
+        layout {
+            sequence: 90
+            region: @pedidos-feitos
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P583_IDSEMANA_INI (
+        type: selectOne
+        label {
+            label: De Semana
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select s.semanacompleta
+                     , s.idsemana
+                from semana_dias s
+                where s.ano >= 2019
+                order by idsemana
+                ```
+        }
+        layout {
+            sequence: 80
+            region: @pedidos-feitos
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P583_PEDIDOBRINDE (
+        type: radioGroup
+        label {
+            label: Mostrar Pedidos Brinde?
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @pedidos-feitos
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        serverSideCondition {
+            type: never
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P583_SEMANA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 30
+            region: @pedidos-feitos
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P583_TIPODATA (
+        type: radioGroup
+        label {
+            label: Filtar
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Emissão;E,Entrega;A
+            displayNullValue: false
+        }
+        layout {
+            sequence: 40
+            region: @pedidos-feitos
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: E
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P583_TIPO_PESQUISA (
+        type: radioGroup
+        label {
+            label: Tipo da Pesquisa
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Data;D,Semana;S,Período Semana;P
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @pedidos-feitos
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: D
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 10
+            region: @pedidos-feitos
+            slot: bottom
+            horizontalAlignment: left
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--iconRight
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction pesquisa-periodo-semana (
+        name: Pesquisa Periodo Semana
+        execution {
+            sequence: 40
+        }
+        when {
+            selectionType: items
+            items: P583_TIPO_PESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P583_TIPO_PESQUISA
+            value: P
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P583_IDSEMANA_INI
+                    P583_IDSEMANA_FIM
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P583_IDSEMANA_INI
+                    P583_IDSEMANA_FIM
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction pesquisa-semana (
+        name: Pesquisa Semana
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P583_TIPO_PESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P583_TIPO_PESQUISA
+            value: S
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P583_IDSEMANA
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P583_IDSEMANA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction tipo (
+        name: tipo
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P583_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P583_TIPO
+            value: D
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P583_IDREPRESENTANTE
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: region
+                region: @pedidos-resumido
+            }
+            execution {
+                sequence: 30
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P583_IDREPRESENTANTE
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: region
+                region: @pedidos-resumido
+            }
+            execution {
+                sequence: 30
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    dynamicAction tipo-pesquisa (
+        name: Tipo pesquisa
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P583_TIPO_PESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P583_TIPO_PESQUISA
+            value: D
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P583_TIPODATA
+                    P583_DTINI
+                    P583_DTFIM
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P583_TIPODATA
+                    P583_DTINI
+                    P583_DTFIM
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    branch (
+        name: Go To Page 187
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 583
+                items: {
+                    P583_DTINI: &P583_DTINI.
+                    P583_DTFIM: &P583_DTFIM.
+                    P583_IDREPRESENTANTE: &P583_IDREPRESENTANTE.
+                    P583_TIPO_PESQUISA: &P583_TIPO_PESQUISA.
+                    P583_TIPODATA: &P583_TIPODATA.
+                    P583_IDSEMANA: &P583_IDSEMANA.
+                    P583_IDSEMANA_INI: &P583_IDSEMANA_INI.
+                    P583_IDSEMANA_FIM: &P583_IDSEMANA_FIM.
+                }
+                successMessage: false
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

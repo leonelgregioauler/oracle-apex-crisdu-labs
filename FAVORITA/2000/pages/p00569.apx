@@ -1,0 +1,2709 @@
+page 569 (
+    name: Relatorio de Comissões Call Center
+    title: Comissões Call Center
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region comissões-por-atendente-detalhado (
+        name: Comissões Por Atendente - Detalhado
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select favorita.pck_util_fav.fnc_nomeusuario(pp.idusuario) Atendente 
+                     , (select sum(valormeta)  
+                          from favorita.metascobrancas
+                         where idusuario = pp.idusuario
+                           and datainicio = :P569_DATAINI
+                           and datafim    = :P569_DATAFIM ) valorMeta
+                     , (select sigla
+                          from catal.paises
+                         where idpais = pp.idpais) pais
+                     , wf.nome    "Filial"
+                     , pf.descricao       "Canal Venda"
+                     , pv.descricao       "Perfil Venda"
+                     , round(nvl(sum(pp.valorapagar* nvl(pp.fatorconversao,1)),0),2)    "Realizado"
+                     , round(( nvl((select sum(valormeta)  
+                                from favorita.metascobrancas
+                               where idusuario = pp.idusuario
+                                 and datainicio = :P569_DATAINI 
+                                 and datafim    = :P569_DATAFIM ) ,0)
+                         - sum(valorapagar*pp.fatorconversao) ),2) "Diferença"
+                     --
+                     , round(sum((pp.valorapagar*nvl(pp.fatorconversao,1)) * (pv.perccomissao / 100) ),2) "Comissão"
+                     , count( distinct pp.idpedido) qtd_pedidos
+                     , pf.idperfil
+                     , pv.idperfilvenda
+                     , pp.idfilialromance
+                     , pp.idpais
+                     , pp.idusuario idusuario_atendente
+                     , pp.idpedido
+                from (
+                      select distinct p.* 
+                        from favorita.classificacoespedidos cp
+                           , favorita.vw_pedidos_fav_new p
+                        where cp.idpedido = p.idpedido(+)
+                          and p.dataemissao BETWEEN to_date(nvl(:P569_DATAINI,trunc(sysdate)) || ' 000001','dd/mm/rrrr hh24miss')
+                                                     AND to_date(nvl(:P569_DATAFIM,trunc(sysdate)) || ' 235959','dd/mm/rrrr hh24miss')
+                --          and p.idusuario = 6767
+                          and p.tipopedido          in ('P','R')
+                          and p.idsituacaoentrega >= 20000
+                          and p.datacancelamento is null
+                          and p.valorapagar > 0  
+                          and favorita.pck_util_fav.fnc_verificagrupoatendimento(4, p.idusuario) = 'S') pp
+                     ,favorita.perfis             pf
+                     ,favorita.perfisvendas       pv
+                     ,favorita.perfisatendimentos pa
+                     ,roman.vw_filiais            wf
+                where pp.idperfilatendimento = pa.idperfilatendimento(+)
+                  AND pa.idperfilvenda       = pv.idperfilvenda(+)
+                  AND pv.idperfil            = pf.idperfil(+)
+                  AND wf.idfilial            = pp.idfilialromance
+                  --and pp.ididioma = :P0_IDIDIOMA
+                  AND (:P569_IDPERFIL      IS NULL OR pf.idperfil        = :P569_IDPERFIL )
+                  AND (:P569_IDPERFILVENDA IS NULL OR pv.idperfilvenda   = :P569_IDPERFILVENDA )
+                  and ( :P569_PEDIDOS_PONTOS = 'T' or
+                        ( :P569_PEDIDOS_PONTOS = 'S' and exists ( select 1
+                                                                    from classificacoespedidos c
+                                                                   where c.idcaracteristicapedido = 8
+                                                                     and c.idvalorcaracteristica  = 16
+                                                                     and c.idpedido               = pp.idpedido ) ) or
+                        ( :P569_PEDIDOS_PONTOS = 'N' and not exists ( select 1
+                                                                        from classificacoespedidos c
+                                                                       where c.idcaracteristicapedido = 8
+                                                                         and c.idvalorcaracteristica  = 16
+                                                                         and c.idpedido               = pp.idpedido ) ) ) 
+                  --
+                  and ( :P569_DIST_EMITIU = 'T' or
+                        ( :P569_DIST_EMITIU = 'S' and exists ( select 1
+                                                               from classificacoespedidos c
+                                                               where c.idpedido    = pp.idpedido
+                                                                 and c.idcaracteristicapedido = 2 ) ) or
+                        ( :P569_DIST_EMITIU = 'N' and not exists ( select 1
+                                                                   from classificacoespedidos c
+                                                                   where c.idpedido    = pp.idpedido
+                                                                     and c.idcaracteristicapedido = 2 ) ) )
+                  --
+                  and (:P569_CAMPANHA = 'T' or ( :P569_CAMPANHA = 'P' and exists ( select 1
+                                                                                     from classificacoespedidos c
+                                                                                    where c.idpedido    = pp.idpedido
+                                                                                      and c.idcaracteristicapedido = 74 ) )
+                                            or ( :P569_CAMPANHA = 'V' and exists ( select 1
+                                                                                     from classificacoespedidos c
+                                                                                    where c.idpedido    = pp.idpedido
+                                                                                      and c.idcaracteristicapedido = 78 ) ) 
+                                          or ( :P569_CAMPANHA = 'W' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                  where c.idpedido    = pp.idpedido
+                                                                                    and c.idcaracteristicapedido = 94 ) )
+                                          or ( :P569_CAMPANHA = 'B' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                  where c.idpedido    = pp.idpedido
+                                                                                    and c.idcaracteristicapedido = 96 ) )
+                                          or ( :P569_CAMPANHA = 'A' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                  where c.idpedido    = pp.idpedido
+                                                                                    and c.idcaracteristicapedido = 97 )))       
+                --
+                and (:P569_IDPAIS is null or pp.idpais   = :P569_IDPAIS)
+                and ( :P569_FILTRARFAVORITA is null
+                    or ( :P569_FILTRARFAVORITA = 'C' and pp.idfilialfavorita in ( select ff.idfilialfavorita
+                                                                                    from filiaisfavorita ff
+                                                                                   where ff.ativo = 'S'
+                                                                                     and ff.tipofilial = 'C' ) )
+                    or ( :P569_FILTRARFAVORITA = 'T' )
+                    or ( :P569_FILTRARFAVORITA = 'S' and pp.idfilialfavorita in ( select IDFILIALFAVORITA
+                                                                                    from FILTROSFILIAIS
+                                                                                   where idusuario = :P0_IDUSUARIO) ) )
+                and (:P569_FILTRARROMANCE = 'T' or pp.idfilialromance in ( select idfilialromance
+                                                                             from FILTROSEMPRESASROMANCE
+                                                                            where idusuario = :P0_IDUSUARIO)  ) 
+                and (:P569_ATENDENTE is null or pp.idusuario = :P569_ATENDENTE)
+                having sum(pp.valorapagar* nvl(pp.fatorconversao,1)) > 0
+                group by pp.idusuario
+                       , pp.idpais
+                       , wf.nome
+                       , pf.descricao
+                       , pv.descricao
+                       , pf.idperfil
+                       , pv.idperfilvenda
+                       , pp.idfilialromance
+                       , pp.idpais
+                       , pp.idusuario
+                       , pp.idpedido
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P569_TIPORELATORIO
+            value: D
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 3073480517983240702
+        }
+
+        column ATENDENTE (
+            type: plainText
+            heading {
+                heading: Atendente
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Canal Venda" (
+            type: plainText
+            heading {
+                heading: Canal Venda
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column Comissão (
+            type: plainText
+            heading {
+                heading: Comissão
+                alignment: end
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column Diferença (
+            type: plainText
+            heading {
+                heading: Diferença
+                alignment: end
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column Filial (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column IDFILIALROMANCE (
+            type: hidden
+            heading {
+                heading: Idfilialromance
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDPAIS (
+            type: hidden
+            heading {
+                heading: Idpais
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDPEDIDO (
+            type: link
+            heading {
+                heading: Nr Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 68
+                    items: {
+                        P68_IDPEDIDO: #IDPEDIDO#
+                    }
+                    action: resetPagination
+                }
+                linkText: #IDPEDIDO#
+                linkAttributes: target="_blank"
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column IDPERFIL (
+            type: hidden
+            heading {
+                heading: Idperfil
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDPERFILVENDA (
+            type: hidden
+            heading {
+                heading: Idperfilvenda
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDUSUARIO_ATENDENTE (
+            type: hidden
+            heading {
+                heading: Idusuario Atendente
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column PAIS (
+            type: plainText
+            heading {
+                heading: Pais
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "Perfil Venda" (
+            type: plainText
+            heading {
+                heading: Perfil Venda
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column QTD_PEDIDOS (
+            type: link
+            heading {
+                heading: Qtd Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 628
+                    items: {
+                        P628_DATAINI: &P569_DATAINI.
+                        P628_DATAFIM: &P569_DATAFIM.
+                        P628_IDFILIALROMANCE: #IDFILIALROMANCE#
+                        P628_IDPERFIL: #IDPERFIL#
+                        P628_IDPAIS: #IDPAIS#
+                        P628_IDPERFILVENDA: #IDPERFILVENDA#
+                        P628_IDUSUARIO_ATENDENTE: #IDUSUARIO_ATENDENTE##IDPERFILATENDIMENTO#
+                    }
+                    action: resetPagination
+                }
+                linkText: #QTD_PEDIDOS#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            serverSideCondition {
+                type: never
+            }
+        )
+
+        column Realizado (
+            type: plainText
+            heading {
+                heading: Realizado
+                alignment: end
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column VALORMETA (
+            type: plainText
+            heading {
+                heading: Valor Meta
+                alignment: end
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 30734916 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ATENDENTE (
+                sequence: 8
+            )
+
+            displayColumn "Canal Venda" (
+                sequence: 10
+            )
+
+            displayColumn "Comissão" (
+                sequence: 14
+            )
+
+            displayColumn "Diferença" (
+                sequence: 13
+            )
+
+            displayColumn "Filial" (
+                sequence: 15
+            )
+
+            displayColumn IDFILIALROMANCE (
+                sequence: 2
+            )
+
+            displayColumn IDPAIS (
+                sequence: 3
+            )
+
+            displayColumn IDPEDIDO (
+                sequence: 16
+            )
+
+            displayColumn IDPERFIL (
+                sequence: 4
+            )
+
+            displayColumn IDPERFILVENDA (
+                sequence: 5
+            )
+
+            displayColumn IDUSUARIO_ATENDENTE (
+                sequence: 6
+            )
+
+            displayColumn PAIS (
+                sequence: 9
+            )
+
+            displayColumn "Perfil Venda" (
+                sequence: 11
+            )
+
+            displayColumn QTD_PEDIDOS (
+                sequence: 1
+            )
+
+            displayColumn "Realizado" (
+                sequence: 12
+            )
+
+            displayColumn VALORMETA (
+                sequence: 7
+            )
+
+        )
+
+    )
+
+    region comissões-por-atendente-resumido (
+        name: Comissões Por Atendente - Resumido
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select favorita.pck_util_fav.fnc_nomeusuario(pp.idusuario) Atendente 
+                     , (select sum(valormeta)  
+                          from favorita.metascobrancas
+                         where idusuario = pp.idusuario
+                           and datainicio = :P569_DATAINI
+                           and datafim    = :P569_DATAFIM ) valorMeta
+                     , (select sigla
+                          from catal.paises
+                         where idpais = pp.idpais) pais
+                     , wf.nome    "Filial"
+                     , pf.descricao       "Canal Venda"
+                     , pv.descricao       "Perfil Venda"
+                     , round(nvl(sum(pp.valorapagar* nvl(pp.fatorconversao,1)),0),2)    "Realizado"
+                     , round(( nvl((select sum(valormeta)  
+                                from favorita.metascobrancas
+                               where idusuario = pp.idusuario
+                                 and datainicio = :P569_DATAINI 
+                                 and datafim    = :P569_DATAFIM ) ,0)
+                         - sum(valorapagar*pp.fatorconversao) ),2) "Diferença"
+                     --
+                     , round(sum((pp.valorapagar*nvl(pp.fatorconversao,1)) * (pv.perccomissao / 100) ),2) "Comissão"
+                     , count( distinct pp.idpedido) qtd_pedidos
+                     , pf.idperfil
+                     , pv.idperfilvenda
+                     , pp.idfilialromance
+                     , pp.idpais
+                     , pp.idusuario idusuario_atendente
+                from (
+                      select distinct p.* 
+                        from favorita.classificacoespedidos cp
+                           , favorita.vw_pedidos_fav_new p
+                        where cp.idpedido = p.idpedido(+)
+                          and p.dataemissao BETWEEN to_date(nvl(:P569_DATAINI,trunc(sysdate)) || ' 000001','dd/mm/rrrr hh24miss')
+                                                     AND to_date(nvl(:P569_DATAFIM,trunc(sysdate)) || ' 235959','dd/mm/rrrr hh24miss')
+                --          and p.idusuario = 6767
+                          and p.tipopedido          in ('P','R')
+                          and p.idsituacaoentrega >= 20000
+                          and p.datacancelamento is null
+                          and p.valorapagar > 0  
+                          and favorita.pck_util_fav.fnc_verificagrupoatendimento(4, p.idusuario) = 'S') pp
+                     ,favorita.perfis             pf
+                     ,favorita.perfisvendas       pv
+                     ,favorita.perfisatendimentos pa
+                     ,roman.vw_filiais            wf
+                where pp.idperfilatendimento = pa.idperfilatendimento(+)
+                  AND pa.idperfilvenda       = pv.idperfilvenda(+)
+                  AND pv.idperfil            = pf.idperfil(+)
+                  AND wf.idfilial            = pp.idfilialromance
+                  --and pp.ididioma = :P0_IDIDIOMA
+                  AND (:P569_IDPERFIL      IS NULL OR pf.idperfil        = :P569_IDPERFIL )
+                  AND (:P569_IDPERFILVENDA IS NULL OR pv.idperfilvenda   = :P569_IDPERFILVENDA )
+                  and ( :P569_PEDIDOS_PONTOS = 'T' or
+                        ( :P569_PEDIDOS_PONTOS = 'S' and exists ( select 1
+                                                                    from classificacoespedidos c
+                                                                   where c.idcaracteristicapedido = 8
+                                                                     and c.idvalorcaracteristica  = 16
+                                                                     and c.idpedido               = pp.idpedido ) ) or
+                        ( :P569_PEDIDOS_PONTOS = 'N' and not exists ( select 1
+                                                                        from classificacoespedidos c
+                                                                       where c.idcaracteristicapedido = 8
+                                                                         and c.idvalorcaracteristica  = 16
+                                                                         and c.idpedido               = pp.idpedido ) ) ) 
+                  --
+                  and ( :P569_DIST_EMITIU = 'T' or
+                        ( :P569_DIST_EMITIU = 'S' and exists ( select 1
+                                                               from classificacoespedidos c
+                                                               where c.idpedido    = pp.idpedido
+                                                                 and c.idcaracteristicapedido = 2 ) ) or
+                        ( :P569_DIST_EMITIU = 'N' and not exists ( select 1
+                                                                   from classificacoespedidos c
+                                                                   where c.idpedido    = pp.idpedido
+                                                                     and c.idcaracteristicapedido = 2 ) ) )
+                  --
+                  and (:P569_CAMPANHA = 'T' or ( :P569_CAMPANHA = 'P' and exists ( select 1
+                                                                                     from classificacoespedidos c
+                                                                                    where c.idpedido    = pp.idpedido
+                                                                                      and c.idcaracteristicapedido = 74 ) )
+                                            or ( :P569_CAMPANHA = 'V' and exists ( select 1
+                                                                                     from classificacoespedidos c
+                                                                                    where c.idpedido    = pp.idpedido
+                                                                                      and c.idcaracteristicapedido = 78 ) ) 
+                                          or ( :P569_CAMPANHA = 'W' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                  where c.idpedido    = pp.idpedido
+                                                                                    and c.idcaracteristicapedido = 94 ) )
+                                          or ( :P569_CAMPANHA = 'B' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                  where c.idpedido    = pp.idpedido
+                                                                                    and c.idcaracteristicapedido = 96 ) )
+                                          or ( :P569_CAMPANHA = 'A' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                  where c.idpedido    = pp.idpedido
+                                                                                    and c.idcaracteristicapedido = 97 )))       
+                --
+                and (:P569_IDPAIS is null or pp.idpais   = :P569_IDPAIS)
+                and ( :P569_FILTRARFAVORITA is null
+                    or ( :P569_FILTRARFAVORITA = 'C' and pp.idfilialfavorita in ( select ff.idfilialfavorita
+                                                                                    from filiaisfavorita ff
+                                                                                   where ff.ativo = 'S'
+                                                                                     and ff.tipofilial = 'C' ) )
+                    or ( :P569_FILTRARFAVORITA = 'T' )
+                    or ( :P569_FILTRARFAVORITA = 'S' and pp.idfilialfavorita in ( select IDFILIALFAVORITA
+                                                                                    from FILTROSFILIAIS
+                                                                                   where idusuario = :P0_IDUSUARIO) ) )
+                and (:P569_FILTRARROMANCE = 'T' or pp.idfilialromance in ( select idfilialromance
+                                                                             from FILTROSEMPRESASROMANCE
+                                                                            where idusuario = :P0_IDUSUARIO)  ) 
+                and (:P569_ATENDENTE is null or pp.idusuario = :P569_ATENDENTE)
+                having sum(pp.valorapagar* nvl(pp.fatorconversao,1)) > 0
+                group by pp.idusuario
+                       , pp.idpais
+                       , wf.nome
+                       , pf.descricao
+                       , pv.descricao
+                       , pf.idperfil
+                       , pv.idperfilvenda
+                       , pp.idfilialromance
+                       , pp.idpais
+                       , pp.idusuario
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P569_TIPORELATORIO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 531732145886655037
+        }
+
+        column ATENDENTE (
+            type: plainText
+            heading {
+                heading: Atendente
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "Canal Venda" (
+            type: plainText
+            heading {
+                heading: Canal Venda
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column Comissão (
+            type: plainText
+            heading {
+                heading: Comissão
+                alignment: end
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column Diferença (
+            type: plainText
+            heading {
+                heading: Diferença
+                alignment: end
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column Filial (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 170
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column IDFILIALROMANCE (
+            type: hidden
+            heading {
+                heading: Idfilialromance
+            }
+            layout {
+                sequence: 200
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AC
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDPAIS (
+            type: hidden
+            heading {
+                heading: Idpais
+            }
+            layout {
+                sequence: 210
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AD
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDPERFIL (
+            type: hidden
+            heading {
+                heading: Idperfil
+            }
+            layout {
+                sequence: 220
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AE
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDPERFILVENDA (
+            type: hidden
+            heading {
+                heading: Idperfilvenda
+            }
+            layout {
+                sequence: 230
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AF
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDUSUARIO_ATENDENTE (
+            type: hidden
+            heading {
+                heading: Idusuario Atendente
+            }
+            layout {
+                sequence: 240
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AG
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column PAIS (
+            type: plainText
+            heading {
+                heading: Pais
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column "Perfil Venda" (
+            type: plainText
+            heading {
+                heading: Perfil Venda
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column QTD_PEDIDOS (
+            type: link
+            heading {
+                heading: Qtd Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 628
+                    items: {
+                        P628_DATAINI: &P569_DATAINI.
+                        P628_DATAFIM: &P569_DATAFIM.
+                        P628_IDFILIALROMANCE: #IDFILIALROMANCE#
+                        P628_IDPERFIL: #IDPERFIL#
+                        P628_IDPAIS: #IDPAIS#
+                        P628_IDPERFILVENDA: #IDPERFILVENDA#
+                        P628_IDUSUARIO_ATENDENTE: #IDUSUARIO_ATENDENTE#
+                        P628_DIST_EMITIU: &P569_DIST_EMITIU.#IDPERFILATENDIMENTO#
+                    }
+                    action: resetPagination
+                }
+                linkText: #QTD_PEDIDOS#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column Realizado (
+            type: plainText
+            heading {
+                heading: Realizado
+                alignment: end
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column VALORMETA (
+            type: plainText
+            heading {
+                heading: Valor Meta
+                alignment: end
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 1001336 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 1000
+            }
+
+            displayColumn APXWS_CC_001ATENDIMENTO (
+                sequence: 11
+            )
+
+            displayColumn ATENDENTE (
+                sequence: 1
+            )
+
+            displayColumn "Canal Venda" (
+                sequence: 4
+            )
+
+            displayColumn "Comissão" (
+                sequence: 10
+            )
+
+            displayColumn "Diferença" (
+                sequence: 9
+            )
+
+            displayColumn "Filial" (
+                sequence: 3
+            )
+
+            displayColumn IDFILIALROMANCE (
+                sequence: 12
+            )
+
+            displayColumn IDPAIS (
+                sequence: 13
+            )
+
+            displayColumn IDPERFIL (
+                sequence: 14
+            )
+
+            displayColumn IDPERFILVENDA (
+                sequence: 15
+            )
+
+            displayColumn IDUSUARIO_ATENDENTE (
+                sequence: 16
+            )
+
+            displayColumn PAIS (
+                sequence: 2
+            )
+
+            displayColumn "Perfil Venda" (
+                sequence: 5
+            )
+
+            displayColumn QTD_PEDIDOS (
+                sequence: 7
+            )
+
+            displayColumn "Realizado" (
+                sequence: 6
+            )
+
+            displayColumn VALORMETA (
+                sequence: 8
+            )
+
+            computation APXWS_CC_001 (
+                identifier: C01
+                source {
+                    expression: (V / AA)
+                    dataType: number
+                }
+                label {
+                    column: Ticket Médio
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+            )
+
+            sort (
+                column: ATENDENTE
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: VALORAPAGAR
+            )
+
+            aggregate (
+                column: "Realizado"
+            )
+
+            aggregate (
+                column: QTD_PEDIDOS
+            )
+
+            aggregate (
+                column: VALORMETA
+            )
+
+            highlight ir-condition (
+                condition {
+                    column: "Diferença"
+                    operator: <
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #E6D898
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+        savedReport 15866933 (
+            visibility: alternativeDefault
+            name: Resumido por Atendete
+            view {
+                groupBy: true
+                default: groupBy
+                rowsPerPage: 100
+            }
+
+            displayColumn ATENDENTE (
+                sequence: 1
+            )
+
+            displayColumn "Canal Venda" (
+                sequence: 3
+            )
+
+            displayColumn "Comissão" (
+                sequence: 8
+            )
+
+            displayColumn "Diferença" (
+                sequence: 7
+            )
+
+            displayColumn "Filial" (
+                sequence: 9
+            )
+
+            displayColumn PAIS (
+                sequence: 2
+            )
+
+            displayColumn "Perfil Venda" (
+                sequence: 4
+            )
+
+            displayColumn QTD_PEDIDOS (
+                sequence: 10
+            )
+
+            displayColumn "Realizado" (
+                sequence: 5
+            )
+
+            displayColumn VALORMETA (
+                sequence: 6
+            )
+
+            aggregate (
+                column: VALORAPAGAR
+            )
+
+            groupByColumn (
+                column: ATENDENTE
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: Realizado
+                aggregate {
+                    column: "Realizado"
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: Qtd Pedidos
+                aggregate {
+                    column: QTD_PEDIDOS
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G999G999G990
+                }
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByAggregate (
+                heading: Diferença
+                aggregate {
+                    column: "Diferença"
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 3
+                }
+            )
+
+            groupByAggregate (
+                heading: Comissão
+                aggregate {
+                    column: "Comissão"
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 4
+                }
+            )
+
+            groupBySort (
+                column: ATENDENTE
+                sort {
+                    sequence: 1
+                }
+            )
+
+        )
+
+        savedReport 15867257 (
+            visibility: alternativeDefault
+            name: Venda
+            view {
+                groupBy: true
+                default: groupBy
+                rowsPerPage: 100
+            }
+
+            displayColumn ATENDENTE (
+                sequence: 1
+            )
+
+            displayColumn "Canal Venda" (
+                sequence: 3
+            )
+
+            displayColumn "Comissão" (
+                sequence: 8
+            )
+
+            displayColumn "Diferença" (
+                sequence: 7
+            )
+
+            displayColumn "Filial" (
+                sequence: 9
+            )
+
+            displayColumn PAIS (
+                sequence: 2
+            )
+
+            displayColumn "Perfil Venda" (
+                sequence: 4
+            )
+
+            displayColumn QTD_PEDIDOS (
+                sequence: 10
+            )
+
+            displayColumn "Realizado" (
+                sequence: 5
+            )
+
+            displayColumn VALORMETA (
+                sequence: 6
+            )
+
+            aggregate (
+                column: VALORAPAGAR
+            )
+
+            aggregate (
+                column: "Realizado"
+            )
+
+            aggregate (
+                column: VALORMETA
+            )
+
+            aggregate (
+                column: QTD_PEDIDOS
+            )
+
+            groupByColumn (
+                column: ATENDENTE
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByColumn (
+                column: "Canal Venda"
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByColumn (
+                column: "Perfil Venda"
+                layout {
+                    sequence: 3
+                }
+            )
+
+            groupByAggregate (
+                heading: Realizado
+                aggregate {
+                    column: "Realizado"
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: Qtd Pedido
+                aggregate {
+                    column: QTD_PEDIDOS
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G999G999G990
+                }
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByAggregate (
+                heading: Meta
+                aggregate {
+                    column: VALORMETA
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 3
+                }
+            )
+
+            groupByAggregate (
+                heading: Diferença
+                aggregate {
+                    column: "Diferença"
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 4
+                }
+            )
+
+            groupByAggregate (
+                heading: Comissão
+                aggregate {
+                    column: "Comissão"
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 5
+                }
+            )
+
+            groupBySort (
+                column: ATENDENTE
+                sort {
+                    sequence: 1
+                }
+            )
+
+            groupBySort (
+                column: "Canal Venda"
+                sort {
+                    sequence: 2
+                }
+            )
+
+            groupBySort (
+                column: "Perfil Venda"
+                sort {
+                    sequence: 3
+                }
+            )
+
+        )
+
+    )
+
+    region opções (
+        name: "Opções "
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region pedidos-atendentes (
+        name: Pedidos Atendentes
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.idpedido                                                       as "Pedido"
+                     , initcap( ff.nomefilialfavorita )                                 as "Loja Favorita"
+                     , fr.nome                                                          as "Filial Romance"
+                     , favorita.pck_util_fav.fnc_nomeusuario( p.idusuario )             as "Atendente"
+                     , favorita.pck_util_fav.fnc_nomerepresentante( p.idrepresentante ) as "Distribuidor"
+                     , favorita.pck_util_fav.fnc_nomevendedora( p.idvendedora )         as "Vendedora"
+                     , p.dataemissao                                                    as "Data Emissão"
+                     , p.dataentrega                                                    as "Data Entrega"
+                     , p.valortotal                                                     as "R$ Total Pedido"
+                     , p.valorapagar                                                    as "R$ Pagar Pedido"
+                     , round( p.valorapagar * (pv.perccomissao / 100),2)                as "R$ Comissão Pedido"
+                     , pv.perccomissao                                                  as "% Comissão"
+                  from favorita.pedidos            p
+                     , favorita.filiaisfavorita    ff
+                     , roman.vw_filiais            fr
+                     , favorita.perfisatendimentos pa
+                     , favorita.perfisvendas       pv
+                 where -- joins
+                       ff.idfilialfavorita = p.idfilialfavorita
+                   and fr.idfilial = p.idfilialromance
+                   and pa.idperfilatendimento(+) = p.idperfilatendimento
+                   and pv.idperfilvenda(+) = pa.idperfilvenda
+                   -- Filtros fixos    
+                   and p.tipopedido in ('P','R')
+                   and p.idsituacaoentrega >= 20000
+                   and p.datacancelamento is null 
+                   and favorita.pck_util_fav.fnc_verificagrupoatendimento(4, p.idusuario) = 'S'
+                   -- Período inicial e final
+                   and p.dataemissao between to_date(:P569_DATAINI||' 00:00:00','DD/MM/RRRR HH24:MI:SS') 
+                                         and to_date(:P569_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                   -- Perfil
+                   and (:P569_IDPERFIL is null or p.idperfilatendimento = :P569_IDPERFIL)
+                   -- Perfil Venda
+                   and (:P569_IDPERFILVENDA is null or exists (select 1
+                                                                 from favorita.perfisvendas pf
+                                                                where pf.idperfil = p.idperfilatendimento
+                                                                  and pf.idperfilvenda = :P569_IDPERFILVENDA))
+                   -- País
+                   and (:P569_IDPAIS is null or p.idpais = :P569_IDPAIS)
+                   -- Atendente
+                   and (:P569_ATENDENTE is null or p.idusuario = :P569_ATENDENTE)
+                   -- Filtrar loja favorita
+                   and (    ( :P569_FILTRARFAVORITA is null or :P569_FILTRARFAVORITA = 'T' )
+                         or ( :P569_FILTRARFAVORITA = 'C' and p.idfilialfavorita in ( select ff.idfilialfavorita
+                                                                                        from favorita.filiaisfavorita ff
+                                                                                       where ff.ativo = 'S'
+                                                                                         and ff.tipofilial = 'C' ) )
+                         or ( :P569_FILTRARFAVORITA = 'S' and p.idfilialfavorita in ( select idfilialfavorita
+                                                                                        from favorita.filtrosfiliais ff
+                                                                                       where idusuario = :P0_IDUSUARIO) ) )
+                   -- Filtrar por filial Romance
+                   and (:P569_FILTRARROMANCE = 'T' or p.idfilialromance in ( select fr.idfilialromance
+                                                                               from favorita.filtrosempresasromance fr
+                                                                              where fr.idusuario = :P0_IDUSUARIO)  )
+                   -- Filtro pontos
+                   and (    ( :P569_PEDIDOS_PONTOS = 'T' )
+                         or ( :P569_PEDIDOS_PONTOS = 'S' and exists ( select 1
+                                                                        from favorita.classificacoespedidos c
+                                                                       where c.idcaracteristicapedido = 8
+                                                                         and c.idvalorcaracteristica  = 16
+                                                                         and c.idpedido               = p.idpedido ) ) 
+                         or ( :P569_PEDIDOS_PONTOS = 'N' and not exists ( select 1
+                                                                            from favorita.classificacoespedidos c
+                                                                           where c.idcaracteristicapedido = 8
+                                                                             and c.idvalorcaracteristica  = 16
+                                                                             and c.idpedido               = p.idpedido ) ) )
+                   -- Distribuidor emitiu
+                   and (    ( :P569_DIST_EMITIU = 'T' )
+                         or ( :P569_DIST_EMITIU = 'S' and exists ( select 1
+                                                                     from favorita.classificacoespedidos c
+                                                                    where c.idpedido    = p.idpedido
+                                                                      and c.idcaracteristicapedido = 2 ) ) 
+                         or ( :P569_DIST_EMITIU = 'N' and not exists ( select 1
+                                                                         from favorita.classificacoespedidos c
+                                                                        where c.idpedido    = p.idpedido
+                                                                          and c.idcaracteristicapedido = 2 ) ) )
+                   -- Campanha
+                   and (    ( :P569_CAMPANHA = 'T' ) 
+                         or ( :P569_CAMPANHA = 'P' and exists ( select 1
+                                                                  from favorita.classificacoespedidos c
+                                                                 where c.idpedido    = p.idpedido
+                                                                   and c.idcaracteristicapedido = 74 ) )
+                         or ( :P569_CAMPANHA = 'V' and exists ( select 1
+                                                                  from favorita.classificacoespedidos c
+                                                                 where c.idpedido    = p.idpedido
+                                                                   and c.idcaracteristicapedido = 78 ) ) 
+                         or ( :P569_CAMPANHA = 'W' and exists ( select 1
+                                                                  from favorita.classificacoespedidos c
+                                                                 where c.idpedido    = p.idpedido
+                                                                   and c.idcaracteristicapedido = 94 ) )
+                         or ( :P569_CAMPANHA = 'B' and exists ( select 1
+                                                                  from favorita.classificacoespedidos c
+                                                                 where c.idpedido    = p.idpedido
+                                                                   and c.idcaracteristicapedido = 96 ) )
+                         or ( :P569_CAMPANHA = 'A' and exists ( select 1
+                                                                  from favorita.classificacoespedidos c
+                                                                 where c.idpedido    = p.idpedido
+                                                                   and c.idcaracteristicapedido = 97 )))
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P569_TIPORELATORIO
+            value: PA
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1074185149374787342
+        }
+
+        column "% Comissão" (
+            type: plainText
+            heading {
+                heading: % Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column Atendente (
+            type: plainText
+            heading {
+                heading: Atendente
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Data Emissão" (
+            type: plainText
+            heading {
+                heading: Data Emissão
+            }
+            layout {
+                sequence: 60
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column "Data Entrega" (
+            type: plainText
+            heading {
+                heading: Data Entrega
+            }
+            layout {
+                sequence: 70
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Filial Romance" (
+            type: plainText
+            heading {
+                heading: Filial Romance
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "Loja Favorita" (
+            type: plainText
+            heading {
+                heading: Loja Favorita
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column Pedido (
+            type: link
+            heading {
+                heading: Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 68
+                    items: {
+                        P68_IDPEDIDO: #Pedido#
+                    }
+                }
+                linkText: #Pedido#
+                linkAttributes: target="_blank"
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "R$ Comissão Pedido" (
+            type: plainText
+            heading {
+                heading: R$ Comissão Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "R$ Pagar Pedido" (
+            type: plainText
+            heading {
+                heading: R$ Pagar Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column "R$ Total Pedido" (
+            type: plainText
+            heading {
+                heading: R$ Total Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column Vendedora (
+            type: plainText
+            heading {
+                heading: Vendedora
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 10761200 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "% Comissão" (
+                sequence: 12
+            )
+
+            displayColumn "Atendente" (
+                sequence: 4
+            )
+
+            displayColumn "Data Emissão" (
+                sequence: 7
+            )
+
+            displayColumn "Data Entrega" (
+                sequence: 8
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 5
+            )
+
+            displayColumn "Filial Romance" (
+                sequence: 2
+            )
+
+            displayColumn "Loja Favorita" (
+                sequence: 3
+            )
+
+            displayColumn "Pedido" (
+                sequence: 1
+            )
+
+            displayColumn "R$ Comissão Pedido" (
+                sequence: 11
+            )
+
+            displayColumn "R$ Pagar Pedido" (
+                sequence: 10
+            )
+
+            displayColumn "R$ Total Pedido" (
+                sequence: 9
+            )
+
+            displayColumn "Vendedora" (
+                sequence: 6
+            )
+
+        )
+
+    )
+
+    pageItem P569_ATENDENTE (
+        type: selectList
+        label {
+            label: <b>Atendente:</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomeusuario(u.idusuario) display_value
+                     , u.idusuario return_value
+                from usuarios u
+                where u.ativo = 'S'
+                  and exists ( select 1
+                               from roman.usuariosgruposatendimento ug
+                               where ug.usuario = u.usuario 
+                                 and ug.idgrupoatendimento = 4 )
+                  and exists ( select 1
+                               from pedidos p
+                               where p.idusuario = u.idusuario )
+                order by 1
+                ```
+            nullDisplayValue: " - Todos -"
+        }
+        layout {
+            sequence: 80
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P569_CAMPANHA (
+        type: selectList
+        label {
+            label: <b>Campanha:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Prospecção;P,Venda Ativa;V,WhastApp;W,Belém Pronta Entrega;B,- Todas -;T,Ativa WhatsApp;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 150
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P569_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: <b>Período Final:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: dd/mm/rrrr
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: expression
+            plsqlExpression: sysdate
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P569_DATAINI (
+        type: datePickerJquery
+        label {
+            label: <b>Período Inicial:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: dd/mm/rrrr
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: expression
+            plsqlExpression: sysdate - 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P569_DIST_EMITIU (
+        type: selectList
+        label {
+            label: <b>Distribuidor Emitiu?</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            nullDisplayValue: - Todos -
+            nullReturnValue: T
+        }
+        layout {
+            sequence: 140
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P569_FILTRARFAVORITA (
+        type: selectList
+        label {
+            label: <b>Filial Favorita:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Call Center;C,- Todas -;T,Selecionar;S
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 90
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P569_FILTRARROMANCE (
+        type: selectList
+        label {
+            label: <b>Empresa Romance:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:- Todas -;T,Selecionar;S
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 110
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P569_IDPAIS (
+        type: selectList
+        label {
+            label: <b>País:</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.nome sv
+                     , p.idpais rv
+                from catal.paises p
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Todos -"
+        }
+        layout {
+            sequence: 70
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P569_IDPERFIL (
+        type: selectList
+        label {
+            label: <b>Perfil:</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.descricao as display_value
+                     , p.idperfil  as returns_value
+                  from favorita.perfis p
+                 where p.ativo = 'S'
+                 order by 1;
+                ```
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 40
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P569_IDPERFILVENDA (
+        type: selectList
+        label {
+            label: <b>Perfil Venda:</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select descricao d, idperfilvenda r
+                  from perfisvendas
+                 where idperfil = nvl(:P569_IDPERFIL,0)
+                order by 1
+                ```
+            nullDisplayValue: - Todos -
+        }
+        cascadingLov {
+            parentItems: P569_IDPERFIL
+        }
+        layout {
+            sequence: 50
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P569_PEDIDOS_PONTOS (
+        type: selectList
+        label {
+            label: <b>Ped. Pontos:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            nullDisplayValue: - Todos -
+            nullReturnValue: T
+        }
+        layout {
+            sequence: 130
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P569_TIPORELATORIO (
+        type: selectList
+        label {
+            label: <b>Relatório:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Detalhado;D,Resumido;R,Pedidos Atendentes;PA
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: R
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button about (
+        buttonName: about
+        label: About
+        layout {
+            sequence: 10
+            region: @pedidos-atendentes
+            slot: copy
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+                t-Button--gapRight
+            ]
+            icon: fa-info-circle-o
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from roman.usuariosgruposatendimento u
+                 where u.idgrupoatendimento = 0
+                   and u.usuario = v('APP_USER');
+                ```
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Buscar
+        layout {
+            sequence: 160
+            region: @opções
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button empresasromance (
+        buttonName: EMPRESASROMANCE
+        label: Empresas Romance
+        layout {
+            sequence: 120
+            region: @opções
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 443
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button filiaisfavorita (
+        buttonName: FILIAISFAVORITA
+        label: Filiais Favorita
+        layout {
+            sequence: 100
+            region: @opções
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 324
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction new (
+        name: New
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P569_META
+        }
+
+        action native-set-value (
+            action: setValue
+            settings {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select to_char(datainicio,'dd/mm/rrrr') , 
+                           to_char(datafim,'dd/mm/rrrr') 
+                      from metascobrancas 
+                     where idmetacobranca = :P569_META;
+                    ```
+                itemsToSubmit: P569_META
+                escapeSpecialChars: false
+            }
+            affectedElements {
+                selectionType: items
+                items: [
+                    P569_DATAINI
+                    P569_DATAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction selecionarfav (
+        name: SelecionarFav
+        execution {
+            sequence: 40
+        }
+        when {
+            selectionType: items
+            items: P569_FILTRARFAVORITA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P569_FILTRARFAVORITA
+            value: S
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: button
+                button: @filiaisfavorita
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: button
+                button: @filiaisfavorita
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction selecionarrom (
+        name: SelecionarRom
+        execution {
+            sequence: 50
+        }
+        when {
+            selectionType: items
+            items: P569_FILTRARROMANCE
+        }
+        clientSideCondition {
+            type: item=value
+            item: P569_FILTRARROMANCE
+            value: S
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: button
+                button: @empresasromance
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: button
+                button: @empresasromance
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction tipo-bairro (
+        name: Tipo Bairro
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P569_PESQUISAR_POR
+        }
+        clientSideCondition {
+            type: item=value
+            item: P569_PESQUISAR_POR
+            value: B
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P569_BAIRRO
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P569_BAIRRO
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction tipo-cidade (
+        name: Tipo Cidade
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P569_PESQUISAR_POR
+        }
+        clientSideCondition {
+            type: item=value
+            item: P569_PESQUISAR_POR
+            value: C
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P569_IDCIDADE
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P569_IDCIDADE
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    branch (
+        name: buscar pedidos
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 569
+                items: {
+                    P569_IDPERFIL: &P569_IDPERFIL.
+                    P569_IDPERFILVENDA: &P569_IDPERFILVENDA.
+                    P569_IDPAIS: &P569_IDPAIS.
+                    P569_ATENDENTE: &P569_ATENDENTE.
+                    P569_FILTRARFAVORITA: &P569_FILTRARFAVORITA.
+                    P569_FILTRARROMANCE: &P569_FILTRARROMANCE.
+                    P569_PEDIDOS_PONTOS: &P569_PEDIDOS_PONTOS.
+                    P569_CAMPANHA: &P569_CAMPANHA.
+                    P569_DIST_EMITIU: &P569_DIST_EMITIU.
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

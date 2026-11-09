@@ -1,0 +1,557 @@
+page 81 (
+    name: Lojas
+    title: Lojas
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region acompanhamento-das-lojas (
+        name: Acompanhamento das Lojas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nomefilialfavorita
+                     , fma.faturado "Fat. Mês Anterior"
+                     , fm.faturado "Fat. Mês Atual"
+                     , fm_anterior.faturado "Fat. Mês Atual 2024"
+                     , case 
+                         when fm_anterior.faturado > 0 then
+                           round( (fm.faturado/fm_anterior.faturado)*100,2)-100
+                         else
+                           0
+                       end  "% Crescimento Fat."
+                     , adimp.percentual "% Adimplência"    
+                     , adimp_anterior.percentual "% Adimp. Ano Anterior"
+                     , inad.percentual "% Inadimplência"
+                     , inad_anterior.percentual "% Inad. Ano Anterior"
+                     , f.idfilialfavorita
+                from filiaisfavorita f
+                   , ( select w.idfilialfavorita
+                            , round(sum(nvl(w.valorapagarfavorita, 0) * w.fatorconversao),2)  faturado
+                       from vw_rank_pedidos_dist_m w
+                       where to_char(w.dataemissao,'MM/RRRR') = to_char(sysdate,'MM/RRRR')
+                       group by w.idfilialfavorita ) fm
+                   , ( select w.idfilialfavorita
+                            , round(sum(nvl(w.valorapagarfavorita, 0) * w.fatorconversao),2)  faturado
+                       from vw_rank_pedidos_dist_m w
+                       where trunc(w.dataemissao) < add_months(trunc(sysdate),-12)
+                         and extract(year from w.dataemissao) = extract(year from sysdate)-1
+                         and extract(month from w.dataemissao) = extract(month from sysdate)
+                       group by w.idfilialfavorita ) fm_anterior
+                   , ( select w.idfilialfavorita
+                            , round(sum(nvl(w.valorapagarfavorita, 0) * w.fatorconversao),2)  faturado
+                       from vw_rank_pedidos_dist_m w
+                       where extract(year from w.dataemissao) = extract(year from sysdate)
+                         and extract(month from w.dataemissao) = extract(month from sysdate)-1
+                       group by w.idfilialfavorita ) fma
+                   , ( select idfilialfavorita
+                            , ( sum( case  
+                                       when nvl(pg.datapagamento,pg.databaixa) <= v.datavencimento 
+                                         then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                       else 
+                                          0 end) / sum(nvl(v.valorpagar,0) * nvl(p.fatorconversao,1))) * 100  percentual
+                       from favorita.vencimentospedidos v                 
+                          , favorita.pedidos p                             
+                          , ( select sum(valorpago) valorpago             
+                                   , min(trunc(datapagamento)) datapagamento
+                                   , min(trunc(databaixa)) databaixa   
+                                   , idvencimentopedido                    
+                              from pagamentospedidos                     
+                              where idsituacao = 20                       
+                              group by idvencimentopedido ) pg
+                       where v.idpedido = p.idpedido             
+                         and p.datacancelamento is null                            
+                         and v.situacaovencimento = 'V'                                
+                         and v.idvencimentopedido = pg.idvencimentopedido(+)           
+                         and v.valorpagar > 0                                          
+                         and trunc(v.datavencimento) between add_months(trunc(sysdate)-1,-12) and trunc(sysdate-1)
+                       group by p.idfilialfavorita ) adimp
+                   , ( select idfilialfavorita
+                            , ( sum( case  
+                                       when nvl(pg.datapagamento,pg.databaixa) <= v.datavencimento 
+                                         then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                       else 
+                                          0 end) / sum(nvl(v.valorpagar,0) * nvl(p.fatorconversao,1))) * 100  percentual
+                       from favorita.vencimentospedidos v                 
+                          , favorita.pedidos p                             
+                          , ( select sum(valorpago) valorpago             
+                                   , min(trunc(datapagamento)) datapagamento
+                                   , min(trunc(databaixa)) databaixa   
+                                   , idvencimentopedido                    
+                              from pagamentospedidos                     
+                              where idsituacao = 20                       
+                              group by idvencimentopedido ) pg
+                       where v.idpedido = p.idpedido             
+                         and p.datacancelamento is null                            
+                         and v.situacaovencimento = 'V'                                
+                         and v.idvencimentopedido = pg.idvencimentopedido(+)           
+                         and v.valorpagar > 0                                          
+                         and trunc(v.datavencimento) between add_months(trunc(sysdate)-1,-24) and add_months(trunc(sysdate)-1,-12)
+                       group by p.idfilialfavorita ) adimp_anterior
+                   , ( select t.idfilialfavorita
+                            , round ( ((t.total_pagar) - (valor_pago_emdia) - (pago_30dias) - (pago_42dias) - (pago_90dias)) / (t.total_pagar) *100 ,2) percentual
+                       from (
+                             select p.idfilialfavorita 
+                                  , count(1) Qtd_Vencimentos 
+                                  , sum(nvl(v.valorpagar,0) * nvl(p.fatorconversao,1)) total_pagar 
+                                  , sum( nvl(pg.valorpago,0) * nvl(p.fatorconversao,1)) total_pago
+                                  , sum( case  
+                                           when nvl(pg.datapagamento,pg.databaixa) <= v.datavencimento 
+                                             then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                           else 
+                                             0 
+                                         end )  valor_pago_emdia
+                                  , sum( case 
+                                           when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 1 and v.datavencimento + 30 
+                                             then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                           else 
+                                             0 
+                                         end ) pago_30dias
+                                  , sum( case  
+                                           when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 31 and v.datavencimento + 42 
+                                             then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                           else 
+                                             0 
+                                         end ) pago_42dias
+                                  , sum( case 
+                                           when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 43 and v.datavencimento + 90 
+                                             then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                           else 
+                                             0 
+                                         end ) pago_90dias
+                              from favorita.vencimentospedidos v                 
+                                 , favorita.pedidos p                             
+                                 , (select sum(valorpago) valorpago             
+                                         , min(trunc(datapagamento)) datapagamento
+                                         , min(trunc(databaixa)) databaixa   
+                                         , idvencimentopedido                    
+                                      from pagamentospedidos                     
+                                     where idsituacao = 20                       
+                                     group by idvencimentopedido ) pg
+                             where v.idpedido = p.idpedido                                
+                               and p.datacancelamento is null                            
+                               and v.situacaovencimento = 'V'                               
+                               and v.idvencimentopedido = pg.idvencimentopedido(+)    
+                               and v.valorpagar > 0                                          
+                               and v.datavencimento between add_months(trunc(sysdate)-1,-12) and trunc(sysdate-1)
+                             group by p.idfilialfavorita ) t ) inad
+                   , ( select t.idfilialfavorita
+                            , round ( ((t.total_pagar) - (valor_pago_emdia) - (pago_30dias) - (pago_42dias) - (pago_90dias)) / (t.total_pagar) *100 ,2) percentual
+                       from (
+                             select p.idfilialfavorita 
+                                  , count(1) Qtd_Vencimentos 
+                                  , sum(nvl(v.valorpagar,0) * nvl(p.fatorconversao,1)) total_pagar 
+                                  , sum( nvl(pg.valorpago,0) * nvl(p.fatorconversao,1)) total_pago
+                                  , sum( case  
+                                           when nvl(pg.datapagamento,pg.databaixa) <= v.datavencimento 
+                                             then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                           else 
+                                             0 
+                                         end )  valor_pago_emdia
+                                  , sum( case 
+                                           when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 1 and v.datavencimento + 30 
+                                             then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                           else 
+                                             0 
+                                         end ) pago_30dias
+                                  , sum( case  
+                                           when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 31 and v.datavencimento + 42 
+                                             then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                           else 
+                                             0 
+                                         end ) pago_42dias
+                                  , sum( case 
+                                           when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 43 and v.datavencimento + 90 
+                                             then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                           else 
+                                             0 
+                                         end ) pago_90dias
+                              from favorita.vencimentospedidos v                 
+                                 , favorita.pedidos p                             
+                                 , (select sum(valorpago) valorpago             
+                                         , min(trunc(datapagamento)) datapagamento
+                                         , min(trunc(databaixa)) databaixa   
+                                         , idvencimentopedido                    
+                                      from pagamentospedidos                     
+                                     where idsituacao = 20                       
+                                     group by idvencimentopedido ) pg
+                             where v.idpedido = p.idpedido                                
+                               and p.datacancelamento is null                            
+                               and v.situacaovencimento = 'V'                               
+                               and v.idvencimentopedido = pg.idvencimentopedido(+)    
+                               and v.valorpagar > 0                                          
+                               and v.datavencimento between add_months(trunc(sysdate)-1,-24) and add_months(trunc(sysdate)-1,-12)
+                             group by p.idfilialfavorita ) t ) inad_anterior
+                where f.tipofilial = 'L'
+                  and f.ativo = 'S'
+                  and f.idfilialfavorita = fm.idfilialfavorita(+)
+                  and f.idfilialfavorita = fm_anterior.idfilialfavorita(+)
+                  and f.idfilialfavorita = fma.idfilialfavorita(+)
+                  and f.idfilialfavorita = adimp.idfilialfavorita(+)
+                  and f.idfilialfavorita = adimp_anterior.idfilialfavorita(+)
+                  and f.idfilialfavorita = inad.idfilialfavorita(+)
+                  and f.idfilialfavorita = inad_anterior.idfilialfavorita(+)
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 3059079409765036923
+        }
+
+        column "% Adimp. Ano Anterior" (
+            type: plainText
+            heading {
+                heading: % Adimp. Ano Anterior
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column "% Adimplência" (
+            type: plainText
+            heading {
+                heading: % Adimplência
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "% Crescimento Fat." (
+            type: plainText
+            heading {
+                heading: Crescimento%
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column "% Inad. Ano Anterior" (
+            type: plainText
+            heading {
+                heading: % Inad. Ano Anterior
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "% Inadimplência" (
+            type: plainText
+            heading {
+                heading: % Inadimplência
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Fat. Mês Anterior" (
+            type: plainText
+            heading {
+                heading: Faturamento Mês Anterior 2025
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Fat. Mês Atual" (
+            type: plainText
+            heading {
+                heading: Faturamento Mês Atual 2025
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Fat. Mês Atual 2024" (
+            type: plainText
+            heading {
+                heading: Fat. Mês Atual 2024
+                alignment: end
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column IDFILIALFAVORITA (
+            type: hidden
+            heading {
+                heading: Idfilialfavorita
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NOMEFILIALFAVORITA (
+            type: plainText
+            heading {
+                heading: Loja
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 30691138 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "% Adimp. Ano Anterior" (
+                sequence: 6
+            )
+
+            displayColumn "% Adimplência" (
+                sequence: 5
+            )
+
+            displayColumn "% Crescimento Fat." (
+                sequence: 4
+            )
+
+            displayColumn "% Inad. Ano Anterior" (
+                sequence: 8
+            )
+
+            displayColumn "% Inadimplência" (
+                sequence: 7
+            )
+
+            displayColumn "Fat. Mês Anterior" (
+                sequence: 2
+            )
+
+            displayColumn "Fat. Mês Atual" (
+                sequence: 3
+            )
+
+            displayColumn NOMEFILIALFAVORITA (
+                sequence: 1
+            )
+
+            highlight ir-condition (
+                name: % Comp. Negativo
+                condition {
+                    column: "% Crescimento Fat."
+                    operator: <
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #FF7755
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: % Comp. Positivo
+                condition {
+                    column: "% Crescimento Fat."
+                    operator: >
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #99FF99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    region legenda (
+        name: Legenda
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <b>Fat. Mês Anterior - </b>Faturamento realizado no mês anterior a partir do primeiro dia até D-1.<br>
+                <b>Fat. Mês Atual - </b>Faturamento realizado no mês atual a partir do primeiro dia até D-1.<br>
+                <b>% Adimplência - </b>Sempre no período de 1 ano, até o dia de ontem. Ex: Puxado dia 11/03, o filtro será 10/03/2023 até 10/03/2024.<br>
+                <b>% Inadimplência - </b>Sempre no período de 1 ano, até o dia de ontem. Ex: Puxado dia 11/03, o filtro será 10/03/2023 até 10/03/2024.<br>
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+)
+

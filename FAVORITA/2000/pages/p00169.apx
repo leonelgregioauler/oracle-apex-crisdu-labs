@@ -1,0 +1,4185 @@
+page 169 (
+    name: Controle de Vendas Call Center
+    title: Controle de Vendas Call Center
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region kit-de-confecção (
+        name: Kit de Confecção
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomeusuario(ped.idusuario) idusuario
+                     , pck_util_fav.fnc_nomerepresentante(ped.idrepresentante) as "Representante"
+                     , pck_util_fav.fnc_nomefilialromance(ped.idfilialromance) as "Filial Romance"
+                     , ped.numeropedido "N° Pedido"
+                     , ped.dataemissao 
+                     --
+                     , sum(qtdpedido) qtdpedido
+                     , sum(valorvenda) valorvenda
+                     , sum(valorvenda_conv) valorvenda_conv
+                     , sum(valorapagar) valorapagar
+                     , sum(valorapagar_conv) valorapagar_conv
+                     , sum(valoratendente) valoratendente
+                     , sum(valoratendente_conv) valoratendente_conv
+                     , datacancelamento 
+                from ( select p.idusuario
+                            , p.idfilialromance 
+                            , ip.idkitvenda
+                            , p.idrepresentante  
+                            , p.idpedido
+                            , trunc(p.dataemissao) dataemissao  
+                            , (sum(ip.quantidade)/count(ip.iditempedido)) qtdpedido 
+                            , sum(ip.valorvenda * ip.quantidade) valorvenda
+                            , sum((ip.valorvenda * ip.quantidade) * p.fatorconversao) valorvenda_conv
+                            , sum(ip.valorapagar * ip.quantidade) valorapagar
+                            , sum((ip.valorapagar * ip.quantidade) * p.fatorconversao) valorapagar_conv
+                            , sum(ip.valorcomissaoatendente) valoratendente
+                            , sum((ip.valorcomissaoatendente) * p.fatorconversao) valoratendente_conv
+                            , p.datacancelamento 
+                            , p.numeropedido
+                       from pedidos p
+                           , itenspedidos ip
+                       where p.idpedido = ip.idpedido
+                         and trunc(p.dataemissao) between to_date(:P169_DATAINICIO,'DD/MM/RRRR') and to_date(:P169_DATAFIM,'DD/MM/RRRR')
+                         and ( :P169_ATENDENTE is null or p.idusuario = :P169_ATENDENTE )
+                         and ip.idkitproduto = :P169_IDKITPRODUTO
+                         and ( :P169_IDFILIALORIGEM  is null or p.idfilialfavorita    = :P169_IDFILIALORIGEM )
+                         and ( :P169_IDFILIALROMANCE is null or :P169_IDFILIALROMANCE = p.idfilialromance    ) 
+                         and ( (:P169_PEDIDOPROSPECCAO = 'T')
+                            or (:P169_PEDIDOPROSPECCAO = 'N' and not exists ( select 1
+                                                                              from favorita.classificacoespedidos cp
+                                                                              where cp.idpedido = p.idpedido
+                                                                               and cp.idcaracteristicapedido = 74 ) )  
+                            or (:P169_PEDIDOPROSPECCAO = 'S' and exists ( select 1
+                                                                          from favorita.classificacoespedidos cp
+                                                                          where cp.idpedido = p.idpedido
+                                                                           and cp.idcaracteristicapedido = 74 ) ) )
+                         and ( :P169_PEDIDOS_PAGOS = 'T'
+                           or ( :P169_PEDIDOS_PAGOS = 'N' and exists ( select 1
+                                                                       from vencimentospedidos v
+                                                                       where v.situacaovencimento = 'V'
+                                                                         and v.idpedido           = p.idpedido
+                                                                         and v.valorpago         != v.valorpagar ) )
+                           or ( :P169_PEDIDOS_PAGOS = 'S' and exists ( select 1
+                                                                       from vencimentospedidos v
+                                                                       where v.situacaovencimento = 'V'
+                                                                         and v.idpedido           = p.idpedido
+                                                                         and v.valorpago         >= v.valorpagar ) ) )
+                         group by p.idusuario, p.idrepresentante, ip.idkitvenda, p.idpedido, p.dataemissao, datacancelamento, idfilialromance, p.numeropedido ) ped  
+                group by idusuario
+                       , ped.idrepresentante
+                       , idfilialromance
+                       , ped.numeropedido
+                       , dataemissao
+                       , datacancelamento;   
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P169_TIPOPRODUTO
+            value: KC
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 3736780835612233
+        }
+
+        column DATACANCELAMENTO (
+            type: plainText
+            heading {
+                heading: Data Cancelamento
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Filial Romance" (
+            type: plainText
+            heading {
+                heading: Filial Romance
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column IDUSUARIO (
+            type: plainText
+            heading {
+                heading: Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "N° Pedido" (
+            type: plainText
+            heading {
+                heading: N° Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column QTDPEDIDO (
+            type: plainText
+            heading {
+                heading: Qtd Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Representante
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column VALORAPAGAR_CONV (
+            type: plainText
+            heading {
+                heading: Valor a Pagar Conv
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column VALORATENDENTE (
+            type: plainText
+            heading {
+                heading: Valor Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column VALORATENDENTE_CONV (
+            type: plainText
+            heading {
+                heading: Valor Atendente Conv
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column VALORVENDA (
+            type: plainText
+            heading {
+                heading: Valor Venda
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column VALORVENDA_CONV (
+            type: plainText
+            heading {
+                heading: Valor Venda Conv
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 2472997 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATACANCELAMENTO (
+                sequence: 3
+            )
+
+            displayColumn DATAEMISSAO (
+                sequence: 2
+            )
+
+            displayColumn "Filial Romance" (
+                sequence: 5
+            )
+
+            displayColumn IDUSUARIO (
+                sequence: 1
+            )
+
+            displayColumn "N° Pedido" (
+                sequence: 13
+            )
+
+            displayColumn QTDPEDIDO (
+                sequence: 6
+            )
+
+            displayColumn "Representante" (
+                sequence: 4
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 9
+            )
+
+            displayColumn VALORAPAGAR_CONV (
+                sequence: 10
+            )
+
+            displayColumn VALORATENDENTE (
+                sequence: 11
+            )
+
+            displayColumn VALORATENDENTE_CONV (
+                sequence: 12
+            )
+
+            displayColumn VALORVENDA (
+                sequence: 7
+            )
+
+            displayColumn VALORVENDA_CONV (
+                sequence: 8
+            )
+
+        )
+
+    )
+
+    region total-kit-de-confecção (
+        name: Total Kit de Confecção
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select favorita.pck_util_fav.fnc_nomefilialromance(ped.idfilialromance) romance
+                      , favorita.pck_util_fav.fnc_nomerepresentante(ped.idrepresentante) representante
+                      , favorita.pck_util_fav.fnc_nomeusuario(ped.idusuario) idusuario
+                      , ped.numeropedido "N° Pedido"
+                      , ped.dataemissao 
+                      , qtde
+                      , sum(valorvenda) vlrvenda
+                      , sum(valorvenda_conv) vlrvenda_conv
+                      , sum(valorapagar) valorapagar
+                      , sum(valorapagar_conv) valorapagar_conv
+                      , sum(valoratendente) vlratende
+                      , sum(valoratendente_conv) vlratende_conv
+                      , datacancelamento
+                from ( select p.idrepresentante
+                            , p.idusuario
+                            , p.idfilialromance 
+                            , p.idpedido
+                            , trunc(p.dataemissao) dataemissao  
+                            , count (distinct ik.iditemkitproduto) itenkit
+                            , sum (sum(ip.quantidade) / count (distinct ik.iditemkitproduto) / count (distinct ik.iditemkitproduto)) over (partition by p.idrepresentante) qtde
+                            , sum(ip.valorvenda * ip.quantidade) valorvenda
+                            , sum((ip.valorvenda * ip.quantidade) * p.fatorconversao) valorvenda_conv
+                            , sum(ip.valorapagar * ip.quantidade) valorapagar
+                            , sum((ip.valorapagar * ip.quantidade) * p.fatorconversao) valorapagar_conv
+                            , sum(ip.valorcomissaoatendente) valoratendente
+                            , sum((ip.valorcomissaoatendente) * p.fatorconversao) valoratendente_conv
+                            , p.datacancelamento 
+                            , p.numeropedido
+                       from favorita.pedidos p
+                          , favorita.itenspedidos ip
+                          , favorita.itenskitsprodutos ik
+                       where p.idpedido = ip.idpedido
+                         and ip.idkitproduto = ik.idkitproduto
+                         and ip.idkitproduto = :P169_IDKITPRODUTO
+                         and trunc(p.dataemissao) between to_date(:P169_DATAINICIO,'DD/MM/RRRR') and to_date(:P169_DATAFIM,'DD/MM/RRRR')
+                         and ( :P169_ATENDENTE is null or p.idusuario = :P169_ATENDENTE )
+                         and ( :P169_IDFILIALORIGEM  is null or p.idfilialfavorita    = :P169_IDFILIALORIGEM )
+                         and ( :P169_IDFILIALROMANCE is null or :P169_IDFILIALROMANCE = p.idfilialromance    ) 
+                         and p.datacancelamento is null
+                         and ( (:P169_PEDIDOPROSPECCAO = 'T')
+                            or (:P169_PEDIDOPROSPECCAO = 'N' and not exists ( select 1
+                                                                              from favorita.classificacoespedidos cp
+                                                                              where cp.idpedido = p.idpedido
+                                                                               and cp.idcaracteristicapedido = 74 ) )  
+                            or (:P169_PEDIDOPROSPECCAO = 'S' and exists ( select 1
+                                                                          from favorita.classificacoespedidos cp
+                                                                          where cp.idpedido = p.idpedido
+                                                                           and cp.idcaracteristicapedido = 74 ) ) )
+                         and ( :P169_PEDIDOS_PAGOS = 'T'
+                           or ( :P169_PEDIDOS_PAGOS = 'N' and exists ( select 1
+                                                                       from vencimentospedidos v
+                                                                       where v.situacaovencimento = 'V'
+                                                                         and v.idpedido           = p.idpedido
+                                                                         and v.valorpago         != v.valorpagar ) )
+                           or ( :P169_PEDIDOS_PAGOS = 'S' and exists ( select 1
+                                                                       from vencimentospedidos v
+                                                                       where v.situacaovencimento = 'V'
+                                                                         and v.idpedido           = p.idpedido
+                                                                         and v.valorpago         >= v.valorpagar ) ) )
+                
+                         group by p.idrepresentante ,p.idusuario, p.idfilialromance, p.idpedido, p.dataemissao, p.datacancelamento, numeropedido ) ped  
+                group by ped.idrepresentante 
+                       , ped.qtde  
+                       , ped.itenkit 
+                       , idfilialromance
+                       , ped.datacancelamento 
+                       , idusuario
+                       , dataemissao  
+                       , numeropedido
+                order by 2;
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P169_TIPOPRODUTO
+            value: KC
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 32982662894069136
+        }
+
+        column DATACANCELAMENTO (
+            type: plainText
+            heading {
+                heading: Data Cancelamento
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column IDUSUARIO (
+            type: plainText
+            heading {
+                heading: Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "N° Pedido" (
+            type: plainText
+            heading {
+                heading: N° Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column QTDE (
+            type: plainText
+            heading {
+                heading: Qtd Kit
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Representante
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column ROMANCE (
+            type: plainText
+            heading {
+                heading: Romance
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column VALORAPAGAR_CONV (
+            type: plainText
+            heading {
+                heading: Valor a Pagar Conv
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column VLRATENDE (
+            type: plainText
+            heading {
+                heading: Valor Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column VLRATENDE_CONV (
+            type: plainText
+            heading {
+                heading: Valor Atendente Conv
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column VLRVENDA (
+            type: plainText
+            heading {
+                heading: Valor Venda
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column VLRVENDA_CONV (
+            type: plainText
+            heading {
+                heading: Valor Venda Conv
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 335573 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATAEMISSAO (
+                sequence: 2
+            )
+
+            displayColumn IDUSUARIO (
+                sequence: 3
+            )
+
+            displayColumn "N° Pedido" (
+                sequence: 12
+            )
+
+            displayColumn QTDE (
+                sequence: 5
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 4
+            )
+
+            displayColumn ROMANCE (
+                sequence: 1
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 8
+            )
+
+            displayColumn VALORAPAGAR_CONV (
+                sequence: 9
+            )
+
+            displayColumn VLRATENDE (
+                sequence: 10
+            )
+
+            displayColumn VLRATENDE_CONV (
+                sequence: 11
+            )
+
+            displayColumn VLRVENDA (
+                sequence: 6
+            )
+
+            displayColumn VLRVENDA_CONV (
+                sequence: 7
+            )
+
+            sort (
+                column: REPRESENTANTE
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: QTDE
+            )
+
+        )
+
+    )
+
+    region vendas-de-kit-antigo-desativado (
+        name: Vendas de Kit (ANTIGO - DESATIVADO)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomeusuario(ped.idusuario) idusuario
+                     , ped.dataemissao 
+                     --
+                     , sum(qtdpedido)
+                     , sum(valorvenda*qtdpedido)
+                     , sum(valoratendente*qtdpedido)
+                from ( select p.idusuario
+                            , ip.idkitvenda
+                            , trunc(p.dataemissao) dataemissao	
+                            , nvl(( select sum(distinct(quantidade))
+                                    from itenspedidos i 
+                                       , pedidos ped
+                                    where i.idpedido = ped.idpedido
+                                      and i.idpedido = p.idpedido
+                                      and i.idkitvenda = :P169_IDKITVENDA
+                                      and i.idkitvenda not in (90, 91, 92, 93)
+                                      and ped.idusuario = p.idusuario ),0) qtdpedido
+                            , ( select sum(distinct(pk.valorvenda))
+                                from itenspedidos i
+                                   , pedidos ped
+                                   , itenskitsvendas ik
+                                   , precositenskitsvendas pk
+                                where i.idpedido        = ped.idpedido
+                                  and i.idpedido        = p.idpedido
+                                  and ik.idkitvenda     = i.idkitvenda
+                                  and ik.iditemkitvenda = pk.iditemkitvenda
+                                  and pk.idedicaorevista= p.idedicaorevista
+                                  and i.idkitvenda      = :P169_IDKITVENDA
+                                  and i.idkitvenda      not in (90, 91, 92, 93)
+                                  and ped.idusuario     = p.idusuario ) valorvenda
+                            , ( select sum(distinct(pk.valorcomissaoatendente))
+                                from itenspedidos i
+                                   , pedidos ped
+                                   , itenskitsvendas ik
+                                   , precositenskitsvendas pk
+                                where i.idpedido        = ped.idpedido
+                                  and i.idpedido        = p.idpedido
+                                  and ik.idkitvenda     = i.idkitvenda
+                                  and ik.iditemkitvenda = pk.iditemkitvenda
+                                  and pk.idedicaorevista= p.idedicaorevista
+                                  and i.idkitvenda = :P169_IDKITVENDA
+                                  and i.idkitvenda not in (90, 91, 92, 93)
+                                  and ped.idusuario     = p.idusuario) valoratendente
+                       from pedidos p
+                           , itenspedidos ip
+                       where p.idpedido = ip.idpedido
+                         and trunc(p.dataemissao) between to_date(:P169_DATAINICIO,'DD/MM/RRRR') and to_date(:P169_DATAFIM,'DD/MM/RRRR') 
+                         and ( :P169_ATENDENTE is null or p.idusuario = :P169_ATENDENTE )
+                         and ( :P169_IDFILIALORIGEM is null or p.idfilialfavorita = :P169_IDFILIALORIGEM )
+                         and exists ( select 1 
+                                      from itenspedidos i
+                                      where i.idpedido = p.idpedido
+                                        and i.idkitvenda = :P169_IDKITVENDA ) 
+                         and (:P169_IDFILIALROMANCE is null or :P169_IDFILIALROMANCE = p.idfilialromance) ) ped
+                   where ped.idkitvenda not in (90, 91, 92, 93)
+                group by idusuario
+                       , dataemissao
+                union
+                select pck_util_fav.fnc_nomeusuario(ped.idusuario) idusuario
+                     , ped.dataemissao 
+                     --
+                     , sum(qtdpedido)
+                     , sum(valorvenda*qtdpedido)
+                     , sum(valoratendente*qtdpedido)
+                from ( select p.idusuario
+                            , ip.idkitvenda
+                            , trunc(p.dataemissao) dataemissao	
+                            , nvl(( select count(distinct(idkitvenda)) / 8
+                                    from itenspedidos i 
+                                       , pedidos ped
+                                    where i.idpedido = ped.idpedido
+                                      and i.idpedido = p.idpedido
+                                      and i.idkitvenda = :P169_IDKITVENDA
+                                      and i.idkitvenda in (90, 93)
+                                      and ped.idusuario = p.idusuario ),0) qtdpedido
+                            , ( select sum(sum(pk.valorvenda) * ik.quantidade) / 8
+                                from itenspedidos i
+                                   , pedidos ped
+                                   , itenskitsvendas ik
+                                   , precositenskitsvendas pk
+                                where i.idpedido        = ped.idpedido
+                                  and i.idpedido        = p.idpedido
+                                  and ik.idkitvenda     = i.idkitvenda
+                                  and ik.iditemkitvenda = pk.iditemkitvenda
+                                  and pk.idedicaorevista= p.idedicaorevista
+                                  and i.idkitvenda      = :P169_IDKITVENDA
+                                  and i.idkitvenda      in (90, 93)
+                                  and ped.idusuario     = p.idusuario
+                                 group by ik.quantidade) valorvenda
+                            , ( select sum(pk.valorcomissaoatendente) / 8
+                                from itenspedidos i
+                                   , pedidos ped
+                                   , itenskitsvendas ik
+                                   , precositenskitsvendas pk
+                                where i.idpedido         = ped.idpedido
+                                  and i.idpedido         = p.idpedido
+                                  and ik.idkitvenda      = i.idkitvenda
+                                  and ik.iditemkitvenda  = pk.iditemkitvenda
+                                  and pk.idedicaorevista = p.idedicaorevista
+                                  and i.idkitvenda       = :P169_IDKITVENDA
+                                  and i.idkitvenda       in (90, 93)
+                                  and ped.idusuario      = p.idusuario) valoratendente
+                       from pedidos p
+                           , itenspedidos ip
+                       where p.idpedido = ip.idpedido
+                         and trunc(p.dataemissao) between to_date(:P169_DATAINICIO,'DD/MM/RRRR') and to_date(:P169_DATAFIM,'DD/MM/RRRR') 
+                         and ( :P169_ATENDENTE is null or p.idusuario = :P169_ATENDENTE )
+                         and ( :P169_IDFILIALORIGEM is null or p.idfilialfavorita = :P169_IDFILIALORIGEM )
+                         and exists ( select 1 
+                                      from itenspedidos i
+                                      where i.idpedido = p.idpedido
+                                        and i.idkitvenda = :P169_IDKITVENDA ) 
+                         and (:P169_IDFILIALROMANCE is null or :P169_IDFILIALROMANCE = p.idfilialromance) ) ped
+                   where ped.idkitvenda in (90, 93)
+                group by idusuario
+                       , dataemissao
+                union
+                select pck_util_fav.fnc_nomeusuario(ped.idusuario) idusuario
+                     , ped.dataemissao 
+                     --
+                     , sum(qtdpedido)
+                     , sum(valorvenda*qtdpedido)
+                     , sum(valoratendente*qtdpedido)
+                from ( select p.idusuario
+                            , ip.idkitvenda
+                            , trunc(p.dataemissao) dataemissao	
+                            , nvl(( select count(distinct(idkitvenda)) / 54
+                                    from itenspedidos i 
+                                       , pedidos ped
+                                    where i.idpedido = ped.idpedido
+                                      and i.idpedido = p.idpedido
+                                      and i.idkitvenda = :P169_IDKITVENDA
+                                      and i.idkitvenda in (91)
+                                      and ped.idusuario = p.idusuario ),0) qtdpedido
+                            , ( select sum(sum(pk.valorvenda) * ik.quantidade) / 54
+                                from itenspedidos i
+                                   , pedidos ped
+                                   , itenskitsvendas ik
+                                   , precositenskitsvendas pk
+                                where i.idpedido        = ped.idpedido
+                                  and i.idpedido        = p.idpedido
+                                  and ik.idkitvenda     = i.idkitvenda
+                                  and ik.iditemkitvenda = pk.iditemkitvenda
+                                  and pk.idedicaorevista= p.idedicaorevista
+                                  and i.idkitvenda      = :P169_IDKITVENDA
+                                  and i.idkitvenda      in (91)
+                                  and ped.idusuario     = p.idusuario
+                                 group by ik.quantidade) valorvenda
+                            , ( select sum(pk.valorcomissaoatendente) / 54
+                                from itenspedidos i
+                                   , pedidos ped
+                                   , itenskitsvendas ik
+                                   , precositenskitsvendas pk
+                                where i.idpedido         = ped.idpedido
+                                  and i.idpedido         = p.idpedido
+                                  and ik.idkitvenda      = i.idkitvenda
+                                  and ik.iditemkitvenda  = pk.iditemkitvenda
+                                  and pk.idedicaorevista = p.idedicaorevista
+                                  and i.idkitvenda       = :P169_IDKITVENDA
+                                  and i.idkitvenda       in (91)
+                                  and ped.idusuario      = p.idusuario) valoratendente
+                       from pedidos p
+                           , itenspedidos ip
+                       where p.idpedido = ip.idpedido
+                         and trunc(p.dataemissao) between to_date(:P169_DATAINICIO,'DD/MM/RRRR') and to_date(:P169_DATAFIM,'DD/MM/RRRR') 
+                         and ( :P169_ATENDENTE is null or p.idusuario = :P169_ATENDENTE )
+                         and ( :P169_IDFILIALORIGEM is null or p.idfilialfavorita = :P169_IDFILIALORIGEM )
+                         and exists ( select 1 
+                                      from itenspedidos i
+                                      where i.idpedido = p.idpedido
+                                        and i.idkitvenda = :P169_IDKITVENDA ) 
+                         and (:P169_IDFILIALROMANCE is null or :P169_IDFILIALROMANCE = p.idfilialromance) ) ped
+                   where ped.idkitvenda in (91) 
+                group by idusuario
+                       , dataemissao
+                union 
+                select pck_util_fav.fnc_nomeusuario(ped.idusuario) idusuario
+                     , ped.dataemissao 
+                     --
+                     , sum(qtdpedido)
+                     , sum(valorvenda*qtdpedido)
+                     , sum(valoratendente*qtdpedido)
+                from ( select p.idusuario
+                            , ip.idkitvenda
+                            , trunc(p.dataemissao) dataemissao	
+                            , nvl(( select count(distinct(idkitvenda)) / 5
+                                    from itenspedidos i 
+                                       , pedidos ped
+                                    where i.idpedido = ped.idpedido
+                                      and i.idpedido = p.idpedido
+                                      and i.idkitvenda = :P169_IDKITVENDA
+                                      and i.idkitvenda in (92)
+                                      and ped.idusuario = p.idusuario ),0) qtdpedido
+                            , ( select sum(sum(pk.valorvenda) * ik.quantidade) / 5
+                                from itenspedidos i
+                                   , pedidos ped
+                                   , itenskitsvendas ik
+                                   , precositenskitsvendas pk
+                                where i.idpedido        = ped.idpedido
+                                  and i.idpedido        = p.idpedido
+                                  and ik.idkitvenda     = i.idkitvenda
+                                  and ik.iditemkitvenda = pk.iditemkitvenda
+                                  and pk.idedicaorevista= p.idedicaorevista
+                                  and i.idkitvenda      = :P169_IDKITVENDA
+                                  and i.idkitvenda      in (92)
+                                  and ped.idusuario     = p.idusuario
+                                 group by ik.quantidade) valorvenda
+                            , ( select sum(pk.valorcomissaoatendente) / 5
+                                from itenspedidos i
+                                   , pedidos ped
+                                   , itenskitsvendas ik
+                                   , precositenskitsvendas pk
+                                where i.idpedido         = ped.idpedido
+                                  and i.idpedido         = p.idpedido
+                                  and ik.idkitvenda      = i.idkitvenda
+                                  and ik.iditemkitvenda  = pk.iditemkitvenda
+                                  and pk.idedicaorevista = p.idedicaorevista
+                                  and i.idkitvenda       = :P169_IDKITVENDA
+                                  and i.idkitvenda       in (92)
+                                  and ped.idusuario      = p.idusuario) valoratendente
+                       from pedidos p
+                           , itenspedidos ip
+                       where p.idpedido = ip.idpedido
+                         and trunc(p.dataemissao) between to_date(:P169_DATAINICIO,'DD/MM/RRRR') and to_date(:P169_DATAFIM,'DD/MM/RRRR') 
+                         and ( :P169_ATENDENTE is null or p.idusuario = :P169_ATENDENTE )
+                         and ( :P169_IDFILIALORIGEM is null or p.idfilialfavorita = :P169_IDFILIALORIGEM )
+                         and exists ( select 1 
+                                      from itenspedidos i
+                                      where i.idpedido = p.idpedido
+                                        and i.idkitvenda = :P169_IDKITVENDA ) 
+                         and (:P169_IDFILIALROMANCE is null or :P169_IDFILIALROMANCE = p.idfilialromance) ) ped
+                   where ped.idkitvenda in (92) 
+                group by idusuario
+                       , dataemissao;
+                ```
+        }
+        layout {
+            sequence: 70
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 5453703668920985832
+        }
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column IDUSUARIO (
+            type: plainText
+            heading {
+                heading: Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "SUM(QTDPEDIDO)" (
+            type: plainText
+            heading {
+                heading: Qtd Vendido
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "SUM(VALORATENDENTE*QTDPEDIDO)" (
+            type: plainText
+            heading {
+                heading: Total Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "SUM(VALORVENDA*QTDPEDIDO)" (
+            type: plainText
+            heading {
+                heading: Total Vendido
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15876764 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATAEMISSAO (
+                sequence: 1
+            )
+
+            displayColumn IDUSUARIO (
+                sequence: 5
+            )
+
+            displayColumn "SUM(QTDPEDIDO)" (
+                sequence: 2
+            )
+
+            displayColumn "SUM(VALORATENDENTE*QTDPEDIDO)" (
+                sequence: 4
+            )
+
+            displayColumn "SUM(VALORVENDA*QTDPEDIDO)" (
+                sequence: 3
+            )
+
+            sort (
+                column: DATAEMISSAO
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: SUM(QTDPEDIDO)
+            )
+
+            aggregate (
+                column: SUM(VALORVENDA*QTDPEDIDO)
+            )
+
+            aggregate (
+                column: SUM(VALORATENDENTE*QTDPEDIDO)
+            )
+
+            controlBreak (
+                column: IDUSUARIO
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region vendas-de-kit-detalhado (
+        name: Vendas de Kit - Detalhado
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomerepresentante(ped.idrepresentante) as "Representante"
+                     , ped.numeropedido "N° Pedido"
+                     , ped.dataemissao 
+                     , favorita.pck_util_fav.fnc_nomepessoa(idpessoa) NomeCliente
+                     , qtdpedido
+                     , valorvenda
+                     , valorvenda_conv
+                     , valorapagar
+                     , valorapagar_conv
+                     , valoratendente
+                     , valoratendente_conv
+                     , datacancelamento 
+                     , idpedido
+                from ( select v.idpessoa
+                            , ip.idkitvenda
+                            , p.idrepresentante  
+                            , p.idpedido
+                            , trunc(p.dataemissao) dataemissao  
+                            , (sum(ip.quantidade)/count(ip.iditempedido)) qtdpedido 
+                            , sum(ip.valorvenda * ip.quantidade) valorvenda
+                            , sum((ip.valorvenda * ip.quantidade) * p.fatorconversao) valorvenda_conv
+                            , sum(ip.valorapagar * ip.quantidade) valorapagar
+                            , sum((ip.valorapagar * ip.quantidade) * p.fatorconversao) valorapagar_conv
+                            , sum(ip.valorcomissaoatendente) valoratendente
+                            , sum((ip.valorcomissaoatendente) * p.fatorconversao) valoratendente_conv
+                            , p.datacancelamento
+                            , p.numeropedido
+                       from pedidos p
+                           , itenspedidos ip
+                           , catal.vendedoras v
+                       where p.idpedido = ip.idpedido
+                         and :P169_TIPOPRODUTO = 'KD'
+                         and v.idvendedora = p.idvendedora
+                         and trunc(p.dataemissao) between to_date(:P169_DATAINICIO,'DD/MM/RRRR') and to_date(:P169_DATAFIM,'DD/MM/RRRR')
+                         and ( :P169_ATENDENTE is null or p.idusuario = :P169_ATENDENTE )
+                         and ip.idkitvenda = :P169_IDKITVENDA
+                         and ( :P169_IDFILIALORIGEM  is null or p.idfilialfavorita    = :P169_IDFILIALORIGEM )
+                         and ( :P169_IDFILIALROMANCE is null or :P169_IDFILIALROMANCE = p.idfilialromance    ) 
+                         and ( (:P169_PEDIDOPROSPECCAO = 'T')
+                            or (:P169_PEDIDOPROSPECCAO = 'N' and not exists ( select 1
+                                                                              from favorita.classificacoespedidos cp
+                                                                              where cp.idpedido = p.idpedido
+                                                                               and cp.idcaracteristicapedido = 74 ) )  
+                            or (:P169_PEDIDOPROSPECCAO = 'S' and exists ( select 1
+                                                                          from favorita.classificacoespedidos cp
+                                                                          where cp.idpedido = p.idpedido
+                                                                           and cp.idcaracteristicapedido = 74 ) ) )
+                         and ( :P169_PEDIDOS_PAGOS = 'T'
+                           or ( :P169_PEDIDOS_PAGOS = 'N' and exists ( select 1
+                                                                       from vencimentospedidos v
+                                                                       where v.situacaovencimento = 'V'
+                                                                         and v.idpedido           = p.idpedido
+                                                                         and v.valorpago         != v.valorpagar ) )
+                           or ( :P169_PEDIDOS_PAGOS = 'S' and exists ( select 1
+                                                                       from vencimentospedidos v
+                                                                       where v.situacaovencimento = 'V'
+                                                                         and v.idpedido           = p.idpedido
+                                                                         and v.valorpago         >= v.valorpagar ) ) )
+                         group by p.idusuario, p.idrepresentante, ip.idkitvenda, p.idpedido, p.dataemissao,datacancelamento, idpessoa, numeropedido ) ped  
+                  
+                ```
+        }
+        layout {
+            sequence: 60
+            slot: body
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P169_TIPOPRODUTO
+            value: KD
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 5026183727715050206
+        }
+
+        column DATACANCELAMENTO (
+            type: plainText
+            heading {
+                heading: Data Cancelamento
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column IDPEDIDO (
+            type: plainText
+            heading {
+                heading: Id Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column NOMECLIENTE (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "N° Pedido" (
+            type: plainText
+            heading {
+                heading: N° Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column QTDPEDIDO (
+            type: plainText
+            heading {
+                heading: Qtd Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Distribuidor
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column VALORAPAGAR_CONV (
+            type: plainText
+            heading {
+                heading: Valor a Pagar Conv
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column VALORATENDENTE (
+            type: plainText
+            heading {
+                heading: Valor Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column VALORATENDENTE_CONV (
+            type: plainText
+            heading {
+                heading: Valor Atendente Conv
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column VALORVENDA (
+            type: plainText
+            heading {
+                heading: Valor Venda
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column VALORVENDA_CONV (
+            type: plainText
+            heading {
+                heading: Valor Venda Conv
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 50305644 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATACANCELAMENTO (
+                sequence: 3
+            )
+
+            displayColumn DATAEMISSAO (
+                sequence: 1
+            )
+
+            displayColumn IDPEDIDO (
+                sequence: 8
+            )
+
+            displayColumn NOMECLIENTE (
+                sequence: 4
+            )
+
+            displayColumn "N° Pedido" (
+                sequence: 13
+            )
+
+            displayColumn QTDPEDIDO (
+                sequence: 5
+            )
+
+            displayColumn "Representante" (
+                sequence: 2
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 10
+            )
+
+            displayColumn VALORAPAGAR_CONV (
+                sequence: 11
+            )
+
+            displayColumn VALORATENDENTE (
+                sequence: 7
+            )
+
+            displayColumn VALORATENDENTE_CONV (
+                sequence: 12
+            )
+
+            displayColumn VALORVENDA (
+                sequence: 6
+            )
+
+            displayColumn VALORVENDA_CONV (
+                sequence: 9
+            )
+
+        )
+
+    )
+
+    region vendas-de-kit-resumido (
+        name: Vendas de Kit - Resumido
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomeusuario(ped.idusuario) idusuario
+                     , pck_util_fav.fnc_nomerepresentante(ped.idrepresentante) as "Representante"
+                     , pck_util_fav.fnc_nomefilialromance(ped.idfilialromance) as "Filial Romance"
+                     , ped.numeropedido "N° Pedido"
+                     , ped.dataemissao 
+                     --
+                     , sum(qtdpedido) qtdpedido
+                     , sum(valorapagar) valorapagar
+                     , sum(valorapagar_conv) valorapagar_conv
+                     , sum(valorvenda) valorvenda
+                     , sum(valorvenda_conv) valorvenda_conv
+                     , sum(valoratendente) valoratendente
+                     , sum(valoratendente_conv) valoratendente_conv
+                     , datacancelamento 
+                from ( select p.idusuario
+                            , p.idfilialromance 
+                            , ip.idkitvenda
+                            , p.idrepresentante  
+                            , p.idpedido
+                            , trunc(p.dataemissao) dataemissao  
+                            , (sum(ip.quantidade)/count(ip.iditempedido)) qtdpedido
+                            , sum(ip.valorapagar * ip.quantidade) valorapagar
+                            , sum((ip.valorapagar * ip.quantidade) * p.fatorconversao) valorapagar_conv
+                            , sum(ip.valorvenda * ip.quantidade) valorvenda
+                            , sum((ip.valorvenda * ip.quantidade) * p.fatorconversao) valorvenda_conv
+                            , sum(ip.valorcomissaoatendente) valoratendente
+                            , sum((ip.valorcomissaoatendente) * p.fatorconversao) valoratendente_conv
+                            , p.datacancelamento
+                            , p.numeropedido
+                       from pedidos p
+                           , itenspedidos ip
+                       where p.idpedido = ip.idpedido
+                         and trunc(p.dataemissao) between to_date(:P169_DATAINICIO,'DD/MM/RRRR') and to_date(:P169_DATAFIM,'DD/MM/RRRR')
+                         and ( :P169_ATENDENTE is null or p.idusuario = :P169_ATENDENTE )
+                         and ip.idkitvenda = :P169_IDKITVENDA
+                         and ( :P169_IDFILIALORIGEM  is null or p.idfilialfavorita    = :P169_IDFILIALORIGEM )
+                         and ( :P169_IDFILIALROMANCE is null or :P169_IDFILIALROMANCE = p.idfilialromance    ) 
+                         and ( (:P169_PEDIDOPROSPECCAO = 'T')
+                            or (:P169_PEDIDOPROSPECCAO = 'N' and not exists ( select 1
+                                                                              from favorita.classificacoespedidos cp
+                                                                              where cp.idpedido = p.idpedido
+                                                                               and cp.idcaracteristicapedido = 74 ) )  
+                            or (:P169_PEDIDOPROSPECCAO = 'S' and exists ( select 1
+                                                                          from favorita.classificacoespedidos cp
+                                                                          where cp.idpedido = p.idpedido
+                                                                           and cp.idcaracteristicapedido = 74 ) ) )
+                         and ( :P169_PEDIDOS_PAGOS = 'T'
+                           or ( :P169_PEDIDOS_PAGOS = 'N' and exists ( select 1
+                                                                       from vencimentospedidos v
+                                                                       where v.situacaovencimento = 'V'
+                                                                         and v.idpedido           = p.idpedido
+                                                                         and v.valorpago         != v.valorpagar ) )
+                           or ( :P169_PEDIDOS_PAGOS = 'S' and exists ( select 1
+                                                                       from vencimentospedidos v
+                                                                       where v.situacaovencimento = 'V'
+                                                                         and v.idpedido           = p.idpedido
+                                                                         and v.valorpago         >= v.valorpagar ) ) )
+                         group by p.idusuario, p.idrepresentante, ip.idkitvenda, p.idpedido, p.dataemissao, datacancelamento, idfilialromance, p.numeropedido ) ped  
+                group by idusuario
+                       , ped.idrepresentante
+                       , idfilialromance
+                       , ped.numeropedido
+                       , dataemissao
+                       , datacancelamento;       
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P169_TIPOPRODUTO
+            value: K
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 1561125060725118016
+        }
+
+        column DATACANCELAMENTO (
+            type: plainText
+            heading {
+                heading: Data Cancelamento
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Filial Romance" (
+            type: plainText
+            heading {
+                heading: Filial Romance
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column IDUSUARIO (
+            type: plainText
+            heading {
+                heading: Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "N° Pedido" (
+            type: plainText
+            heading {
+                heading: N° Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column QTDPEDIDO (
+            type: plainText
+            heading {
+                heading: Qtd Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Distribuidor
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column VALORAPAGAR_CONV (
+            type: plainText
+            heading {
+                heading: Valor a Pagar Conv
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column VALORATENDENTE (
+            type: plainText
+            heading {
+                heading: Valor Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column VALORATENDENTE_CONV (
+            type: plainText
+            heading {
+                heading: Valor Atendente Conv
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column VALORVENDA (
+            type: plainText
+            heading {
+                heading: Valor Venda
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column VALORVENDA_CONV (
+            type: plainText
+            heading {
+                heading: Valor Venda Conv
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15611826 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATACANCELAMENTO (
+                sequence: 4
+            )
+
+            displayColumn DATAEMISSAO (
+                sequence: 1
+            )
+
+            displayColumn "Filial Romance" (
+                sequence: 5
+            )
+
+            displayColumn IDUSUARIO (
+                sequence: 2
+            )
+
+            displayColumn "N° Pedido" (
+                sequence: 13
+            )
+
+            displayColumn QTDPEDIDO (
+                sequence: 6
+            )
+
+            displayColumn "Representante" (
+                sequence: 3
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 7
+            )
+
+            displayColumn VALORAPAGAR_CONV (
+                sequence: 8
+            )
+
+            displayColumn VALORATENDENTE (
+                sequence: 11
+            )
+
+            displayColumn VALORATENDENTE_CONV (
+                sequence: 12
+            )
+
+            displayColumn VALORVENDA (
+                sequence: 9
+            )
+
+            displayColumn VALORVENDA_CONV (
+                sequence: 10
+            )
+
+            aggregate (
+                column: SUM(QTDPEDIDO)
+            )
+
+            aggregate (
+                column: SUM(VALORVENDA*QTDPEDIDO)
+            )
+
+            aggregate (
+                column: SUM(VALORATENDENTE*QTDPEDIDO)
+            )
+
+            controlBreak (
+                column: IDUSUARIO
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region vendas-detalhado (
+        name: Vendas Detalhado
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.numeropedido
+                     , p.idrepresentante
+                     , p.representante
+                     , p.vendedora
+                     , p.cpf
+                     , p.dataemissao
+                     , p.dataentrega
+                     , p.valortotal
+                     , (p.valortotal * p.fatorconversao) valortotalconv
+                     , p.valorapagar
+                     , (p.valorapagar * p.fatorconversao) valorapagarconv
+                     , p.nomeusuario
+                     , i.quantidade
+                     , i.valorapagar valoritens
+                     , (i.valorapagar * p.fatorconversao) valoritensconv
+                     , round(favorita.pck_util_fav.FNC_DIVISOR_ZERO(i.valorapagar,i.quantidade),2)valorpagaritem
+                     , (round(favorita.pck_util_fav.FNC_DIVISOR_ZERO(i.valorapagar,i.quantidade),2) * p.fatorconversao) valorpagaritemconv
+                     , p.idfilialromance
+                     , p.filialromance
+                     , p.idfilialfavorita
+                     , p.filialfavorita
+                     , i.nomeproduto
+                     , i.categoria
+                     , i.categoriasite   
+                     , decode( p.tipopedido ,'P','Pedido','T','Troca','V','Venda Direta','R','Romance Casa') "Tipo Pedido"
+                from vw_itenspedidos_fav i
+                   , vw_pedidos_fav_new p
+                where i.idpedido           = p.idpedido
+                  and i.ididioma           = :P0_IDIDIOMA
+                  and p.idsituacaoentrega  >= 20000
+                  and ( :P169_TIPOPEDIDO = 'Z' or p.tipopedido = :P169_TIPOPEDIDO )
+                  and not exists ( select 1
+                                   from classificacoespedidos c
+                                   where c.idpedido = p.idpedido
+                                     and c.idcaracteristicapedido = 25 )
+                  and ( :P169_PRODUTO is null or i.idprodutodetalhado = :P169_PRODUTO )
+                  and ( :P169_IDFILIALORIGEM is null or p.idfilialfavorita = :P169_IDFILIALORIGEM )
+                  and (( :P169_FILTRARPRODUTOS = 'S' and exists ( select 1
+                                                                    from filtrosprodutos fp
+                                                                    where fp.idusuario = :P0_IDUSUARIO
+                                                                      and fp.idproduto = i.idproduto 
+                                                                      and fp.pagina    = 169))
+                      or :P169_FILTRARPRODUTOS = 'N')
+                  and :P169_TIPORELATORIO = 'D'
+                  and ( :P169_ATENDENTE is null or p.idusuario = :P169_ATENDENTE )
+                  and (:P169_IDFILIALROMANCE is null or :P169_IDFILIALROMANCE = p.idfilialromance)
+                  and p.dataemissao between to_date(:P169_DATAINICIO||' 00:00:00','DD/MM/RRRR hh24:mi:ss') and to_date(:P169_DATAFIM||' 23:59:59','DD/MM/RRRR hh24:mi:ss')
+                  and ( :P169_PEDIDOS_PAGOS = 'T'
+                     or ( :P169_PEDIDOS_PAGOS = 'S' and (p.valorapagar - p.valorpago) = 0 ) 
+                     or ( :P169_PEDIDOS_PAGOS = 'N' and (p.valorapagar - p.valorpago) > 0 ) )
+                  and ( (:P169_PEDIDOPROSPECCAO = 'T')
+                     or (:P169_PEDIDOPROSPECCAO = 'N' and not exists ( select 1
+                                                                       from favorita.classificacoespedidos cp
+                                                                       where cp.idpedido = p.idpedido
+                                                                       and cp.idcaracteristicapedido = 74 ) )  
+                     or (:P169_PEDIDOPROSPECCAO = 'S' and exists ( select 1
+                                                                   from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p.idpedido
+                                                                   and cp.idcaracteristicapedido = 74 ) ) )
+                order by p.dataemissao 
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P169_TIPORELATORIO
+            value: D
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 5581616428101448166
+        }
+
+        column CATEGORIA (
+            type: plainText
+            heading {
+                heading: Categoria
+                alignment: center
+            }
+            layout {
+                sequence: 180
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column CATEGORIASITE (
+            type: plainText
+            heading {
+                heading: Categoriasite
+            }
+            layout {
+                sequence: 270
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DATAENTREGA (
+            type: plainText
+            heading {
+                heading: Entrega
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column FILIALFAVORITA (
+            type: plainText
+            heading {
+                heading: Filial Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column FILIALROMANCE (
+            type: plainText
+            heading {
+                heading: Filial Romance
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column IDFILIALFAVORITA (
+            type: plainText
+            heading {
+                heading: Idfilialfavorita
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column IDFILIALROMANCE (
+            type: plainText
+            heading {
+                heading: Idfilialromance
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column IDREPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Cod. Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column NOMEPRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 170
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column NOMEUSUARIO (
+            type: plainText
+            heading {
+                heading: Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column NUMEROPEDIDO (
+            type: plainText
+            heading {
+                heading: Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column QUANTIDADE (
+            type: plainText
+            heading {
+                heading: Quantidade
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Tipo Pedido" (
+            type: plainText
+            heading {
+                heading: Tipo Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 190
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: A Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column VALORAPAGARCONV (
+            type: plainText
+            heading {
+                heading: A Pagar Convertido
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column VALORITENS (
+            type: plainText
+            heading {
+                heading: Valor Produtos
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column VALORITENSCONV (
+            type: plainText
+            heading {
+                heading: Valor Produtos Convertido
+                alignment: center
+            }
+            layout {
+                sequence: 260
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column VALORPAGARITEM (
+            type: plainText
+            heading {
+                heading: "Valor Item "
+                alignment: center
+            }
+            layout {
+                sequence: 240
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column VALORPAGARITEMCONV (
+            type: plainText
+            heading {
+                heading: Valor Item Convertido
+                alignment: center
+            }
+            layout {
+                sequence: 250
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column VALORTOTALCONV (
+            type: plainText
+            heading {
+                heading: Total Convertido
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column VENDEDORA (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15876889 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CATEGORIA (
+                sequence: 19
+            )
+
+            displayColumn CPF (
+                sequence: 5
+            )
+
+            displayColumn DATAEMISSAO (
+                sequence: 7
+            )
+
+            displayColumn DATAENTREGA (
+                sequence: 8
+            )
+
+            displayColumn FILIALFAVORITA (
+                sequence: 22
+            )
+
+            displayColumn FILIALROMANCE (
+                sequence: 21
+            )
+
+            displayColumn IDREPRESENTANTE (
+                sequence: 3
+            )
+
+            displayColumn NOMEPRODUTO (
+                sequence: 18
+            )
+
+            displayColumn NOMEUSUARIO (
+                sequence: 20
+            )
+
+            displayColumn NUMEROPEDIDO (
+                sequence: 1
+            )
+
+            displayColumn QUANTIDADE (
+                sequence: 15
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 4
+            )
+
+            displayColumn "Tipo Pedido" (
+                sequence: 2
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 11
+            )
+
+            displayColumn VALORAPAGARCONV (
+                sequence: 12
+            )
+
+            displayColumn VALORITENS (
+                sequence: 16
+            )
+
+            displayColumn VALORITENSCONV (
+                sequence: 17
+            )
+
+            displayColumn VALORPAGARITEM (
+                sequence: 13
+            )
+
+            displayColumn VALORPAGARITEMCONV (
+                sequence: 14
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 9
+            )
+
+            displayColumn VALORTOTALCONV (
+                sequence: 10
+            )
+
+            displayColumn VENDEDORA (
+                sequence: 6
+            )
+
+        )
+
+    )
+
+    region vendas-resumido (
+        name: Vendas Resumido
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomeproduto(pidproduto => i.idproduto , pididioma => :P0_IDIDIOMA, pcomreferencia => 'N'  ) nomeproduto
+                     , i.categoriasite    
+                     , sum(i.quantidade)
+                     , sum(i.valorapagar)
+                     , sum(i.valorcomissaoatendente*i.quantidade) comissao
+                     , pck_util_fav.fnc_nomeusuario(p.idusuario) nomeusuario
+                     , pd.referencia
+                     , p.idfilialromance
+                     , p.filialromance
+                     , p.idfilialfavorita
+                     , p.filialfavorita
+                from vw_itenspedidos_fav i
+                   , vw_pedidos_fav_new p
+                   , vw_produtos_fav pd
+                where i.idpedido           = p.idpedido
+                  and pd.idproduto(+)      = i.idproduto
+                  and i.ididioma           = :P0_IDIDIOMA
+                  and pd.ididioma          = :P0_IDIDIOMA
+                  and p.datacancelamento is null
+                  and ( :P169_TIPOPEDIDO = 'Z' or p.tipopedido = :P169_TIPOPEDIDO )
+                  and ( :P169_IDFILIALORIGEM is null or p.idfilialfavorita = :P169_IDFILIALORIGEM )
+                  and ( :P169_PRODUTO is null or i.idprodutodetalhado = :P169_PRODUTO )
+                  and (( :P169_FILTRARPRODUTOS = 'S' and exists ( select 1
+                                                                    from filtrosprodutos fp
+                                                                    where fp.idusuario = :P0_IDUSUARIO
+                                                                      and fp.idproduto = i.idproduto 
+                                                                      and fp.pagina    = 169)) 
+                         or :P169_FILTRARPRODUTOS = 'N')
+                  and :P169_TIPORELATORIO = 'R'
+                  and ( :P169_ATENDENTE is null or p.idusuario = :P169_ATENDENTE )
+                  and trunc(p.dataemissao) between to_date(:P169_DATAINICIO,'DD/MM/RRRR') and to_date(:P169_DATAFIM,'DD/MM/RRRR')
+                  and p.idsituacaoentrega >= 20000
+                  and (:P169_IDFILIALROMANCE is null or :P169_IDFILIALROMANCE = p.idfilialromance)
+                  and ( :P169_PEDIDOS_PAGOS = 'T'
+                     or ( :P169_PEDIDOS_PAGOS = 'S' and (p.valorapagar - p.valorpago) = 0 ) 
+                     or ( :P169_PEDIDOS_PAGOS = 'N' and (p.valorapagar - p.valorpago) > 0 ) )
+                  and ( (:P169_PEDIDOPROSPECCAO = 'T')
+                     or (:P169_PEDIDOPROSPECCAO = 'N' and not exists ( select 1
+                                                                       from favorita.classificacoespedidos cp
+                                                                       where cp.idpedido = p.idpedido
+                                                                       and cp.idcaracteristicapedido = 74 ) )  
+                     or (:P169_PEDIDOPROSPECCAO = 'S' and exists ( select 1
+                                                                   from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p.idpedido
+                                                                   and cp.idcaracteristicapedido = 74 ) ) )  
+                group by i.idproduto
+                       , i.categoriasite 
+                       , p.idusuario
+                       , pd.referencia
+                       , p.idfilialromance
+                       , p.filialromance
+                       , p.idfilialfavorita
+                       , p.filialfavorita
+                order by 6
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P169_TIPORELATORIO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 5581618128416448183
+        }
+
+        column CATEGORIASITE (
+            type: plainText
+            heading {
+                heading: Categoriasite
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column COMISSAO (
+            type: plainText
+            heading {
+                heading: Comissão Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column FILIALFAVORITA (
+            type: plainText
+            heading {
+                heading: Filial Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column FILIALROMANCE (
+            type: plainText
+            heading {
+                heading: Filial Romance
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column IDFILIALFAVORITA (
+            type: plainText
+            heading {
+                heading: Idfilialfavorita
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column IDFILIALROMANCE (
+            type: plainText
+            heading {
+                heading: Idfilialromance
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column NOMEPRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column NOMEUSUARIO (
+            type: plainText
+            heading {
+                heading: Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column REFERENCIA (
+            type: plainText
+            heading {
+                heading: Referência
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column "SUM(I.QUANTIDADE)" (
+            type: plainText
+            heading {
+                heading: Quantidade
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "SUM(I.VALORAPAGAR)" (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15876842 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn COMISSAO (
+                sequence: 5
+            )
+
+            displayColumn FILIALFAVORITA (
+                sequence: 8
+            )
+
+            displayColumn FILIALROMANCE (
+                sequence: 7
+            )
+
+            displayColumn NOMEPRODUTO (
+                sequence: 1
+            )
+
+            displayColumn NOMEUSUARIO (
+                sequence: 4
+            )
+
+            displayColumn REFERENCIA (
+                sequence: 6
+            )
+
+            displayColumn "SUM(I.QUANTIDADE)" (
+                sequence: 2
+            )
+
+            displayColumn "SUM(I.VALORAPAGAR)" (
+                sequence: 3
+            )
+
+            sort (
+                column: SUM(I.QUANTIDADE)
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            controlBreak (
+                column: NOMEUSUARIO
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P169_ATENDENTE (
+        type: selectList
+        label {
+            label: Atendente
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomeusuario(u.idusuario) display_value
+                     , u.idusuario return_value
+                from usuarios u
+                where exists ( select 1
+                               from roman.usuariosgruposatendimento ug
+                               where ug.usuario = u.usuario 
+                                 and ug.idgrupoatendimento = :P169_IDGRUPOATENDIMENTO )
+                  and exists ( select 1
+                               from pedidos p
+                               where p.idusuario = u.idusuario )
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P169_IDGRUPOATENDIMENTO
+            itemsToSubmit: P169_ATENDENTE
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: até
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: Emissão de
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_FILTRARPRODUTOS (
+        type: radioGroup
+        label {
+            label: Referência
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 120
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_IDFILIALORIGEM (
+        type: selectList
+        label {
+            label: Filial Fav. Origem
+            alignment: left
+        }
+        lov {
+            type: sharedComponent
+            lov: @lov-filiaisfavorita
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_IDFILIALROMANCE (
+        type: selectList
+        label {
+            label: Filial Romance
+            alignment: left
+        }
+        lov {
+            type: sharedComponent
+            lov: @lov-filiaisromance
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_IDGRUPOATENDIMENTO (
+        type: selectList
+        label {
+            label: Grupo de Atendimento
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select g.descricao
+                     , g.idgrupoatendimento
+                from roman.gruposatendimento g
+                order by 1;
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: 4
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_IDKITPRODUTO (
+        type: plugin/select
+        label {
+            label: Kit de Confecção
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select k.referencia||' - '||k.descricao d
+                     , k.idkitproduto r
+                from kitsprodutos k
+                ```
+            displayExtraValues: false
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_IDKITVENDA (
+        type: plugin/select
+        label {
+            label: Kit de Venda
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select referencia||' - '||descricao d
+                     , idkitvenda r
+                from kitsvendas r
+                order by descricao
+                ```
+            displayExtraValues: false
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_PEDIDOPROSPECCAO (
+        type: radioGroup
+        label {
+            label: Pedidos Prospecção
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N
+            displayExtraValues: false
+            nullDisplayValue: Todos
+            nullReturnValue: T
+        }
+        layout {
+            sequence: 130
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_PEDIDOS_PAGOS (
+        type: radioGroup
+        label {
+            label: Pedidos Pagos
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N
+            displayExtraValues: false
+            nullDisplayValue: Todos
+            nullReturnValue: T
+        }
+        layout {
+            sequence: 140
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_PRODUTO (
+        type: plugin/select
+        label {
+            label: Produto
+            alignment: left
+        }
+        lov {
+            type: sharedComponent
+            lov: @lov-produtosdetalhados
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_TIPOPEDIDO (
+        type: selectOne
+        label {
+            label: Tipo de Pedido
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Pedido;P,Troca;T,Romance Casa;R,Brinde;B,Todos;Z
+        }
+        layout {
+            sequence: 150
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        default {
+            type: static
+            staticValue: Z
+        }
+    )
+
+    pageItem P169_TIPOPRODUTO (
+        type: radioGroup
+        label {
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Produto;P,Kit de Venda;K,Kit de Venda Detalhado;KD,Kit de Confecção;KC
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: P
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P169_TIPORELATORIO (
+        type: radioGroup
+        label {
+            label: Relatório
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Detalhado;D,Resumido;R
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 170
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button filtrarreferencias (
+        buttonName: FILTRARREFERENCIAS
+        label: Filtrar Referencias
+        layout {
+            sequence: 160
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--warning
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 172
+                items: {
+                    P172_PAGINA: 169
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction mostra-botão (
+        name: Mostra Botão
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P169_FILTRARPRODUTOS
+        }
+        clientSideCondition {
+            type: item=value
+            item: P169_FILTRARPRODUTOS
+            value: S
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: button
+                button: @filtrarreferencias
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: button
+                button: @filtrarreferencias
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction tipo-de-relatório-kit-de-confecção (
+        name: Tipo de Relatório ( Kit de Confecção )
+        execution {
+            sequence: 40
+        }
+        when {
+            selectionType: items
+            items: P169_TIPOPRODUTO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P169_TIPOPRODUTO
+            value: KC
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P169_IDKITPRODUTO
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P169_PRODUTO
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P169_IDKITPRODUTO
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction tipo-de-relatório-kit-ou-produto (
+        name: Tipo de Relatório ( Kit ou Produto )
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P169_TIPOPRODUTO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P169_TIPOPRODUTO
+            value: K
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P169_PRODUTO
+                    P169_FILTRARPRODUTOS
+                    P169_TIPORELATORIO
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: button
+                button: @filtrarreferencias
+            }
+            execution {
+                sequence: 30
+            }
+        )
+
+        action native-hide-3 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P169_IDKITVENDA
+            }
+            execution {
+                sequence: 30
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P169_IDKITVENDA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: button
+                button: @filtrarreferencias
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show-3 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P169_PRODUTO
+                    P169_FILTRARPRODUTOS
+                    P169_TIPORELATORIO
+                ]
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    dynamicAction tipo-de-relatório-kit-ou-produto-2 (
+        name: Tipo de Relatório ( Kit ou Produto )_1
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P169_TIPOPRODUTO
+        }
+        clientSideCondition {
+            type: itemIsInList
+            item: P169_TIPOPRODUTO
+            list: [
+                K
+                KD
+            ]
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P169_PRODUTO
+                    P169_FILTRARPRODUTOS
+                    P169_TIPORELATORIO
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: button
+                button: @filtrarreferencias
+            }
+            execution {
+                sequence: 30
+            }
+        )
+
+        action native-hide-3 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P169_IDKITVENDA
+            }
+            execution {
+                sequence: 30
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P169_IDKITVENDA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: button
+                button: @filtrarreferencias
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show-3 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P169_PRODUTO
+                    P169_FILTRARPRODUTOS
+                    P169_TIPORELATORIO
+                ]
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    validation valida-kit-venda (
+        name: Valida Kit venda
+        execution {
+            sequence: 10
+        }
+        validation {
+            language: sql
+            sqlExpression:
+                ```sql
+                :P169_IDKITVENDA is not null or
+                :P169_TIPOPRODUTO != 'K'
+                ```
+        }
+        error {
+            errorMessage: Campo Kit Venda deve ter algum valor!
+            associatedItem: @P169_IDKITVENDA
+        }
+    )
+
+    branch (
+        name: Go To Page 169
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 169
+                items: {
+                    P169_ATENDENTE: &P169_ATENDENTE.
+                    P169_IDFILIALORIGEM: &P169_IDFILIALORIGEM.
+                    P169_TIPOPRODUTO: &P169_TIPOPRODUTO.
+                    P169_PRODUTO: &P169_PRODUTO.
+                    P169_IDKITVENDA: &P169_IDKITVENDA.
+                    P169_TIPORELATORIO: &P169_TIPORELATORIO.
+                    P169_FILTRARPRODUTOS: &P169_FILTRARPRODUTOS.
+                    P169_DATAINICIO: &P169_DATAINICIO.
+                    P169_DATAFIM: &P169_DATAFIM.
+                    P169_PEDIDOS_PAGOS: &P169_PEDIDOS_PAGOS.
+                    P169_IDKITPRODUTO: &P169_IDKITPRODUTO.
+                    P169_TIPOPEDIDO: &P169_TIPOPEDIDO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

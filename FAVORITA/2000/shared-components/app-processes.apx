@@ -1,0 +1,545 @@
+appProcess buscaboletosnegociacao (
+    name: buscaboletosnegociacao
+    source {
+        plsqlCode:
+            ```plsql
+            declare
+            --
+              vnumero       varchar2(30);
+              vtexto        varchar2(500);
+              vidboletoorig number;
+            --
+            begin
+              --  
+              if v('F2000117TIPONUMERACAO') = 'N' then
+                --
+                select b.idboleto
+                into vidboletoorig
+                from boletos b
+                where b.numero =  '2846474'||lpad(v('F2000117NRBOLETO'),10,'0');
+                --
+              elsif v('F2000117TIPONUMERACAO') = 'A' then
+                --
+                select b.idboleto
+                into vidboletoorig
+                from boletos b
+                where b.numero =  '21233'||lpad(v('F2000117NRBOLETO'),12,'0');
+                --
+              end if;
+              -- 
+              select listagg(b.numeroboleto|| '-' || pck_util_fav.fnc_situacaopagamento(b.idsituacao,:P0_IDIDIOMA),' ') within group (order by 1)
+              into vtexto
+              from pagamentospedidos b
+              where b.idpagamentopedido = vidboletoorig;
+              --
+              htp.prn(vtexto);
+              --
+              exception
+              when others then
+                htp.prn(' '); 
+            --
+            end;
+            ```
+    }
+    execution {
+        sequence: 3
+        point: ajaxCallback
+    }
+    security {
+        authorizationScheme: mustNotBePublicUser
+    }
+)
+
+appProcess buscarepresentante (
+    name: buscarepresentante
+    source {
+        plsqlCode:
+            ```plsql
+            declare
+              --
+              vnumero        varchar2(30);
+              vrepresentante varchar2(500);
+              --
+            begin 
+              --
+              begin 
+                --
+                select v.idpedido
+                into vnumero
+                from vencimentospedidos v
+                where v.situacaovencimento = 'V'
+                  and v.idpedido = v('F2000117NRBOLETO');
+                --
+              exception
+                when others then
+                  --
+                  select v.idpedido
+                  into vnumero
+                  from vencimentospedidos v
+                  where v.situacaovencimento = 'C'
+                    and v.idpedido = v('F2000117NRBOLETO');
+                  --
+              end;
+              --  
+              select roman.pck_romance.fnc_nomerepresentante(p.idrepresentante)||' - '||roman.pck_romance.fnc_nomefilial(idfilialromance)
+              into vrepresentante
+              from pedidos p
+              where p.idpedido = vnumero;
+              --
+              htp.prn(vrepresentante);
+              --
+              exception
+              when others then
+                htp.prn(v('F2000117NRBOLETO')); 
+              --
+            end;
+            ```
+    }
+    execution {
+        sequence: 2
+        point: ajaxCallback
+    }
+    security {
+        authorizationScheme: mustNotBePublicUser
+    }
+)
+
+appProcess buscasituacao (
+    name: buscasituacao
+    source {
+        plsqlCode:
+            ```plsql
+            declare
+              --
+              vnumero    varchar2(30);
+              vsituacao  varchar2(50);
+              vcancelado varchar2(1);
+              --
+            begin
+              --
+              if v('APP_USER') is null then
+                prc_create_apex_session( p_app_id      => 2000
+                                       , p_app_user    => 'FAVORITA'
+                                       , p_app_page_id => 1);
+              end if;
+              -- 
+              begin 
+                --
+                select v.idpedido
+                into vnumero
+                from vencimentospedidos v
+                where v.idpedido =  v('F2000117NRBOLETO')
+                  and v.situacaovencimento = 'V';
+                --  
+              exception 
+                when others then 
+                  --
+                  select v.idpedido
+                  into vnumero
+                  from vencimentospedidos v
+                  where v.idpedido =  v('F2000117NRBOLETO')
+                    and v.situacaovencimento = 'C';
+                  --
+              end;
+              --
+              vcancelado := pck_util_fav.fnc_retornapedidocancelado(vnumero);
+              --
+              if vcancelado = 'N' then
+                --
+                select pck_pedidos_fav.fnc_situacaopagamentoped(p.idpedido)||' - '||nvl( (select 'SALA'
+                                                                                          from classificacoespedidos cp
+                                                                                          where cp.idcaracteristicapedido = 77
+                                                                                            and cp.idpedido               = p.idpedido),'Normal')
+                into vsituacao
+                from pedidos p
+                where p.idpedido = vnumero;
+                --
+              else
+                --
+                vsituacao := 'Cancelado';
+                --
+              end if;
+              --
+              htp.prn(vsituacao);
+              --
+              exception
+              when others then
+                htp.prn(v('F2000117NRBOLETO')); 
+            --
+            end;
+            ```
+    }
+    execution {
+        sequence: 1
+        point: ajaxCallback
+    }
+    security {
+        authorizationScheme: mustNotBePublicUser
+    }
+)
+
+appProcess contadormensagem (
+    name: ContadorMensagem
+    source {
+        plsqlCode:
+            ```plsql
+            begin 
+              -- 
+              select count(1) 
+              into :QTDMENSAGEM 
+              from favorita.mensagensinternas m 
+              where :P0_IDUSUARIO = m.idusuario 
+                and m.dataleitura is null; 
+              -- 
+            end;
+            ```
+    }
+    execution {
+        sequence: 1
+    }
+)
+
+appProcess controle-de-sac-pendentes (
+    name: controle de sac pendentes
+    source {
+        plsqlCode:
+            ```plsql
+            begin 
+            --
+              select count(1) 
+              into :CONTROLESAC 
+              from vw_controlecontatossite_fav
+              where situacao = 'P'
+                and idpais = 1; 
+              -- 
+            end;
+            ```
+    }
+    execution {
+        sequence: 1
+    }
+)
+
+appProcess identificador (
+    name: IDENTIFICADOR
+    source {
+        plsqlCode:
+            ```plsql
+            begin
+              --
+              select upper(substr(nvl(a1.nome,a2.nome),1,3))||a2.pagina||'_'||a2.idaplicacao||' - '||a2.nome a
+              into :IDENTIFICADOR 
+              from roman.aplicacoes a1
+                 , roman.aplicacoes a2
+              where a2.hierarquia = a1.idaplicacao (+)
+                and a2.idsistema = v('APP_ID')
+                and a2.pagina    = v('APP_PAGE_ID');
+              --
+            exception
+              when others then
+                :IDENTIFICADOR := null;
+            end;
+            ```
+    }
+    execution {
+        sequence: 1
+    }
+)
+
+appProcess informa-pa (
+    name: Informa PA
+    source {
+        plsqlCode:
+            ```plsql
+            begin
+             :NUMEROPA := :P0_NUMEROPOSICAOATENDIMENTO;
+             end;
+            ```
+    }
+    execution {
+        sequence: 1
+    }
+)
+
+appProcess informa-pefil (
+    name: Informa Pefil
+    source {
+        plsqlCode:
+            ```plsql
+            begin
+              --
+              select pe.descricao || ' - ' || pv.descricao||' - '||pa.ididioma display_value
+              into :NOMEPERFIL
+              from PERFISATENDIMENTOS         pa
+                 , PERFISVENDAS               pv
+                 , PERFIS                     pe
+             where pa.idperfilvenda       = pv.idperfilvenda
+               and pv.idperfil            = pe.idperfil
+               and pa.idperfilatendimento = :P0_IDPERFILATENDIMENTO;
+              --
+            end;
+            ```
+    }
+    execution {
+        sequence: 1
+    }
+    serverSideCondition {
+        type: expression
+        language: sql
+        sqlExpression: :P0_IDPERFILATENDIMENTO is not null
+    }
+)
+
+appProcess negociacaobipagem (
+    name: negociacaobipagem
+    source {
+        plsqlCode:
+            ```plsql
+            declare
+              --
+              vnumero       varchar2(30);
+              vtexto        varchar2(500);
+              vlength       number;
+              vnumeropedido number;
+              --
+            begin
+              --  
+              select length(v('F2000117ETIQUETA'))-3
+              into vlength
+              from dual;
+              --
+              select substr(v('F2000117ETIQUETA'),2,vlength)
+              into vnumeropedido
+              from dual;
+              -- 
+              select listagg(b.numeroboleto|| '-' || pck_util_fav.fnc_situacaopagamento(b.idsituacao,:P0_IDIDIOMA),' ') within group (order by 1)
+              into vtexto
+              from pagamentospedidos b
+                 , vencimentospedidos v
+              where b.idvencimentopedido = v.idvencimentopedido
+                and v.idpedido = vnumeropedido;
+              --
+              htp.prn(vtexto);
+              --
+              exception
+              when others then
+                htp.prn(' '); 
+            --
+            end;
+            ```
+    }
+    execution {
+        sequence: 1
+        point: ajaxCallback
+    }
+    security {
+        authorizationScheme: mustNotBePublicUser
+    }
+)
+
+appProcess representantebipagem (
+    name: representantebipagem
+    source {
+        plsqlCode:
+            ```plsql
+            declare
+              --
+              vnumero        varchar2(30);
+              vrepresentante varchar2(500);
+              vlength        number;
+              vnumeropedido  number;
+              --
+            begin 
+              --
+              select length(v('F2000117ETIQUETA'))-3
+              into vlength
+              from dual;
+              --
+              select substr(v('F2000117ETIQUETA'),2,vlength)
+              into vnumeropedido
+              from dual;
+              --
+              begin 
+                --
+                select v.idpedido
+                into vnumero
+                from vencimentospedidos v
+                where v.situacaovencimento = 'V'
+                  and v.idpedido = vnumeropedido;
+                --
+              exception
+                when others then
+                  --
+                  select v.idpedido
+                  into vnumero
+                  from vencimentospedidos v
+                  where v.situacaovencimento = 'C'
+                    and v.idpedido = vnumeropedido;
+                  --
+              end;
+              --  
+              select roman.pck_romance.fnc_nomerepresentante(p.idrepresentante)||' - '||roman.pck_romance.fnc_nomefilial(idfilialromance)
+              into vrepresentante
+              from pedidos p
+              where p.idpedido = vnumero;
+              --
+              htp.prn(vrepresentante);
+              --
+              exception
+              when others then
+                htp.prn(v('F2000117ETIQUETA')); 
+              --
+            end;
+            ```
+    }
+    execution {
+        sequence: 1
+        point: ajaxCallback
+    }
+    security {
+        authorizationScheme: mustNotBePublicUser
+    }
+)
+
+appProcess situacaobipagem (
+    name: situacaobipagem
+    source {
+        plsqlCode:
+            ```plsql
+            declare
+              --
+              vnumero    varchar2(30);
+              vsituacao  varchar2(50);
+              vcancelado varchar2(1);
+              vlength       number;
+              vnumeropedido number;
+              --
+            begin
+              --
+              if v('APP_USER') is null then
+                prc_create_apex_session( p_app_id      => 2000
+                                       , p_app_user    => 'FAVORITA'
+                                       , p_app_page_id => 1);
+              end if;
+              -- 
+              select length(v('F2000117ETIQUETA'))-3
+              into vlength
+              from dual;
+              --
+              select substr(v('F2000117ETIQUETA'),2,vlength)
+              into vnumeropedido
+              from dual;
+              --
+              begin 
+                --
+                select v.idpedido
+                into vnumero
+                from vencimentospedidos v
+                where v.idpedido =  vnumeropedido
+                  and v.situacaovencimento = 'V';
+                --  
+              exception 
+                when others then 
+                  --
+                  select v.idpedido
+                  into vnumero
+                  from vencimentospedidos v
+                  where v.idpedido =  vnumeropedido
+                    and v.situacaovencimento = 'C';
+                  --
+              end;
+              --
+              vcancelado := pck_util_fav.fnc_retornapedidocancelado(vnumero);
+              --
+              if vcancelado = 'N' then
+                --
+                select pck_pedidos_fav.fnc_situacaopagamentoped(p.idpedido)||' - '||nvl( (select 'SALA SOLUTION'
+                                                                                          from classificacoespedidos cp
+                                                                                          where cp.idcaracteristicapedido = 77
+                                                                                            and cp.idpedido               = p.idpedido),'Normal')
+                into vsituacao
+                from pedidos p
+                where p.idpedido = vnumero;
+                --
+              else
+                --
+                vsituacao := 'Cancelado';
+                --
+              end if;
+              --
+              htp.prn(vsituacao);
+              --
+              exception
+              when others then
+                htp.prn(v('F2000117ETIQUETA')); 
+            --
+            end;
+            ```
+    }
+    execution {
+        sequence: 1
+        point: ajaxCallback
+    }
+    security {
+        authorizationScheme: mustNotBePublicUser
+    }
+)
+
+appProcess validacpfcnpj (
+    name: validacpfcnpj
+    source {
+        plsqlCode:
+            ```plsql
+            declare
+              lv_User_List varchar2(20) := '';
+              vtipo        varchar2(1)  := v('F10008TIPO');
+              vcpf         varchar2(30) := v('F10008CPF');
+              vcnpj        varchar2(30) := v('F10008CNPJ');
+              vvalida      boolean;
+              vteste number;
+            begin
+              vcpf  := replace(replace(vcpf,'.',''),'-','');
+              vcnpj := replace(replace(replace(vcnpj,'.',''),'-',''),'/','');
+              begin
+                --
+                if vtipo  is not null then
+                  if vtipo = 'F' then
+                    vvalida := pck_util.validacpf( vcpf);
+                  else
+                    vvalida := pck_util.validacnpj(vcnpj);
+                  end if;
+                  --
+                  vteste  := sys.diutil.bool_to_int(vvalida );
+                  --
+                else
+                  --
+                  vteste  := 0;
+                  --
+                end if;
+                --
+                if vteste  = 1 then
+                  lv_User_List := 'V';
+                else
+                  lv_User_List := 'I';
+                end if;
+                --
+              exception 
+                when no_data_found then 
+                  lv_User_List := '0';
+                when others then 
+                  lv_User_List := sqlerrm;
+              end;
+              htp.prn(lv_User_List);
+            
+            end;
+            ```
+    }
+    execution {
+        sequence: 1
+        point: ajaxCallback
+    }
+    security {
+        authorizationScheme: mustNotBePublicUser
+    }
+)
+

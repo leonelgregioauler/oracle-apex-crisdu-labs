@@ -1,0 +1,1302 @@
+page 35 (
+    name: Dashboard Unificado
+    title: Dashboard Unificado
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function doLoad()
+            {
+               setTimeout( "refresh()", 30000 );
+            }
+            
+            function refresh()
+            {
+            window.location.href = window.location;
+            }
+            ```
+        executeWhenPageLoads: doLoad();
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region aderência (
+        name: Aderência
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                i-h320
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+                margin-bottom-none
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region aderência-2 (
+        name: Aderência
+        type: plugin/justgageGauge
+        source {
+            sqlQuery:
+                ```sql
+                select sum(a.presentes) logados, sum(a.previsto) previsto
+                  from beeweb.vw_aderencia_cc a
+                
+                ```
+        }
+        layout {
+            sequence: 70
+            parentRegion: @aderência
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                margin-bottom-none
+            ]
+        }
+        settings {
+            valueColumn: LOGADOS
+            maxValueColumn: PREVISTO
+            headingLinkTarget: {
+                page: 43
+                action: resetPagination
+            }
+            height: 180
+        }
+    )
+
+    region atendimentos-hoje (
+        name: Atendimentos Hoje
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select t.qtde qtde
+                     , 'Tempo Médio: '||nvl(t.tempo,'0:00') tempo
+                 from ( select h.atendimentos qtde
+                             , beeadmin.retorna_segundos_em_horas(trunc(h.tempo_atendimentos/h.atendimentos)) tempo
+                          from beeunified.historico_atendimentos h
+                         where h.data = trunc(sysdate)) t
+                ```
+        }
+        layout {
+            sequence: 30
+            parentRegion: @tarefas
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        security {
+            escapeSpecialChars: false
+        }
+        settings {
+            value: QTDE
+            bottomLabel: TEMPO
+            color: yes
+        }
+    )
+
+    region atendimentos-nos-últimos-7-dias (
+        name: Atendimentos nos Últimos 7 Dias
+        type: chart
+        layout {
+            sequence: 120
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        performance {
+            lazyLoading: true
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series dados (
+            name: Dados
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select to_char(tt.data,'dd/Mon (Dy)') data, tt."TIPO DE TAREFA" dado, nvl(t.qtde,0) qtde
+                      from beeweb.vw_tarefas_atendidas t     
+                         , (select distinct "TIPO DE TAREFA"
+                                 , u7.data
+                              from beeweb.vw_tarefas_atendidas
+                                 , beeweb.vw_ultimos_7_dias u7
+                             where u7.data >= trunc(sysdate-8)
+                               and to_char(u7.data,'d') <> '1') tt
+                     WHERE t."TIPO DE TAREFA"(+) = tt."TIPO DE TAREFA"
+                       and t.data(+) = tt.data
+                     order by tt.data
+                    ```
+            }
+            columnMapping {
+                seriesName: DADO
+                label: DATA
+                value: QTDE
+            }
+        )
+
+        axis x (
+            name: x
+            title: Data
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            title: Quantidade
+            value {
+                format: decimal
+            }
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    region em-pausa (
+        name: Em Pausa
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select t.qtde qtde
+                     , 'Tempo Médio: '||nvl(t.tempo_medio,'0:00') tempo
+                 from ( select count(1) qtde
+                             , beeadmin.retorna_segundos_em_horas(avg((sysdate-cu.data_inicio) * 86400)) tempo_medio
+                             , beeadmin.retorna_segundos_em_horas(max((sysdate-cu.data_inicio) * 86400)) maior_tempo
+                          from beepeople.compromissos_usuarios cu, beepeople.controle_frequencia cf, beeadmin.usuarios u
+                         where cu.cod_usuario = u.codigo
+                           and u.cod_pessoa = cf.cod_pessoa
+                           and u.empresa = cf.empresa
+                           and cu.data_inicio > trunc(sysdate)
+                           and cu.data_termino is null
+                           and cu.data_inicio between cf.data_entrada_efetiva and cf.data_saida_prevista
+                           and not exists (select 1
+                                             from beeweb.controle_atividade
+                                            where cod_usuario = u.codigo
+                                              and atividade = 'LOGOUT'
+                                              and data_termino is null)) t
+                           
+                ```
+        }
+        layout {
+            sequence: 40
+            parentRegion: @tarefas
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        security {
+            escapeSpecialChars: false
+        }
+        settings {
+            value: QTDE
+            bottomLabel: TEMPO
+            color: yes
+        }
+    )
+
+    region em-pausa-2 (
+        name: Em Pausa
+        type: plugin/justgageGauge
+        source {
+            sqlQuery:
+                ```sql
+                select sum(a.em_pausa) em_pausa, sum(a.presentes) presentes
+                  from beeweb.vw_aderencia_cc a
+                
+                ```
+        }
+        layout {
+            sequence: 90
+            parentRegion: @aderência
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                margin-bottom-none
+            ]
+        }
+        settings {
+            valueColumn: EM_PAUSA
+            maxValueColumn: PRESENTES
+            height: 180
+        }
+    )
+
+    region ligações-em-andamento (
+        name: Ligações em Andamento
+        type: plugin/justgageGauge
+        source {
+            sqlQuery:
+                ```sql
+                select t.logados,   
+                       (select count(distinct agent)
+                          from beedialer.pred_dialer_status pds
+                         where pds.call_end_date is null
+                           and pds.create_date > sysdate - (2/24)
+                           and exists (select 1
+                                         FROM beepeople.controle_frequencia cf, beepeople.vw_pessoas p
+                                        WHERE cf.cod_pessoa = p.codigo
+                                          AND cf.empresa = p.empresa
+                                          AND cf.data = trunc(sysdate)
+                                          AND cf.data_entrada_efetiva IS NOT NULL
+                                          AND cf.data_saida_efetiva IS NULL
+                                          AND cf.registra_ponto = 'S'
+                                          AND to_number(substr(p.cpf,1,9)) = pds.agent)
+                       ) qtde
+                  from (
+                        select sum(a.logados) logados
+                          from beeweb.vw_aderencia_cc a) t
+                ```
+        }
+        layout {
+            sequence: 100
+            parentRegion: @aderência
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                margin-bottom-none
+            ]
+        }
+        settings {
+            valueColumn: QTDE
+            maxValueColumn: LOGADOS
+            height: 180
+        }
+    )
+
+    region ligações-no-dia-crm (
+        name: Ligações no Dia (CRM)
+        type: chart
+        layout {
+            sequence: 70
+            slot: body
+            columnSpan: 8
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        chartAppearance {
+            orientation: horizontal
+            stack: true
+        }
+        performance {
+            lazyLoading: true
+        }
+        dataCursor {
+            dimOnHover: false
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series abordado (
+            name: Abordado
+            execution {
+                sequence: 40
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select de.regiao_geografica dado
+                         , sum(abordado) qtde
+                         , 'Abordagem: ' || round((sum(abordado) / sum(ligacoes)) * 100,2) || '%' percentual
+                    
+                      from beeweb.vw_resumo_ligacoes_ddd v
+                         , beedialer.ddds_estados de
+                     where v.ddd = de.ddd
+                     group by de.regiao_geografica
+                     order by 1
+                    
+                    ```
+            }
+            columnMapping {
+                label: DADO
+                value: QTDE
+                customTooltip: PERCENTUAL
+            }
+        )
+
+        series conversão (
+            name: Conversão
+            execution {
+                sequence: 50
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select de.regiao_geografica dado
+                         , sum(conversao) qtde
+                         , 'Conversão: ' || round((sum(conversao) / sum(ligacoes)) * 100,2) || '%' percentual
+                    
+                      from beeweb.vw_resumo_ligacoes_ddd v
+                         , beedialer.ddds_estados de
+                     where v.ddd = de.ddd
+                     group by de.regiao_geografica
+                     order by 1
+                    
+                    ```
+            }
+            columnMapping {
+                label: DADO
+                value: QTDE
+                customTooltip: PERCENTUAL
+            }
+        )
+
+        series ligações (
+            name: Ligações
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select de.regiao_geografica dado
+                         , sum(ligacoes) qtde
+                      from beeweb.vw_resumo_ligacoes_ddd v
+                         , beedialer.ddds_estados de
+                     where v.ddd = de.ddd
+                     group by de.regiao_geografica
+                     order by 1
+                    
+                    ```
+            }
+            columnMapping {
+                label: DADO
+                value: QTDE
+            }
+        )
+
+        series localizado (
+            name: Localizado
+            execution {
+                sequence: 20
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select de.regiao_geografica dado
+                         , sum(localizado) qtde
+                         , 'Localização: ' || round((sum(localizado) / sum(ligacoes)) * 100,2) || '%' percentual
+                      from beeweb.vw_resumo_ligacoes_ddd v
+                         , beedialer.ddds_estados de
+                     where v.ddd = de.ddd
+                     group by de.regiao_geografica
+                     order by 1
+                    
+                    ```
+            }
+            columnMapping {
+                label: DADO
+                value: QTDE
+                customTooltip: PERCENTUAL
+            }
+        )
+
+        axis x (
+            name: x
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+    region logados (
+        name: Logados
+        type: plugin/justgageGauge
+        source {
+            sqlQuery:
+                ```sql
+                select sum(a.logados) logados, sum(a.presentes) presentes
+                  from beeweb.vw_aderencia_cc a
+                
+                ```
+        }
+        layout {
+            sequence: 80
+            parentRegion: @aderência
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                margin-bottom-none
+            ]
+        }
+        settings {
+            valueColumn: LOGADOS
+            maxValueColumn: PRESENTES
+            height: 180
+        }
+    )
+
+    region resumo-de-atividade (
+        name: Resumo de Atividade
+        type: chart
+        layout {
+            sequence: 80
+            slot: body
+            startNewRow: false
+            columnSpan: 4
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        chart {
+            type: donut
+        }
+        performance {
+            lazyLoading: true
+        }
+        value {
+            format: decimal
+        }
+        animation {
+            onDataChange: none
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series resumo (
+            name: Resumo
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select decode(ca.atividade,'PAUSA DISCADOR','PAUSA',ca.atividade)  link
+                         , decode(ca.atividade,'PAUSA DISCADOR','PAUSA',ca.atividade)  atividade
+                         , count(1) quantidade
+                      from beeweb.controle_atividade ca, beeadmin.usuarios u, beepeople.controle_frequencia cf
+                     where ca.cod_usuario = u.codigo
+                       and u.cod_pessoa = cf.cod_pessoa
+                       and u.empresa = cf.empresa
+                       and ca.data_inicio between cf.data_entrada_efetiva and cf.data_saida_prevista
+                       and ca.atividade != 'LOGOUT'
+                       and ca.data_termino is null
+                       and ca.data_inicio > trunc(sysdate)
+                     group by decode(ca.atividade,'PAUSA DISCADOR','PAUSA',ca.atividade) 
+                    
+                    ```
+            }
+            columnMapping {
+                label: ATIVIDADE
+                value: QUANTIDADE
+            }
+            link {
+                type: redirectThisApp
+                target: {
+                    page: 38
+                    items: {
+                        P38_VALOR: &ATIVIDADE.
+                    }
+                    action: resetPagination
+                }
+            }
+        )
+
+    )
+
+    region tarefas (
+        name: Tarefas
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region tarefas-em-atendimento (
+        name: Tarefas em Atendimento
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select t.qtde qtde, 'Tempo Médio: '||nvl(t.tempo,'0:00') tempo
+                 from (select count(1) qtde, beeadmin.retorna_segundos_em_horas(avg(nvl(tempo,0))) TEMPO
+                         from (
+                                select (sysdate - p.data_ultimo_resgate) * 86400 TEMPO
+                                  FROM beecobranca.prospects_original po, beecobranca.prospects p, beecobranca.parametros par
+                                 where po.cod_campanha = p.cod_campanha 
+                                   and po.codigo = p.codigo
+                                   and p.cod_status = par.cod_status_em_uso
+                                   and p.data_ultimo_resgate > sysdate-(1/24)
+                                 union all
+                                select (sysdate - p.data_ultimo_resgate) * 86400 TEMPO
+                                  FROM beeunified.prospects_original po, beeunified.prospects p, beeunified.parametros par
+                                 where po.cod_campanha = p.cod_campanha 
+                                   and po.codigo = p.codigo
+                                   and p.cod_status = par.cod_status_em_uso
+                                   and p.data_ultimo_resgate > sysdate-(1/24)
+                                 union all
+                                select (sysdate - p.data_ultimo_resgate) * 86400 TEMPO
+                                  FROM beefavorita.prospects_original po, beefavorita.prospects p, beefavorita.parametros par
+                                 where po.cod_campanha = p.cod_campanha 
+                                   and po.codigo = p.codigo
+                                   and p.cod_status = par.cod_status_em_uso
+                                   and p.data_ultimo_resgate > sysdate-(1/24))
+                
+                      ) t
+                ```
+        }
+        layout {
+            sequence: 50
+            parentRegion: @tarefas
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        security {
+            escapeSpecialChars: false
+        }
+        settings {
+            value: QTDE
+            bottomLabel: TEMPO
+            color: yes
+        }
+    )
+
+    region tarefas-novas-de-call-back (
+        name: Tarefas Novas de Call Back
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select nvl(v.qtde,0) || 'v + ' || nvl(c.qtde,0) || 'c' qtde
+                     , 'Maior Tempo: '||nvl(v.tempo,'0:00') || 'v + ' || nvl(c.tempo,'0:00') || 'c' tempo
+                 from ( select count(1) qtde
+                             , beeadmin.retorna_segundos_em_horas(trunc((sysdate-min(t.datainclusao)) * 86400)) tempo
+                          from favorita.vw_tarefas_bee t, beeunified.balde_nomes bn
+                         where t.idtipotarefa = bn.idtipotarefa
+                           and beepeople.sonumeros(length(t.telefone)) > 10
+                           and beepeople.sonumeros(t.telefone) not like '0%'
+                           and bn.call_back = 1
+                           and t.idtipotarefa = 6
+                           and t.idsituacao = 0) v,
+                     (  select count(1) qtde
+                             , beeadmin.retorna_segundos_em_horas(trunc((sysdate-min(t.datainclusao)) * 86400)) tempo
+                          from favorita.vw_tarefas_bee t, beeunified.balde_nomes bn
+                         where t.idtipotarefa = bn.idtipotarefa
+                           and beepeople.sonumeros(length(t.telefone)) > 10
+                           and beepeople.sonumeros(t.telefone) not like '0%'
+                           and bn.call_back = 1
+                           and t.idtipotarefa != 6
+                           and t.idsituacao = 0) c
+                                      
+                ```
+        }
+        layout {
+            sequence: 10
+            parentRegion: @tarefas
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        security {
+            escapeSpecialChars: false
+        }
+        settings {
+            value: QTDE
+            bottomLabel: TEMPO
+            linkTarget: {
+                page: 36
+                action: resetPagination
+            }
+            color: yes
+        }
+    )
+
+    region tipos-de-tarefa-atendidas (
+        name: Tipos de Tarefa Atendidas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select v.*
+                  from beeweb.vw_tarefas_atendidas_hoje v
+                 order by 2 desc, 1
+                ```
+        }
+        layout {
+            sequence: 90
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: [
+                #DEFAULT#
+                t-IRR-region--noBorders
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 2800909013840892650
+        }
+
+        column %Abordagem (
+            type: plainText
+            heading {
+                heading: %Abordagem
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column %Conversão (
+            type: plainText
+            heading {
+                heading: %Conversão
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column %Efetivo (
+            type: plainText
+            heading {
+                heading: %Efetivo
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column Abordagens (
+            type: plainText
+            heading {
+                heading: Abordagens
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Atendentes Alocados" (
+            type: plainText
+            heading {
+                heading: Atendentes
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column Atendimentos (
+            type: plainText
+            heading {
+                heading: Atendimentos
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Atendimentos por Tarefa" (
+            type: plainText
+            heading {
+                heading: Atdtos/Tarefa
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "Contatos Efetivos" (
+            type: plainText
+            heading {
+                heading: Contatos Efetivos
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column Conversão (
+            type: plainText
+            heading {
+                heading: Conversão
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column Ligações (
+            type: plainText
+            heading {
+                heading: Ligações
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "Ligações/Conversão" (
+            type: plainText
+            heading {
+                heading: Esforço Ligações&#x2F;Conversão
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column Tarefas (
+            type: plainText
+            heading {
+                heading: Qtde
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Tarefas por Atendente" (
+            type: plainText
+            heading {
+                heading: Tarefas / Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "Tempo Gasto por Atendente" (
+            type: plainText
+            heading {
+                heading: Tempo Gasto / Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 170
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column "Tempo Gasto por Tarefa" (
+            type: plainText
+            heading {
+                heading: Tempo Gasto / Tarefa
+                alignment: center
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column "Tempo Total" (
+            type: plainText
+            heading {
+                heading: Tempo Total
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column "Tipo de Tarefa" (
+            type: plainText
+            heading {
+                heading: Tipos de Tarefas Atendidas Hoje
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        savedReport 28927741 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "%Abordagem" (
+                sequence: 9
+            )
+
+            displayColumn "%Conversão" (
+                sequence: 11
+            )
+
+            displayColumn "%Efetivo" (
+                sequence: 7
+            )
+
+            displayColumn "Abordagens" (
+                sequence: 8
+            )
+
+            displayColumn "Atendentes Alocados" (
+                sequence: 12
+            )
+
+            displayColumn "Atendimentos" (
+                sequence: 3
+            )
+
+            displayColumn "Atendimentos por Tarefa" (
+                sequence: 4
+            )
+
+            displayColumn "Contatos Efetivos" (
+                sequence: 6
+            )
+
+            displayColumn "Conversão" (
+                sequence: 10
+            )
+
+            displayColumn "Ligações" (
+                sequence: 5
+            )
+
+            displayColumn "Ligações/Conversão" (
+                sequence: 17
+            )
+
+            displayColumn "Tarefas" (
+                sequence: 2
+            )
+
+            displayColumn "Tarefas por Atendente" (
+                sequence: 13
+            )
+
+            displayColumn "Tempo Gasto por Atendente" (
+                sequence: 16
+            )
+
+            displayColumn "Tempo Gasto por Tarefa" (
+                sequence: 15
+            )
+
+            displayColumn "Tempo Total" (
+                sequence: 14
+            )
+
+            displayColumn "Tipo de Tarefa" (
+                sequence: 1
+            )
+
+        )
+
+    )
+
+    region últimas-tarefas-atendidas (
+        name: Últimas Tarefas Atendidas
+        type: chart
+        layout {
+            sequence: 60
+            slot: body
+            startNewRow: false
+            columnSpan: 4
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        chart {
+            type: pie
+        }
+        performance {
+            lazyLoading: true
+        }
+        value {
+            format: decimal
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series resumo (
+            name: Resumo
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select dado, quantidade
+                      from beeunified.snapshot_atendimento t
+                     where t.data = (select max(data) from beeunified.snapshot_atendimento)
+                       and ordem > 0
+                       and quantidade > 0
+                    ```
+            }
+            columnMapping {
+                seriesName: DADO
+                label: DADO
+                value: QUANTIDADE
+            }
+        )
+
+    )
+
+    region últimas-tarefas-atendidas-2 (
+        name: Últimas Tarefas Atendidas
+        type: chart
+        layout {
+            sequence: 40
+            slot: body
+            columnSpan: 8
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        chart {
+            type: lineWithArea
+        }
+        performance {
+            lazyLoading: true
+        }
+        tooltip {
+            showGroupName: false
+        }
+        legend {
+            hideAndShowBehavior: none
+        }
+
+        series resumo (
+            name: Resumo
+            execution {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select to_char(data,'hh24:mi:ss') data, dado, quantidade
+                      from beeunified.snapshot_atendimento t
+                     where t.data >= sysdate-(15/60/24)
+                       and t.ordem > 0
+                       and exists (select 1
+                                     from beeunified.snapshot_atendimento
+                                    where ordem = t.ordem
+                                      and data >= sysdate-(15/60/24)
+                                      and quantidade > 0)
+                     order by 1
+                    ```
+            }
+            columnMapping {
+                seriesName: DADO
+                label: DATA
+                value: QUANTIDADE
+            }
+            line {
+                type: curved
+            }
+        )
+
+        axis x (
+            name: x
+            title: Horário
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y (
+            name: y
+            title: Quantidade
+            value {
+                format: decimal
+                baselineScaling: min
+            }
+            minorTicks {
+                show: false
+            }
+        )
+
+        axis y-1 (
+            name: y2
+            minorTicks {
+                show: false
+            }
+        )
+
+    )
+
+)
+

@@ -1,0 +1,1404 @@
+page 432 (
+    name: Controle de Produtos para Postagem
+    title: Controle de Produtos para Postagem
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region controle-de-produtos (
+        name: Controle de Produtos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , fisico.comissao
+                     , fisico.vlrvenda
+                     , nvl(fisico.qtd,0) fisico
+                     , nvl(carga.qtd,0) carga
+                     , nvl(consultoras.qtd,0) consultoroas
+                     , ( nvl(fisico.qtd,0) + nvl(carga.qtd,0) + nvl(consultoras.qtd,0) ) total
+                from vw_filiais f
+                   , ( select e.idfilial 
+                            , decode(e.comissao,'S','Com Comissão','N','Sem Comissão') comissao
+                            , e.vlrvenda
+                            , pck_estoque.fnc_esttotalDISPfilial(e.idestoquefilial) qtd
+                       from estoquefilial e
+                       where e.idproduto = :P432_IDPRODUTO
+                         and ( :P432_TIPOPESQUISA = 'T' 
+                             or ( :P432_TIPOPESQUISA = 'G' and exists ( select 1 
+                                                                        from vw_filiais ff
+                                                                        where ff.idfilial = e.idfilial
+                                                                          and ff.idgrupo = :P432_IDGRUPO )
+                             or ( :P432_TIPOPESQUISA = 'E' and e.idfilial = :P432_IDEMPRESA ) ) )
+                       group by e.idfilial , vlrvenda , comissao, e.idestoquefilial ) fisico
+                    , ( select c.idfilial
+                             , sum( nvl(it.qtd_dist_pp,0)
+                                  + nvl(it.qtd_dist_p,0)
+                                  + nvl(it.qtd_dist_m,0)
+                                  + nvl(it.qtd_dist_g,0)
+                                  + nvl(it.qtd_dist_gg,0)
+                                  + nvl(it.qtd_dist_egg,0)
+                                  + nvl(it.qtd_dist_exgg,0)
+                                  + nvl(it.qtd_dist_u,0) ) qtd
+                        from cargasrepresentantes c
+                           , itenscargarepresentante it
+                        where c.idcargarepresentante = ( select max(cc.idcargarepresentante)
+                                                         from cargasrepresentantes cc
+                                                         where cc.idfilial = c.idfilial 
+                                                           and cc.situacao = 3 )
+                          and ( :P432_TIPOPESQUISA = 'T' 
+                             or ( :P432_TIPOPESQUISA = 'G' and exists ( select 1 
+                                                                        from vw_filiais ff
+                                                                        where ff.idfilial = c.idfilial
+                                                                          and ff.idgrupo = :P432_IDGRUPO )
+                             or ( :P432_TIPOPESQUISA = 'E' and c.idfilial = :P432_IDEMPRESA ) ) )
+                          and it.idcargarepresentante = c.idcargarepresentante
+                          and it.idproduto = :P432_IDPRODUTO 
+                        group by c.idfilial ) carga
+                     , ( select nv.idfilial
+                              , sum(itv.quantidade) qtd
+                         from notasvendas nv
+                            , itensnotavenda itv
+                            , estoquefilial e
+                         where itv.idnotavenda = nv.idnotavenda
+                           and ( :P432_TIPOPESQUISA = 'T' 
+                             or ( :P432_TIPOPESQUISA = 'G' and exists ( select 1 
+                                                                        from vw_filiais ff
+                                                                        where ff.idfilial = nv.idfilial
+                                                                          and ff.idgrupo = :P432_IDGRUPO )
+                             or ( :P432_TIPOPESQUISA = 'E' and nv.idfilial = :P432_IDEMPRESA ) ) )
+                           and nv.idsituacaonotavenda = 3
+                           and e.idestoquefilial = itv.idestoquefil
+                           and e.idproduto = :P432_IDPRODUTO 
+                         group by nv.idfilial ) consultoras
+                where f.ativo = 'S'
+                  and f.tipofilial in ('D','L')
+                  and f.idfilial not in ( 1063 , 1079 )
+                  and exists ( select 1
+                               from notasvendas nv
+                               where nv.idfilial = f.idfilial )
+                  and ( :P432_TIPOPESQUISA = 'T' 
+                       or ( :P432_TIPOPESQUISA = 'G' and f.idgrupo = :P432_IDGRUPO )
+                       or ( :P432_TIPOPESQUISA = 'E' and f.idfilial = :P432_IDEMPRESA ) )
+                  and fisico.idfilial(+) = f.idfilial
+                  and carga.idfilial(+) = f.idfilial
+                  and consultoras.idfilial(+) = f.idfilial
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P432_LIBERADO = 'S'
+                  and :P432_TODOSPRODUTOS is null
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1497774235290920525
+        }
+
+        column CARGA (
+            type: plainText
+            heading {
+                heading: Qtd com Distribuidores
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column COMISSAO (
+            type: plainText
+            heading {
+                heading: Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column CONSULTOROAS (
+            type: plainText
+            heading {
+                heading: Qtd Com Consultoras
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column FISICO (
+            type: plainText
+            heading {
+                heading: Qtd na Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column NOME (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column TOTAL (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column VLRVENDA (
+            type: plainText
+            heading {
+                heading: Valor Venda
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15001180 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CARGA (
+                sequence: 5
+            )
+
+            displayColumn COMISSAO (
+                sequence: 2
+            )
+
+            displayColumn CONSULTOROAS (
+                sequence: 6
+            )
+
+            displayColumn FISICO (
+                sequence: 4
+            )
+
+            displayColumn NOME (
+                sequence: 1
+            )
+
+            displayColumn TOTAL (
+                sequence: 7
+            )
+
+            displayColumn VLRVENDA (
+                sequence: 3
+            )
+
+            aggregate (
+                column: FISICO
+            )
+
+            aggregate (
+                column: CARGA
+            )
+
+            aggregate (
+                column: CONSULTOROAS
+            )
+
+            aggregate (
+                column: TOTAL
+            )
+
+        )
+
+    )
+
+    region controle-de-produtos-2 (
+        name: Controle de Produtos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , fisico.comissao
+                     , fisico.vlrvenda
+                     , nvl(fisico.qtd,0) fisico
+                     , nvl(carga.qtd,0) carga
+                     , nvl(consultoras.qtd,0) consultoroas
+                     , ( nvl(fisico.qtd,0) + nvl(carga.qtd,0) + nvl(consultoras.qtd,0) ) total
+                from vw_filiais f
+                   , ( select e.idfilial 
+                            , e.vlrvenda
+                            , decode(e.comissao,'S','Com Comissão','N','Sem Comissão') comissao
+                            , sum(( nvl(e.qtd_p,0)
+                                  + nvl(e.qtd_pp,0)
+                                  + nvl(e.qtd_m,0)
+                                  + nvl(e.qtd_g,0)
+                                  + nvl(e.qtd_gg,0)
+                                  + nvl(e.qtd_egg,0)
+                                  + nvl(e.qtd_exgg,0)
+                                  + nvl(e.qtd_u,0)) ) qtd
+                       from estoquefilial e
+                       where e.idproduto = :P432_IDPRODUTO
+                         and e.idfilial = :P432_IDFILIAL 
+                       group by e.idfilial , vlrvenda, comissao ) fisico
+                    , ( select c.idfilial
+                             , sum( nvl(it.qtd_dist_pp,0)
+                                  + nvl(it.qtd_dist_p,0)
+                                  + nvl(it.qtd_dist_m,0)
+                                  + nvl(it.qtd_dist_g,0)
+                                  + nvl(it.qtd_dist_gg,0)
+                                  + nvl(it.qtd_dist_egg,0)
+                                  + nvl(it.qtd_dist_exgg,0)
+                                  + nvl(it.qtd_dist_u,0) ) qtd
+                        from cargasrepresentantes c
+                           , itenscargarepresentante it
+                        where c.idcargarepresentante = ( select max(cc.idcargarepresentante)
+                                                         from cargasrepresentantes cc
+                                                         where cc.idfilial = c.idfilial 
+                                                           and cc.situacao = 3 )
+                          and c.idfilial = :P432_IDFILIAL 
+                          and it.idcargarepresentante = c.idcargarepresentante
+                          and it.idproduto = :P432_IDPRODUTO 
+                        group by c.idfilial ) carga
+                     , ( select nv.idfilial
+                              , sum(itv.quantidade) qtd
+                         from notasvendas nv
+                            , itensnotavenda itv
+                            , estoquefilial e
+                         where itv.idnotavenda = nv.idnotavenda
+                           and  e.idfilial = :P432_IDFILIAL 
+                           and nv.idsituacaonotavenda = 3
+                           and e.idestoquefilial = itv.idestoquefil
+                           and e.idproduto = :P432_IDPRODUTO 
+                         group by nv.idfilial ) consultoras
+                where f.ativo = 'S'
+                  and f.tipofilial in ('D','L')
+                  and f.idfilial not in ( 1063 , 1079 )
+                  and f.idfilial = :P432_IDFILIAL 
+                  and fisico.idfilial(+) = f.idfilial
+                  and carga.idfilial(+) = f.idfilial
+                  and consultoras.idfilial(+) = f.idfilial
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P432_LIBERADO
+            value: N
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 2575159419263387141
+        }
+
+        column CARGA (
+            type: plainText
+            heading {
+                heading: Qtd com Distribuidores
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column COMISSAO (
+            type: plainText
+            heading {
+                heading: Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column CONSULTOROAS (
+            type: plainText
+            heading {
+                heading: Qtd Com Consultoras
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column FISICO (
+            type: plainText
+            heading {
+                heading: Qtd na Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column NOME (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column TOTAL (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column VLRVENDA (
+            type: plainText
+            heading {
+                heading: Valor de Venda
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 26365944 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CARGA (
+                sequence: 3
+            )
+
+            displayColumn COMISSAO (
+                sequence: 6
+            )
+
+            displayColumn CONSULTOROAS (
+                sequence: 4
+            )
+
+            displayColumn FISICO (
+                sequence: 2
+            )
+
+            displayColumn NOME (
+                sequence: 1
+            )
+
+            displayColumn TOTAL (
+                sequence: 5
+            )
+
+            displayColumn VLRVENDA (
+                sequence: 7
+            )
+
+        )
+
+    )
+
+    region controle-de-todos-produtos (
+        name: Controle de Todos Produtos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomeproduto(e.idproduto) produto
+                     , ( select codigosisdist
+                         from produtos p
+                         where p.idproduto = e.idproduto ) codigo
+                     , decode(e.comissao,'S','Com Comissão','N','Sem Comissão') comissao
+                     , e.vlrvenda
+                     , (nvl(e.qtd_p,0)
+                      + nvl(e.qtd_pp,0)
+                      + nvl(e.qtd_m,0)
+                      + nvl(e.qtd_g,0)
+                      + nvl(e.qtd_gg,0)
+                      + nvl(e.qtd_egg,0)
+                      + nvl(e.qtd_exgg,0)
+                      + nvl(e.qtd_u,0) ) fisico
+                     , nvl(carga.qtd,0) carga
+                     , nvl(consultoras.qtd,0) consultoroas
+                     , ( (nvl(e.qtd_p,0)
+                          + nvl(e.qtd_pp,0)
+                          + nvl(e.qtd_m,0)
+                          + nvl(e.qtd_g,0)
+                          + nvl(e.qtd_gg,0)
+                          + nvl(e.qtd_egg,0)
+                          + nvl(e.qtd_exgg,0)
+                          + nvl(e.qtd_u,0) ) + nvl(carga.qtd,0) + nvl(consultoras.qtd,0) ) total
+                from estoquefilial e
+                   , ( select it.idproduto
+                            , sum( nvl(it.qtd_dist_pp,0)
+                                 + nvl(it.qtd_dist_p,0)
+                                 + nvl(it.qtd_dist_m,0)
+                                 + nvl(it.qtd_dist_g,0)
+                                 + nvl(it.qtd_dist_gg,0)
+                                 + nvl(it.qtd_dist_egg,0)
+                                 + nvl(it.qtd_dist_exgg,0)
+                                 + nvl(it.qtd_dist_u,0) ) qtd
+                        from cargasrepresentantes c
+                           , itenscargarepresentante it
+                        where c.idcargarepresentante = ( select max(cc.idcargarepresentante)
+                                                         from cargasrepresentantes cc
+                                                         where cc.idfilial = c.idfilial 
+                                                           and cc.situacao = 3 )
+                          and c.idfilial = :P432_IDEMPRESA 
+                          and it.idcargarepresentante = c.idcargarepresentante
+                        group by it.idproduto ) carga
+                     , ( select e.idproduto
+                              , sum(itv.quantidade) qtd
+                         from notasvendas nv
+                            , itensnotavenda itv
+                            , estoquefilial e
+                         where itv.idnotavenda = nv.idnotavenda
+                           and e.idfilial = :P432_IDEMPRESA 
+                           and nv.idsituacaonotavenda = 3
+                           and e.idestoquefilial = itv.idestoquefil
+                         group by e.idproduto ) consultoras
+                where e.idfilial = :P432_IDEMPRESA 
+                  and carga.idproduto(+) = e.idproduto
+                  and consultoras.idproduto(+) = e.idproduto
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P432_LIBERADO = 'S'
+                  and :P432_TODOSPRODUTOS = 'S'
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 2772370085108691640
+        }
+
+        column CARGA (
+            type: plainText
+            heading {
+                heading: Qtd com Distribuidores
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column CODIGO (
+            type: plainText
+            heading {
+                heading: Código
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column COMISSAO (
+            type: plainText
+            heading {
+                heading: Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column CONSULTOROAS (
+            type: plainText
+            heading {
+                heading: Qtd Com Consultoras
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column FISICO (
+            type: plainText
+            heading {
+                heading: Qtd na Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column PRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column TOTAL (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column VLRVENDA (
+            type: plainText
+            heading {
+                heading: Valor Venda
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 27900470 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CARGA (
+                sequence: 6
+            )
+
+            displayColumn CODIGO (
+                sequence: 1
+            )
+
+            displayColumn COMISSAO (
+                sequence: 3
+            )
+
+            displayColumn CONSULTOROAS (
+                sequence: 7
+            )
+
+            displayColumn FISICO (
+                sequence: 5
+            )
+
+            displayColumn PRODUTO (
+                sequence: 2
+            )
+
+            displayColumn TOTAL (
+                sequence: 8
+            )
+
+            displayColumn VLRVENDA (
+                sequence: 4
+            )
+
+            sort (
+                column: PRODUTO
+                sort {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P432_IDEMPRESA (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial in ('D','L')
+                ```
+            nullDisplayValue: - Selecione a Empresa -
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        serverSideCondition {
+            type: item=value
+            item: P432_LIBERADO
+            value: S
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P432_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial in ('D','L')
+                  and exists ( select 1
+                               from usuariosfiliais uf
+                               where uf.usuario = v('APP_USER') 
+                                 and uf.idfilial = f.idfilial )
+                ```
+            nullDisplayValue: - Selecione a Empresa -
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        serverSideCondition {
+            type: item=value
+            item: P432_LIBERADO
+            value: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P432_IDGRUPO (
+        type: selectList
+        label {
+            label: Grupo de Empresas
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select g.descricao||' - '||( select LISTAGG(F.nome, ', ') within group (order by f.idgrupo , f.nome) empresas
+                                             from vw_filiais f
+                                             where f.idgrupo = g.idgrupo) display_value
+                     , g.idgrupo return_value
+                from gruposromance g
+                order by idgrupo;
+                
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        serverSideCondition {
+            type: item=value
+            item: P432_LIBERADO
+            value: S
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P432_IDPRODUTO (
+        type: popupLov
+        label {
+            label: Produto
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.codigosisdist||' - '||p.nomeproduto display_value
+                     , p.idproduto return_value
+                from produtos p
+                where p.ativo = 'S'
+                  /*and exists ( select 1
+                               from fotosprodutos f
+                               where f.idproduto = p.idproduto )*/
+                  and exists ( select 1
+                               from estoquefilial e
+                               where e.idproduto = p.idproduto
+                                 and e.ativo     = 'S' )
+                order by p.nomeproduto
+                ```
+            nullDisplayValue: "- Escolha um Produto - "
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P432_LIBERADO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P432_TIPOPESQUISA (
+        type: radioGroup
+        label {
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Grupo;G,Empresa;E,Todos;T
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: G
+        }
+        serverSideCondition {
+            type: item=value
+            item: P432_LIBERADO
+            value: S
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P432_TODOSPRODUTOS (
+        type: checkboxGroup
+        label {
+            label: Pesquisar todos Produtos
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC: ;S
+            displayExtraValues: false
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: FILTRAR
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction tipo-pesquisa-empresa (
+        name: Tipo Pesquisa Empresa
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P432_TIPOPESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P432_TIPOPESQUISA
+            value: E
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P432_IDEMPRESA
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P432_TODOSPRODUTOS
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P432_IDEMPRESA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P432_TODOSPRODUTOS
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+    )
+
+    dynamicAction tipo-pesquisa-grupo (
+        name: Tipo Pesquisa Grupo
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P432_TIPOPESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P432_TIPOPESQUISA
+            value: G
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P432_IDGRUPO
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P432_IDGRUPO
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    process verifica-acessos (
+        name: Verifica Acessos
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vliberaacesso varchar2(1);
+                begin
+                  --
+                  begin
+                    select 'S'
+                    into vliberaacesso
+                    from dual
+                    where exists ( select 1
+                                   from usuarios u
+                                      , gerentes g
+                                   where g.idpessoa = u.idpessoa 
+                                     and u.usuario = v('APP_USER'));
+                  exception
+                    when others then
+                      vliberaacesso := 'N';
+                  end;
+                  --
+                  begin 
+                    select 'S'
+                    into vliberaacesso
+                    from dual
+                    where ( exists ( select 1
+                                     from usuariosgruposatendimento ug
+                                     where ug.usuario = v('APP_USER')
+                                       and ug.idgrupoatendimento in (0,1) )
+                          or ( v('APP_USER') in ('EDUARDO','RITAS','GUILHERME','PRISCILAREIS','CAMILAE','FERNANDAZS','SAMANTASIQUEIRA','PAMELAB','THAISW','FERNANDANF','RICIERYS','BIANCAPADILHA','ALEXQ','LAURAF','RAFAELRC','KEILASOUZA','ALEXANDREH','MATHEUSSCHMIDT','JENIFEROLIVEIRA','LUCASBRENTANO','LUANASILVA','MARIACLOPES','ANGELICAJIENSUR','LUCIANOKRAFCIZINSKI','VERIDIANAMAZOTI','MARIELAC','SUELENBAUER','RENANSILVA') ) );
+                  exception
+                    when NO_DATA_FOUND then
+                      vliberaacesso := 'N';
+                  end;
+                  --
+                  if vliberaacesso is null then
+                    vliberaacesso := 'N';
+                  end if;
+                  --
+                  :P432_LIBERADO := vliberaacesso;
+                  --
+                exception 
+                  when others then
+                    vliberaacesso := 'N';
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 2575159150672387138
+        }
+    )
+
+    branch (
+        name: Go To Page 432
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 432
+                items: {
+                    P432_TIPOPESQUISA: &P432_TIPOPESQUISA.
+                    P432_IDGRUPO: &P432_IDGRUPO.
+                    P432_IDEMPRESA: &P432_IDEMPRESA.
+                    P432_IDPRODUTO: &P432_IDPRODUTO.
+                    P432_TODOSPRODUTOS: &P432_TODOSPRODUTOS.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

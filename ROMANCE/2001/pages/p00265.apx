@@ -1,0 +1,197 @@
+page 265 (
+    name: Concluir Nota
+    title: Concluir Nota
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region new (
+        name: New
+        type: staticContent
+        source {
+            htmlCode: <h2 align="middle" > Esta nota foi quitada?</h2>
+        }
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P265_IDNOTAVENDA (
+        type: hidden
+        layout {
+            sequence: 40
+            region: @new
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button debito (
+        buttonName: DEBITO
+        label: Não, deixarei pagamento parcial ou débito.
+        layout {
+            sequence: 20
+            region: @new
+            slot: belowBox
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                t-Button--large
+                t-Button--primary
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button quitado (
+        buttonName: QUITADO
+        label: Sim, recebi todo o valor calculado.
+        layout {
+            sequence: 10
+            region: @new
+            slot: belowBox
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process pepino (
+        name: pepino
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                --
+                  update notasvendas n set
+                  n.quitadapepino = 'P',
+                  n.idsituacaonotavenda = 4
+                  where idnotavenda = :P265_IDNOTAVENDA;
+                --
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        advanced {
+            executionMappingIdentifier: 16756806924028992
+        }
+        serverSideCondition {
+            whenButtonPressed: @debito
+        }
+    )
+
+    process quitado (
+        name: quitado
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  -- 
+                  vsemana          varchar2(10);
+                  vvalorpago       number(12,2) := 0;
+                  vidnotavenda     number := :P265_IDNOTAVENDA;
+                  vvalorliq        number(12,2) := 0;
+                  --
+                begin
+                  --
+                  select n.VALORTOTALVENDALQD, n.valorpago
+                  into vvalorliq, vvalorpago
+                  from notasvendas n
+                  where idnotavenda = vidnotavenda;
+                  --
+                  select max(semana)
+                  into vsemana
+                  from ( select semana
+                         from fechamentossemanais
+                         where idfilial = :P0_IDFILIAL
+                           and concluido = 'N'
+                         order by idfechamento desc )
+                  where rownum = 1;
+                  --
+                  if to_number(vvalorpago,'999G999G990D00') = 0 then
+                    insert into pagamentosnotasvendas ( idpagtonotavenda, idnotavenda, datapagamento, valorpago,semanacobranca)
+                    values ( seq_idpgtonotavenda.nextval, vidnotavenda , sysdate, vvalorliq,vsemana);
+                  end if;
+                  --
+                  update notasvendas n set
+                  n.idsituacaonotavenda = 4,
+                  n.quitadapepino = 'Q'
+                  where idnotavenda = vidnotavenda;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 16756719577028991
+        }
+        serverSideCondition {
+            whenButtonPressed: @quitado
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 30
+        }
+        behavior {
+            target: {
+                page: 37
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

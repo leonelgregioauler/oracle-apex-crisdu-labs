@@ -1,0 +1,526 @@
+page 37 (
+    name: Primeiro Atendimento da Tarefa
+    title: Primeiro Atendimento da Tarefa
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent1
+                t-Region--noBorder
+                t-Region--hiddenOverflow
+                t-Form--labelsAbove
+            ]
+            cssClasses: FILTRO
+        }
+    )
+
+    region resultado-da-consulta (
+        name: Resultado da Consulta
+        type: interactiveGrid
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select case
+                        when tipotarefa is null then 'TOTAL'
+                        when dia is null then ''
+                        else tipotarefa
+                       end tipotarefa,
+                       to_char(dia,'dd/mm/rrrr') data,
+                       incluidas,
+                       atendidas
+                  from (
+                		 select descricao tipotarefa, dia, sum(incluidas) incluidas, sum(atendidas) atendidas
+                          from (
+                                select sel.idtipotarefa, sel.descricao, sel.dia, nvl(inc.qtde,0) incluidas, nvl(atd.qtde,0) atendidas
+                                  from (select distinct tt.idtipotarefa, tt.descricao, trunc(cf.data) dia
+                                          from beepeople.controle_frequencia cf, tipostarefas tt
+                                         where cf.data between to_date(:P37_DATAI || ' 00:00:00','dd/mm/rrrr hh24:mi:ss')
+                                                           and to_date(:P37_DATAF || ' 23:59:59','dd/mm/rrrr hh24:mi:ss')
+                                        and tt.idtipotarefa in (4,9,10)) sel,
+                                       (select lt.idtipotarefa, trunc(t.datainicio) dia, count(1) qtde
+                                          from logfavorita.log_tarefas lt, tarefas t
+                                         where lt.idtarefa = t.idtarefa
+                                           and (lt.idtarefa, lt.idlog)
+                                            in (
+                                                select l.idtarefa, min(idlog) idlog
+                                                  from logfavorita.log_tarefas l
+                                                 where l.tipoalteracao = 'UPDATE'
+                                                   and l.datainclusao between to_date(:P37_DATAI || ' 00:00:00','dd/mm/rrrr hh24:mi:ss')
+                                                                          and to_date(:P37_DATAF || ' 23:59:59','dd/mm/rrrr hh24:mi:ss')
+                                                   and l.idtipotarefa = nvl(:P37_TIPO_TAREFA,l.idtipotarefa)
+                                                   and l.idtipotarefa in (4,9,10) 
+                                                 group by l.idtarefa)
+                                          and instr(nvl(:P37_OPERADOR,lt.idusuario),lt.idusuario) > 0
+                                        group by lt.idtipotarefa, trunc(t.datainicio)) atd,
+                                       (
+                                        select lt.idtipotarefa, trunc(lt.data_log) dia, count(1) qtde
+                                          from beecobranca.log_inclusao_tarefa_manual lt
+                                         where lt.data_log between to_date(:P37_DATAI || ' 00:00:00','dd/mm/rrrr hh24:mi:ss')
+                                                               and to_date(:P37_DATAF || ' 23:59:59','dd/mm/rrrr hh24:mi:ss')
+                                           and lt.idtipotarefa = nvl(:P37_TIPO_TAREFA,lt.idtipotarefa)
+                                           and instr(nvl(:P37_OPERADOR,lt.idusuario),lt.idusuario) > 0
+                                           and lt.idtipotarefa in (4,9,10) 
+                                        group by lt.idtipotarefa, trunc(lt.data_log)
+                                      ) inc
+                                  where sel.idtipotarefa = atd.idtipotarefa(+)
+                                    and sel.dia = atd.dia(+)
+                                    and sel.idtipotarefa = inc.idtipotarefa(+)
+                                    and sel.dia = inc.dia(+)
+                                    and sel.idtipotarefa = nvl(:P37_TIPO_TAREFA,sel.idtipotarefa))
+                      group by rollup (descricao, dia)
+                         order by 1, 2)
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: item=value
+            item: P37_GERAR
+            value: 1
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        toolbar {
+            controls: [
+                searchCol
+                searchField
+                actionsMenu
+                resetButton
+                saveButton
+            ]
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 2924661663339124234
+        }
+
+        savedReport PRIMARY (
+            visibility: primary
+            view {
+                default: grid
+            }
+            singleRowView {
+                displayedColumns: true
+            }
+
+            displayColumn (
+                column: @TIPOTAREFA
+                layout {
+                    sequence: 1
+                }
+            )
+
+            displayColumn (
+                column: @DATA
+                layout {
+                    sequence: 2
+                }
+            )
+
+            displayColumn (
+                column: @INCLUIDAS
+                layout {
+                    sequence: 3
+                }
+            )
+
+            displayColumn (
+                column: @ATENDIDAS
+                layout {
+                    sequence: 4
+                }
+            )
+
+        )
+
+        column ATENDIDAS (
+            type: numberField
+            heading {
+                heading: Atendidas
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: ATENDIDAS
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column DATA (
+            type: textField
+            heading {
+                heading: Data
+            }
+            layout {
+                sequence: 20
+            }
+            validation {
+                maxLength: 10
+            }
+            source {
+                databaseColumn: DATA
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+            }
+        )
+
+        column INCLUIDAS (
+            type: numberField
+            heading {
+                heading: Incluidas
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: INCLUIDAS
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column TIPOTAREFA (
+            type: textarea
+            heading {
+                heading: Tipotarefa
+            }
+            layout {
+                sequence: 10
+            }
+            validation {
+                maxLength: 200
+            }
+            source {
+                databaseColumn: TIPOTAREFA
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+    )
+
+    pageItem P37_DATAF (
+        type: datePickerJquery
+        label {
+            label: Data Final
+            alignment: left
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+            columnSpan: 2
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: dd/mm/rrrr
+            width: 30
+        }
+        validation {
+            valueRequired: true
+        }
+        source {
+            type: expression
+            plsqlExpression: sysdate
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P37_DATAI (
+        type: datePickerJquery
+        label {
+            label: Data Inicial
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            column: 3
+            columnSpan: 2
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: dd/mm/rrrr
+            width: 30
+        }
+        validation {
+            valueRequired: true
+        }
+        source {
+            type: expression
+            plsqlExpression: SYSDATE-7
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P37_GERAR (
+        type: hidden
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+        }
+        source {
+            type: staticValue
+            staticValue: 0
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P37_OPERADOR (
+        type: plugin/select
+        label {
+            label: Atendente
+            alignment: left
+        }
+        settings {
+            selectListType: multiValueSelectList
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.nome, cau.idusuario
+                  from beecobranca.usuarios_atendimento ua, beeadmin.usuarios u, beepeople.vw_pessoas p, catal.usuarios cau
+                 where ua.cod_usuario = u.codigo
+                   and u.nome_login = cau.usuario
+                   and u.cod_pessoa = p.codigo
+                   and u.empresa = p.empresa
+                   and u.status = 'A'
+                 order by 1
+                ```
+            nullDisplayValue: Todos
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            column: 3
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P37_TIPO_TAREFA (
+        type: plugin/select
+        label {
+            label: Tipo de Tarefa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select descricao, idtipotarefa
+                  from tipostarefas
+                 where idtipotarefa in (4,9,10)
+                 order by 1
+                ```
+            nullDisplayValue: Todas
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            column: 3
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button gerar (
+        buttonName: Gerar
+        label: Gerar Relatório
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction gerarsumbit (
+        name: GerarSumbit
+        execution {
+            sequence: 50
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @gerar
+        }
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction refreshescondefiltro (
+        name: RefreshEscondeFiltro
+        execution {
+            sequence: 40
+        }
+        when {
+            event: ready
+        }
+        serverSideCondition {
+            type: item=value
+            item: P37_GERAR
+            value: 1
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    $(".FILTRO.a-Collapsible.is-expanded").removeClass('is-expanded').addClass('is-collapsed');
+                    $(".FILTRO.a-Collapsible .a-Collapsible-content").hide();
+                    ```
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    branch (
+        name: Goto Page 37
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 37
+                items: {
+                    P37_GERAR: 1
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

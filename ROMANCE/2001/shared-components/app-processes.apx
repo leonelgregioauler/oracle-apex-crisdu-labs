@@ -1,0 +1,283 @@
+appProcess busca-eventos-aguardando-aprovação (
+    name: Busca Eventos aguardando aprovação
+    source {
+        plsqlCode:
+            ```plsql
+            begin
+             --
+             select count(1)
+             into :AGUARDANDOAPROVACAO 
+             from chamados c
+             where c.usuario = v('APP_USER')
+               and nvl(idsituacao,0)  = 40
+               and idrepresentante is null;
+             --
+            exception
+              when others then
+               :HISTORICOS := '-';
+            END;
+            ```
+    }
+    execution {
+        sequence: 10
+    }
+)
+
+appProcess busca-questionamentos-pendentes-de-respostas (
+    name: Busca Questionamentos pendentes de Respostas
+    source {
+        plsqlCode:
+            ```plsql
+            begin
+             --
+             select count(1)
+             into :QUESTIONAMENTO
+             from questionamentoscontroladoria q
+             where ( nvl(q.confirmacaoleitura,'N') = 'N'
+                  or ( confirmacaoleitura = 'S' and resposta is null ) )
+               and confirmarenvio = 'S'
+               and ( ( q.idpessoa = ( select idpessoa
+                                      from usuarios u
+                                      where u.usuario = v('APP_USER') ) )
+                  or ( q.idfilial = :P0_IDFILIAL and exists ( select 1
+                                                             from usuarios u
+                                                             where u.usuario = v('APP_USER')
+                                                               and pck_romance.fnc_filialusuario(v('APP_USER')) = q.idfilial
+                                                               and ( exists ( select 1
+                                                                              from gerentes g
+                                                                              where g.idpessoa = u.idpessoa )
+                                                                  or exists ( select 1
+                                                                              from secretarias s
+                                                                              where s.idpessoa = u.idpessoa ) ) ) ) );
+             --
+            END;
+            ```
+    }
+    execution {
+        sequence: 1
+    }
+)
+
+appProcess buscafilial (
+    name: buscafilial
+    source {
+        plsqlCode:
+            ```plsql
+            declare
+            --
+              vidvendedora  number := 0;
+              vtexto        varchar2(2000) := null;
+              vcpf          varchar2(15) := null;
+              verro         varchar2(2000);
+            --
+            begin
+              -- 
+              vcpf := replace(replace(v('F2001275CPF'),'.',''),'-','');
+              --
+              select v.idvendedora
+                   , 'Empresa: '||pck_romance.fnc_nomefilial(v.idfilial) texto
+              into vidvendedora
+                 , vtexto
+              from vendedoras v
+                 , pessoas p
+              where p.idpessoa = v.idpessoa
+                and p.cpf = vcpf;
+              
+              --
+              htp.prn(vtexto);
+              --
+              exception
+              when others then
+                verro := sqlerrm;
+                htp.prn('Não possui filial'); 
+              --
+            end;
+            ```
+    }
+    execution {
+        sequence: 1
+        point: ajaxCallback
+    }
+)
+
+appProcess buscainfodenotas (
+    name: buscainfodenotas
+    source {
+        plsqlCode:
+            ```plsql
+            declare
+            --
+              vidvendedora  number := 0;
+              vtexto        varchar2(2000) := null;
+              vcpf          varchar2(15) := null;
+              verro         varchar2(2000);
+            --
+            begin
+              -- 
+              vcpf := replace(replace(v('F2001275CPF'),'.',''),'-','');
+              --
+              select v.idvendedora
+              into vidvendedora
+              from vendedoras v
+                 , pessoas p
+              where p.idpessoa = v.idpessoa
+                and p.cpf = vcpf;
+              --
+              select listagg(n.numeronota|| ' - R$ ' ||n.saldo||' ('||decode(n.enviocobrancaterceirizada,'S','SALA','NORMAL')||') - '||pck_romance.fnc_nomerepresentante(n.idrepresentante)||' - '||nvl(( select 'Com Assinatura'
+                                                                                                                                                                                                          from dual
+                                                                                                                                                                                                          where exists ( select 1 
+                                                                                                                                                                                                                         from classificacoesnotasvendas cn
+                                                                                                                                                                                                                         where cn.idnotavenda = n.idnotavenda
+                                                                                                                                                                                                                           and cn.idcaracteristicanotavenda = 35)),'Sem Assinatura'),' ') within group (order by 1)
+              into vtexto
+              from notasvendas n
+              where n.idvendedora = vidvendedora
+                and n.idsituacaonotavenda = 4
+                and n.saldo > 0;
+              --
+              htp.prn(vtexto);
+              --
+              exception
+              when others then
+                verro := sqlerrm;
+                htp.prn(''); 
+              --
+            end;
+            ```
+    }
+    execution {
+        sequence: 12
+        point: ajaxCallback
+    }
+)
+
+appProcess buscapromissorias (
+    name: buscapromissorias
+    source {
+        plsqlCode:
+            ```plsql
+            declare
+            --
+              vidvendedora  number := 0;
+              vtexto        varchar2(2000) := null;
+              vcpf          varchar2(15) := null;
+              verro         varchar2(2000);
+            --
+            begin
+              -- 
+              vcpf := replace(replace(v('F2001275CPF'),'.',''),'-','');
+              --
+              select v.idvendedora
+              into vidvendedora
+              from vendedoras v
+                 , pessoas p
+              where p.idpessoa = v.idpessoa
+                and p.cpf = vcpf;
+              --
+              select listagg(n.numeronota|| ' - Promissória: ' ||s.descricao,' ') within group (order by 1)
+              into vtexto
+              from roman.notasvendas n
+                 , catal.situacoespromissorias s
+              where n.idvendedora = vidvendedora
+                and s.idsituacaopromis = n.idsituacaopromissoria
+                and n.idsituacaonotavenda = 4
+                and n.idsituacaopromissoria is not null
+                and n.saldo > 0;
+              --
+              htp.prn(vtexto);
+              --
+              exception
+              when others then
+                verro := sqlerrm;
+                htp.prn('Não possui promissórias'); 
+              --
+            end;
+            ```
+    }
+    execution {
+        sequence: 1
+        point: ajaxCallback
+    }
+)
+
+appProcess identificador (
+    name: IDENTIFICADOR
+    source {
+        plsqlCode:
+            ```plsql
+            begin
+              --
+              select upper(substr(nvl(a1.nome,a2.nome),1,3))||a2.pagina||'_'||a2.idaplicacao||' - '||a2.nome a
+              into :IDENTIFICADOR 
+              from roman.aplicacoes a1
+                 , roman.aplicacoes a2
+              where a2.hierarquia = a1.idaplicacao (+)
+                and a2.idsistema = v('APP_ID')
+                and a2.pagina    = v('APP_PAGE_ID');
+              --
+            exception
+              when others then
+                :IDENTIFICADOR := null;
+            end;
+            ```
+    }
+    execution {
+        sequence: 11
+    }
+)
+
+appProcess validacpfcnpj (
+    name: validacpfcnpj
+    source {
+        plsqlCode:
+            ```plsql
+            declare
+              lv_User_List varchar2(20) := '';
+              vtipo        varchar2(1)  := v('F10008TIPO');
+              vcpf         varchar2(30) := v('F10008CPF');
+              vcnpj        varchar2(30) := v('F10008CNPJ');
+              vvalida      boolean;
+              vteste number;
+            begin
+              vcpf  := replace(replace(vcpf,'.',''),'-','');
+              vcnpj := replace(replace(replace(vcnpj,'.',''),'-',''),'/','');
+              begin
+                --
+                if vtipo  is not null then
+                  if vtipo = 'F' then
+                    vvalida := pck_util.validacpf( vcpf);
+                  else
+                    vvalida := pck_util.validacnpj(vcnpj);
+                  end if;
+                  --
+                  vteste  := sys.diutil.bool_to_int(vvalida );
+                  --
+                else
+                  --
+                  vteste  := 0;
+                  --
+                end if;
+                --
+                if vteste  = 1 then
+                  lv_User_List := 'V';
+                else
+                  lv_User_List := 'I';
+                end if;
+                --
+              exception 
+                when no_data_found then 
+                  lv_User_List := '0';
+                when others then 
+                  lv_User_List := sqlerrm;
+              end;
+              htp.prn(lv_User_List);
+            
+            end;
+            ```
+    }
+    execution {
+        sequence: 1
+        point: ajaxCallback
+    }
+)
+

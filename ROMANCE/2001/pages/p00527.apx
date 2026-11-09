@@ -1,0 +1,1765 @@
+page 527 (
+    name: Acompanhamento de Balanços
+    title: Acompanhamento de Balanços
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region acompanhar-balanço-de-distribuidores (
+        name: Acompanhar Balanço de Distribuidores
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomefilial(r.idfilial) Empresa
+                     , roman.pck_romance.fnc_nomerepresentante(r.idrepresentante) distribuidor
+                     , r.ativo
+                     , r.iniciouem
+                     , r.semana
+                     , r.data
+                     , nvl(r.saldo_com,0) qtd_com
+                     , nvl(r.valor_com,0) valor_com
+                     , nvl(r.saldo_sem,0) qtd_sem
+                     , nvl(r.valor_sem,0) valor_sem
+                     , nvl(r.saldo_com,0) + nvl(r.saldo_sem,0) total
+                     , nvl(r.valor_com,0) + nvl(r.valor_sem,0) valortotal
+                     , case 
+                         when r.ididioma = 1 then 
+                            round((nvl(r.valor_sem ,0) + (nvl(r.valor_com,0) * 0.6)),2) 
+                         else
+                            0
+                       end valor_sem_40
+                     , case 
+                         when r.ididioma != 1 then
+                            round((nvl(r.valor_sem ,0) + (nvl(r.valor_com,0) * 0.7)),2)
+                         else 
+                            0
+                       end valor_sem_30
+                     , media_cobranca
+                     , case
+                         when r.ididioma = 1 and media_cobranca > 0 and ( r.valor_sem > 0 or r.valor_com > 0 ) then
+                          round(round((nvl(r.valor_sem,0) + (nvl(r.valor_com,0) * 0.6)),2) / media_cobranca)
+                         else
+                           0
+                       end cobertura_40
+                     , case
+                         when r.ididioma != 1 and media_cobranca > 0 and ( r.valor_sem > 0 or r.valor_com > 0 ) then
+                          round(round((nvl(r.valor_sem,0) + (nvl(r.valor_com,0) * 0.7)),2) / media_cobranca) 
+                         else
+                           0
+                       end cobertura_30
+                     , r.atu
+                     /* , case 
+                         when media_cobranca > 0 and ( r.valor_com > 0 or r.valor_sem > 0 ) then 
+                           round(( (media_cobranca / 0.6) / ((nvl(r.valor_com,0) + nvl(r.valor_sem,0))) * 100),2)
+                         else
+                           0
+                       end perc_media_cobranca_18 */
+                     , percentual_18_semanas perc_media_cobranca_18
+                from (  
+                       select r.idrepresentante
+                            , decode(r.ativo,'S','Ativo','N','Inativo') ativo
+                            , r.semanaparou
+                            , pck_util.fnc_semanaid(r.idsemanabalanco) semana
+                            , r.databalancoiniciado data
+                            , com_comissao.qtd saldo_com
+                            , sem_comissao.qtd saldo_sem
+                            , com_comissao.total valor_com
+                            , sem_comissao.total valor_sem
+                            , ( select pck_util.fnc_semanaid(min(n.idsemanadistribuicao)) Semana
+                                from notasvendas n
+                                where idrepresentante  = r.idrepresentante ) iniciouem
+                            , pck_balanco_rmc.fnc_mediaultimascobrancas(r.idrepresentante, ( select case when count(idfechamentorepres) > 18 then 18
+                                                                                                         else count(idfechamentorepres) end 
+                                                                                               from fechamentorepresentantes 
+                                                                                              where idrepresentante = r.idrepresentante 
+                                                                                                and totalgeral > 0) ) media_cobranca
+                            , ( select round( ( ( sum(valortotalvendalqd) / sum(valortotalnota) ) * 100), 2)
+                                from (
+                                  select semanadistribuicao
+                                       , TO_NUMBER(REGEXP_SUBSTR(semanadistribuicao, '^[0-9]+')) semana
+                                       , TO_NUMBER(REGEXP_SUBSTR(semanadistribuicao, '[0-9]+$', 1, 1)) ano
+                                       , sum(valortotalnota) valortotalnota
+                                       , sum(valortotalvendalqd) valortotalvendalqd
+                                  from (   
+                                    select n.semanadistribuicao
+                                         , n.valortotalnota
+                                         , n.valortotalvendalqd
+                                    from notasvendas n
+                                    where n.idrepresentante      = r.idrepresentante
+                                      and nvl(n.tiponota,'R')    = 'R'
+                                      and n.idsituacaonotavenda > 1
+                                      order by n.idnotavenda desc
+                                  )
+                                  group by semanadistribuicao
+                                  order by TO_NUMBER(REGEXP_SUBSTR(semanadistribuicao, '[0-9]+$', 1, 1)) desc
+                                         , TO_NUMBER(REGEXP_SUBSTR(semanadistribuicao, '^[0-9]+')) desc
+                                )
+                                where rownum <= 18 ) percentual_18_semanas
+                            , ( select to_char(max(pr.data),'DD/MM/RRRR HH24:MI:SS') data
+                                from roman.pecasrepresentantes pr
+                                where pr.idrepresentante = r.idrepresentante )atu
+                            , g.idfilial
+                            , f.ididioma
+                       from representantes r
+                          , gerentes g
+                          , filiais f
+                          , ( select pr.idrepresentante
+                                   , sum(pr.quantidade) qtd
+                                   , sum(pr.quantidade*pr.valorvenda)  total
+                              from vw_pecas_produtos_repres pr
+                              where pr.comissao = 'S'
+                              group by pr.idrepresentante ) com_comissao
+                          , ( select pr.idrepresentante
+                                   , sum(pr.quantidade) qtd
+                                   , sum(pr.quantidade*pr.valorvenda)  total
+                              from vw_pecas_produtos_repres pr
+                              where pr.comissao = 'N'
+                              group by pr.idrepresentante ) sem_comissao
+                          , (select fr.idrepresentante
+                                   , count(fr.idfechamentorepres) qtd_fechamentos
+                              from   fechamentorepresentantes fr
+                              where  totalgeral > 0
+                              group by fr.idrepresentante) fechamentos
+                       where g.idfilial(+) = f.idfilial
+                         and r.idgerente = g.idgerente
+                         and ( :P0_IDFILIAL = -1 or g.idfilial = :P0_IDFILIAL )
+                         and ( :P527_IDREPRESENTANTE = -1 and r.idgerente in ( select idgerente -- se escolher todos representantes, deve filtar apenas representantes de filiais liberadas para o usuario
+                                                                                from gerentes g
+                                                                               where g.idfilial in (select t.idfilial
+                                                                                                      from roman.usuariosfiliais t
+                                                                                                     where t.usuario = v('APP_USER')) )
+                            or ( :P527_IDREPRESENTANTE > 0 and r.idrepresentante = :P527_IDREPRESENTANTE ) )
+                         and r.ativo = 'S'
+                         and r.idsemanabalanco >= 762  
+                         and not exists ( select 1
+                                          from gerentes g
+                                          where g.idpessoa = r.idpessoa 
+                                            and g.idpessoa not in (36372, 86481) ) -- 13094255
+                         and r.idrepresentante = fechamentos.idrepresentante
+                         and r.idrepresentante = com_comissao.idrepresentante(+)
+                         and r.idrepresentante = sem_comissao.idrepresentante(+)
+                         and ( :P527_FECHAMENTOS = 'T' or (fechamentos.qtd_fechamentos >= 7))
+                         and r.ativo = 'S'
+                       union all
+                       select r.idrepresentante
+                            , decode(r.ativo,'S','Ativo','N','Inativo') ativo
+                            , r.semanaparou
+                            , null semana
+                            , null data
+                            , 0 saldo_com
+                            , 0 saldo_sem
+                            , 0 valor_com
+                            , 0 valor_sem
+                            , ( select pck_util.fnc_semanaid(min(n.idsemanadistribuicao)) Semana
+                                from notasvendas n
+                                where idrepresentante  = r.idrepresentante ) iniciouem
+                            , 0 media_cobranca
+                            , 0 percentual_18_semanas
+                            , ( select to_char(max(pr.data),'DD/MM/RRRR HH24:MI:SS') data
+                                from roman.pecasrepresentantes pr
+                                where pr.idrepresentante = r.idrepresentante )atu
+                            , g.idfilial
+                            , f.ididioma
+                       from representantes r
+                          , gerentes g
+                          , filiais f
+                          , (select fr.idrepresentante
+                                   , count(fr.idfechamentorepres) qtd_fechamentos
+                              from   fechamentorepresentantes fr
+                              where  totalgeral > 0
+                              group by fr.idrepresentante) fechamentos
+                       where g.idfilial(+) = f.idfilial
+                         and r.idgerente = g.idgerente
+                         and r.idrepresentante = fechamentos.idrepresentante
+                         and ( :P0_IDFILIAL = -1 or g.idfilial = :P0_IDFILIAL )
+                         and ( :P527_IDREPRESENTANTE = -1 and r.idgerente in ( select idgerente  -- se escolher todos representantes, deve filtar apenas representantes de filiais liberadas para o usuario
+                                                                                from gerentes g
+                                                                               where g.idfilial in (select t.idfilial
+                                                                                                      from roman.usuariosfiliais t
+                                                                                                     where t.usuario = v('APP_USER')) )
+                            or ( :P527_IDREPRESENTANTE > 0 and r.idrepresentante = :P527_IDREPRESENTANTE ) )
+                         and r.ativo = 'S'
+                         and ( :P527_FECHAMENTOS = 'T' or (fechamentos.qtd_fechamentos >= 7))
+                         and (not exists ( select 1
+                                          from gerentes g
+                                          where g.idpessoa = r.idpessoa 
+                                            and g.idpessoa not in (36372, 86481) ) )-- 13094255
+                         and r.idsemanabalanco < 762 
+                         and r.ativo = 'S') r
+                 where :P527_FILTRAR = 'S'
+                ```
+            pageItemsToSubmit: P527_IDREPRESENTANTE
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhuma informação localizada!
+        }
+        advanced {
+            savedReportMappingIdentifier: 1322246081444187903
+        }
+
+        column ATIVO (
+            type: plainText
+            heading {
+                heading: Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column ATU (
+            type: plainText
+            heading {
+                heading: Data Atualização
+                alignment: center
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column COBERTURA_30 (
+            type: plainText
+            heading {
+                heading: Cobertura MEX
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1 
+                             from roman.vw_filiais f 
+                             where ( :P0_IDFILIAL = -1 or f.idfilial = :P0_IDFILIAL )
+                               and f.ididioma != 1 )
+                    
+                    ```
+            }
+        )
+
+        column COBERTURA_40 (
+            type: plainText
+            heading {
+                heading: Cobertura
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists (select 1 
+                            from roman.vw_filiais f 
+                            where ( :P0_IDFILIAL = -1 or f.idfilial = :P0_IDFILIAL )
+                              and f.ididioma = 1 )
+                    ```
+            }
+        )
+
+        column DATA (
+            type: plainText
+            heading {
+                heading: Data do Balanço
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 200
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column INICIOUEM (
+            type: plainText
+            heading {
+                heading: Iniciou Em
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column MEDIA_COBRANCA (
+            type: plainText
+            heading {
+                heading: Media Cobrança até 18 sem
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column PERC_MEDIA_COBRANCA_18 (
+            type: plainText
+            heading {
+                heading: % de venda 18 semanas
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column QTD_COM (
+            type: plainText
+            heading {
+                heading: Qtd Com Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column QTD_SEM (
+            type: plainText
+            heading {
+                heading: Qtd Sem Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1 
+                             from roman.vw_filiais f 
+                             where ( :P0_IDFILIAL = -1 or f.idfilial = :P0_IDFILIAL )
+                               and f.ididioma = 1 )
+                    ```
+            }
+        )
+
+        column SEMANA (
+            type: plainText
+            heading {
+                heading: Semana do Último Balanço
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column TOTAL (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column VALOR_COM (
+            type: plainText
+            heading {
+                heading: Valor com Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column VALOR_SEM (
+            type: plainText
+            heading {
+                heading: Valor sem Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1 
+                             from roman.vw_filiais f 
+                             where ( :P0_IDFILIAL = -1 or f.idfilial = :P0_IDFILIAL )
+                               and f.ididioma = 1 )
+                    ```
+            }
+        )
+
+        column VALOR_SEM_30 (
+            type: plainText
+            heading {
+                heading: Retorno Possível (-30%)
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1 
+                             from roman.vw_filiais f 
+                             where ( :P0_IDFILIAL = -1 or f.idfilial = :P0_IDFILIAL )
+                               and f.ididioma != 1 )
+                    ```
+            }
+        )
+
+        column VALOR_SEM_40 (
+            type: plainText
+            heading {
+                heading: Retorno Possível (-40%)
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists (select 1 
+                            from roman.vw_filiais f 
+                            where ( :P0_IDFILIAL = -1 or f.idfilial = :P0_IDFILIAL )
+                              and f.ididioma = 1 )
+                    ```
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 13222622 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ATIVO (
+                sequence: 3
+            )
+
+            displayColumn ATU (
+                sequence: 19
+            )
+
+            displayColumn COBERTURA_30 (
+                sequence: 16
+            )
+
+            displayColumn COBERTURA_40 (
+                sequence: 15
+            )
+
+            displayColumn DATA (
+                sequence: 6
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 2
+            )
+
+            displayColumn EMPRESA (
+                sequence: 1
+            )
+
+            displayColumn INICIOUEM (
+                sequence: 4
+            )
+
+            displayColumn MEDIA_COBRANCA (
+                sequence: 13
+            )
+
+            displayColumn PERC_MEDIA_COBRANCA_18 (
+                sequence: 14
+            )
+
+            displayColumn QTD_COM (
+                sequence: 7
+            )
+
+            displayColumn QTD_SEM (
+                sequence: 8
+            )
+
+            displayColumn SEMANA (
+                sequence: 5
+            )
+
+            displayColumn TOTAL (
+                sequence: 11
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 12
+            )
+
+            displayColumn VALOR_COM (
+                sequence: 9
+            )
+
+            displayColumn VALOR_SEM (
+                sequence: 10
+            )
+
+            displayColumn VALOR_SEM_30 (
+                sequence: 18
+            )
+
+            displayColumn VALOR_SEM_40 (
+                sequence: 17
+            )
+
+        )
+
+    )
+
+    region acompanhar-balanço-de-distribuidores-por-região (
+        name: Acompanhar Balanço de Distribuidores - Por Região
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomefilial(r.idfilial) Empresa
+                     , roman.pck_romance.fnc_nomerepresentante(r.idrepresentante) distribuidor
+                     , r.ativo
+                     , r.iniciouem
+                     , r.semana
+                     , r.data
+                     , nvl(r.saldo_com,0) qtd_com
+                     , nvl(r.valor_com,0) valor_com
+                     , nvl(r.saldo_sem,0) qtd_sem
+                     , nvl(r.valor_sem,0) valor_sem
+                     , nvl(r.saldo_com,0) + nvl(r.saldo_sem,0) total
+                     , nvl(r.valor_com,0) + nvl(r.valor_sem,0) valortotal
+                     , round((nvl(r.valor_sem ,0) + (nvl(r.valor_com,0) * 0.6)),2) valor_sem_40
+                     , round((nvl(r.valor_sem ,0) + (nvl(r.valor_com,0) * 0.7)),2) valor_sem_30
+                     , media_cobranca
+                     , media_cobranca_18s
+                     , case
+                         when media_cobranca > 0 then
+                          round(round((nvl(r.valor_sem,0) + (r.valor_com * 0.6)),2) / media_cobranca) 
+                         else
+                           0
+                       end cobertura_40
+                     , case
+                         when media_cobranca > 0 then
+                          round(round((nvl(r.valor_sem,0) + (r.valor_com * 0.7)),2) / media_cobranca) 
+                         else
+                           0
+                       end cobertura_30
+                     , r.atu
+                     , pck_romance.fnc_nomeregiaovenda(idregiaovenda) regiaovenda
+                     , r.idfilial
+                from (  
+                       select r.idrepresentante
+                            , decode(r.ativo,'S','Ativo','N','Inativo') ativo
+                            , r.semanaparou
+                            , pck_util.fnc_semanaid(r.idsemanabalanco) semana
+                            , r.databalancoiniciado data
+                            , com_comissao.qtd saldo_com
+                            , sem_comissao.qtd saldo_sem
+                            , com_comissao.total valor_com
+                            , sem_comissao.total valor_sem
+                            , ( select pck_util.fnc_semanaid(min(n.idsemanadistribuicao)) Semana
+                                from notasvendas n
+                                where idrepresentante  = r.idrepresentante ) iniciouem
+                            , pck_balanco_rmc.fnc_mediaultimascobrancas(r.idrepresentante, ( select case when count(idfechamentorepres) > 6 then 6
+                                                                                                         else count(idfechamentorepres) end 
+                                                                                               from fechamentorepresentantes 
+                                                                                              where idrepresentante = r.idrepresentante 
+                                                                                                and idregiaovenda = rr.idregiaovenda -- 10610196
+                                                                                                and totalgeral > 0) , rr.idregiaovenda) media_cobranca
+                            , pck_balanco_rmc.fnc_mediaultimascobrancas(r.idrepresentante, ( select case when count(idfechamentorepres) > 18 then 18 -- 10610196
+                                                                                                         else count(idfechamentorepres) end 
+                                                                                               from fechamentorepresentantes 
+                                                                                              where idrepresentante = r.idrepresentante 
+                                                                                                and totalgeral > 0) ) media_cobranca_18S
+                            , ( select to_char(max(pr.data),'DD/MM/RRRR HH24:MI:SS') data
+                                from roman.pecasrepresentantes pr
+                                where pr.idrepresentante = r.idrepresentante )atu
+                            , rr.idregiaovenda
+                            , g.idfilial
+                       from representantes r
+                           ,gerentes g
+                          , regioesrepresentantes rr
+                          , ( select pr.idrepresentante
+                                   , sum(pr.quantidade) qtd
+                                   , sum(pr.quantidade*pr.valorvenda)  total
+                              from vw_pecas_produtos_repres pr
+                              where pr.comissao = 'S'
+                              group by pr.idrepresentante ) com_comissao
+                          , ( select pr.idrepresentante
+                                   , sum(pr.quantidade) qtd
+                                   , sum(pr.quantidade*pr.valorvenda)  total
+                              from vw_pecas_produtos_repres pr
+                              where pr.comissao = 'N'
+                              group by pr.idrepresentante ) sem_comissao
+                          , (select fr.idrepresentante
+                                   ,fr.idregiaovenda
+                                   , count(fr.idfechamentorepres) qtd_fechamentos
+                              from   fechamentorepresentantes fr
+                              where  totalgeral > 0
+                              group by fr.idrepresentante, fr.idregiaovenda) fechamentos
+                       where r.idgerente = g.idgerente
+                         and r.idrepresentante = rr.idrepresentante
+                         and ( :P0_IDFILIAL = -1 or g.idfilial = :P0_IDFILIAL )
+                         and ( :P527_IDREPRESENTANTE = -1 and r.idgerente in ( select idgerente -- se escolher todos representantes, deve filtar apenas representantes de filiais liberadas para o usuario
+                                                                                from gerentes g
+                                                                               where g.idfilial in (select t.idfilial
+                                                                                                      from roman.usuariosfiliais t
+                                                                                                     where t.usuario = v('APP_USER')) )
+                            or ( :P527_IDREPRESENTANTE > 0 and r.idrepresentante = :P527_IDREPRESENTANTE ) )
+                         and r.ativo = 'S'
+                         and r.idsemanabalanco >= 762  
+                         and not exists ( select 1
+                                          from gerentes g
+                                          where g.idpessoa = r.idpessoa 
+                                            and g.idpessoa not in (36372, 86481) ) -- 13094255
+                         and r.idrepresentante = fechamentos.idrepresentante
+                         and r.idrepresentante = com_comissao.idrepresentante(+)
+                         and r.idrepresentante = sem_comissao.idrepresentante(+)
+                         and ( :P527_FECHAMENTOS = 'T' or (fechamentos.qtd_fechamentos >= 7))
+                         and r.ativo = 'S'
+                         and fechamentos.idregiaovenda = rr.idregiaovenda
+                       union all
+                       select r.idrepresentante
+                            , decode(r.ativo,'S','Ativo','N','Inativo') ativo
+                            , r.semanaparou
+                            , null semana
+                            , null data
+                            , 0 saldo_com
+                            , 0 saldo_sem
+                            , 0 valor_com
+                            , 0 valor_sem
+                            , ( select pck_util.fnc_semanaid(min(n.idsemanadistribuicao)) Semana
+                                from notasvendas n
+                                where idrepresentante  = r.idrepresentante ) iniciouem
+                            , 0 media_cobranca
+                            , 0 media_cobranca_18S
+                            , ( select to_char(max(pr.data),'DD/MM/RRRR HH24:MI:SS') data
+                                from roman.pecasrepresentantes pr
+                                where pr.idrepresentante = r.idrepresentante )atu
+                            , rr.idregiaovenda
+                            , g.idfilial
+                       from representantes r
+                          , gerentes g
+                          , regioesrepresentantes rr
+                          , (select fr.idrepresentante
+                                   ,fr.idregiaovenda
+                                   , count(fr.idfechamentorepres) qtd_fechamentos
+                              from   fechamentorepresentantes fr
+                              where  totalgeral > 0
+                              group by fr.idrepresentante, fr.idregiaovenda) fechamentos
+                       where r.idgerente = g.idgerente
+                         and r.idrepresentante = rr.idrepresentante
+                         and r.idrepresentante = fechamentos.idrepresentante
+                         and ( :P0_IDFILIAL = -1 or g.idfilial = :P0_IDFILIAL )
+                         and ( :P527_IDREPRESENTANTE = -1 and r.idgerente in ( select idgerente -- se escolher todos representantes, deve filtar apenas representantes de filiais liberadas para o usuario
+                                                                                from gerentes g
+                                                                               where g.idfilial in (select t.idfilial
+                                                                                                      from roman.usuariosfiliais t
+                                                                                                     where t.usuario = v('APP_USER')) )
+                            or ( :P527_IDREPRESENTANTE > 0 and r.idrepresentante = :P527_IDREPRESENTANTE ) )
+                         and r.ativo = 'S'
+                         and ( :P527_FECHAMENTOS = 'T' or (fechamentos.qtd_fechamentos >= 7))
+                         and not exists ( select 1
+                                          from gerentes g
+                                          where g.idpessoa = r.idpessoa 
+                                            and g.idpessoa not in (36372, 86481) ) -- 13094255
+                         and r.idsemanabalanco < 762 
+                         and r.ativo = 'S'
+                         and rr.idregiaovenda = fechamentos.idregiaovenda) r
+                ```
+            pageItemsToSubmit: P527_IDREPRESENTANTE
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from usuariosgruposatendimento uga
+                where uga.usuario = v('APP_USER')
+                and idgrupoatendimento = 0
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhuma informação localizada!
+        }
+        advanced {
+            savedReportMappingIdentifier: 1592219038335806839
+        }
+
+        column ATIVO (
+            type: plainText
+            heading {
+                heading: Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column ATU (
+            type: plainText
+            heading {
+                heading: Data Atualização
+                alignment: center
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column COBERTURA_30 (
+            type: plainText
+            heading {
+                heading: Cobertura MEX
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1 
+                             from roman.vw_filiais f 
+                             where ( :P0_IDFILIAL = -1 or f.idfilial = :P0_IDFILIAL )
+                               and f.ididioma != 1 )
+                    
+                    ```
+            }
+        )
+
+        column COBERTURA_40 (
+            type: plainText
+            heading {
+                heading: Cobertura
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists (select 1 
+                            from roman.vw_filiais f 
+                            where ( :P0_IDFILIAL = -1 or f.idfilial = :P0_IDFILIAL )
+                              and f.ididioma = 1 )
+                    ```
+            }
+        )
+
+        column DATA (
+            type: plainText
+            heading {
+                heading: Data do Balanço
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 210
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column IDFILIAL (
+            type: hidden
+            heading {
+                heading: Idfilial
+            }
+            layout {
+                sequence: 220
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column INICIOUEM (
+            type: plainText
+            heading {
+                heading: Iniciou Em
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column MEDIA_COBRANCA (
+            type: plainText
+            heading {
+                heading: Media Cobrança Por Região até 6 sem
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column MEDIA_COBRANCA_18S (
+            type: plainText
+            heading {
+                heading: Media Cobrança até 18 sem
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column QTD_COM (
+            type: plainText
+            heading {
+                heading: Qtd Com Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column QTD_SEM (
+            type: plainText
+            heading {
+                heading: Qtd Sem Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column REGIAOVENDA (
+            type: plainText
+            heading {
+                heading: Região Venda
+                alignment: center
+            }
+            layout {
+                sequence: 190
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column SEMANA (
+            type: plainText
+            heading {
+                heading: Semana do Último Balanço
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column TOTAL (
+            type: plainText
+            heading {
+                heading: Total
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column VALOR_COM (
+            type: plainText
+            heading {
+                heading: Valor com Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column VALOR_SEM (
+            type: plainText
+            heading {
+                heading: Valor sem Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column VALOR_SEM_30 (
+            type: plainText
+            heading {
+                heading: Retorno Possível (-30%)
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1 
+                             from roman.vw_filiais f 
+                             where ( :P0_IDFILIAL = -1 or f.idfilial = :P0_IDFILIAL )
+                               and f.ididioma != 1 )
+                    ```
+            }
+        )
+
+        column VALOR_SEM_40 (
+            type: plainText
+            heading {
+                heading: Retorno Possível (-40%)
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists (select 1 
+                            from roman.vw_filiais f 
+                            where ( :P0_IDFILIAL = -1 or f.idfilial = :P0_IDFILIAL )
+                              and f.ididioma = 1 )
+                    ```
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 37396475 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ATIVO (
+                sequence: 3
+            )
+
+            displayColumn ATU (
+                sequence: 20
+            )
+
+            displayColumn COBERTURA_30 (
+                sequence: 17
+            )
+
+            displayColumn COBERTURA_40 (
+                sequence: 16
+            )
+
+            displayColumn DATA (
+                sequence: 7
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 2
+            )
+
+            displayColumn EMPRESA (
+                sequence: 1
+            )
+
+            displayColumn INICIOUEM (
+                sequence: 4
+            )
+
+            displayColumn MEDIA_COBRANCA (
+                sequence: 15
+            )
+
+            displayColumn MEDIA_COBRANCA_18S (
+                sequence: 14
+            )
+
+            displayColumn QTD_COM (
+                sequence: 8
+            )
+
+            displayColumn QTD_SEM (
+                sequence: 9
+            )
+
+            displayColumn REGIAOVENDA (
+                sequence: 5
+            )
+
+            displayColumn SEMANA (
+                sequence: 6
+            )
+
+            displayColumn TOTAL (
+                sequence: 12
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 13
+            )
+
+            displayColumn VALOR_COM (
+                sequence: 10
+            )
+
+            displayColumn VALOR_SEM (
+                sequence: 11
+            )
+
+            displayColumn VALOR_SEM_30 (
+                sequence: 19
+            )
+
+            displayColumn VALOR_SEM_40 (
+                sequence: 18
+            )
+
+        )
+
+    )
+
+    region aviso (
+        name: Aviso
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P527_AVISO (
+        type: displayOnly
+        label {
+            alignment: left
+        }
+        settings {
+            format: htmlUnsafe
+        }
+        layout {
+            sequence: 10
+            region: @aviso
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            preText:
+                ```html
+                <font color="green"><h3><b>
+                    
+                    IMPORTANTE</b>------> As informações deste relatório, são atualizadas diariamente as 08:00 da manhã.</h3></font>
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P527_FECHAMENTOS (
+        type: radioGroup
+        label {
+            label: Fechamentos
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Todos;T,> 7 Semanas;S
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: S
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P527_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+    )
+
+    pageItem P527_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ' - Todos - ' d
+                     , -1 r
+                from dual
+                union 
+                select pck_romance.fnc_nomerepresentante(r.idrepresentante)||' ('||decode(r.ativo,'S','Ativo','N','Inativo')||')' d 
+                     , r.idrepresentante r
+                  from representantes r
+                     , gerentes g
+                 where r.idgerente = g.idgerente
+                   and (:P0_IDFILIAL = -1 and g.idfilial in (select t.idfilial
+                                                               from roman.usuariosfiliais t
+                                                              where t.usuario = v('APP_USER')) -- se escolher todas as empresas, busca apenas as empresas que o usuario tem liberado
+                    or (:P0_IDFILIAL <> -1 and g.idfilial = :P0_IDFILIAL ))
+                   and r.ativo = 'S'
+                 order by 1
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        cascadingLov {
+            parentItems: P0_IDFILIAL
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: -1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction botao-filtrar (
+        name: BOTAO_FILTRAR
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @filtrar
+        }
+
+        action native-set-value (
+            action: setValue
+            settings {
+                value: S
+            }
+            affectedElements {
+                selectionType: items
+                items: P527_FILTRAR
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)
+

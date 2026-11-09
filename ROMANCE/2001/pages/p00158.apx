@@ -1,0 +1,2148 @@
+page 158 (
+    name: Lista de Cliente V
+    title: Lista de Cliente V
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function fnc_imprime()
+              {
+                window.open('f?p=&APP_ID.:157:&SESSION.::NO::P157_IDREPRESENTANTE,P157_IDREGIAOVENDA:'+document.getElementById('P158_IDREPRESENTANTE').value +','+document.getElementById('P158_IDREGIAOVENDA').value ,'imprime', 'toolbar=no,location=no,status=no,menubar=yes,scrollbars=yes,resizable=no,width=1200,height=800,left=250,top=100','_blank'); void(0);
+              }
+            
+            function fnc_atender(pid)
+            {
+              document.getElementById("P158_IDEDITAR").value = pid;
+                
+              var answer = confirm("Confirma o atendimento da Nota?")
+              if (answer)
+              {
+                apex.submit('ATENDER');
+              }  
+            }
+            ```
+    }
+    security {
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region lista-de-clientes (
+        name: Lista de Clientes
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distinct p.idpessoa
+                     , n.dataretorno dataretorno
+                     , n.dataretornoorig dataretornoorig
+                     , n.semanadistribuicao
+                     , initcap(p.nomepessoa)||' - '||p.cpf||' (cod. site: '||v.idvendedora||')' nomepessoa
+                     , n.numeronota
+                     , pck_romance.fnc_retornatelefones(v.idvendedora)telefone
+                     , initcap(p.enderecoprincipal) ||', '|| p.numero||', '||p.bairro endereco
+                     , pck_romance.fnc_nomecidade(p.idcidade) nomecidade
+                     , ( select rv.descricao from regioesvenda rv where rv.idregiaovenda = ( select vv.idregiaovenda from vendedoras vv where vv.idpessoa = p.idpessoa)) "Regiao Vendedora"
+                     , p.observacao observacao
+                     , p.bairro
+                     , p.datanascimento
+                     , nvl((select 'Sim'
+                            from dual
+                            where exists ( select 1
+                                           from fotosdocumentos f
+                                           where f.idpessoa = p.idpessoa
+                                             and f.recebida = 'S' )),'Não') fotosdocumentos
+                     , nvl((select 'Sim'
+                            from dual
+                            where exists ( select 1
+                                           from classificacoesnotasvendas c
+                                           where c.idnotavenda = n.idnotavenda
+                                             and c.idcaracteristicanotavenda = 3 )),'Não') promissoriarecebida
+                     , nroconsultaspc
+                     , n.valortotalnota
+                     , n.idnotavenda
+                     , null detalhar
+                     , ( select min(r.idsemana)
+                         from roman.regioesrepresentantes r
+                         where r.idrepresentante = :P158_IDREPRESENTANTE) - pck_util.fnc_idsemanadata(n.dataretornoorig) semanasatender
+                     , r.ordem
+                     , case
+                         when not exists( select 1
+                                          from classificacoesnotasvendas cn
+                                          where cn.idnotavenda = n.idnotavenda
+                                            and cn.idcaracteristicanotavenda = 23 ) then
+                           '<a href="javascript: fnc_atender('|| n.idnotavenda ||')" ><img src="#APP_IMAGES#ok.png"  border="0"></a>'
+                         else
+                           'Atendimento Realizado'
+                       end confirmaatendimento
+                     , nvl((select 'S'
+                            from dual
+                            where exists ( select 1
+                                           from classificacoesnotasvendas cn
+                                           where cn.idnotavenda = n.idnotavenda
+                                             and cn.idcaracteristicanotavenda = 23)),'N') atendimentosup
+                     , nvl( (select 'Sim'
+                             from dual
+                             where exists ( select 1
+                                            from registrosloginminhasacola rr
+                                            where rr.idvendedora = v.idvendedora)),'Não') app
+                     , round(( select avg(valorpago)
+                               from notasvendas nn
+                               where nn.idvendedora = n.idvendedora
+                                 and dataacerto > sysdate - 126 ),2) mediapgto3ciclos
+                     , nvl( ( select 'Sim'
+                              from dual
+                              where exists ( select 1
+                                             from favorita.vw_pedidostablet_fav pf
+                                             where pf.idvendedora = v.idvendedora )), 'Não') possuipedido
+                     , nvl( ( select a.descsituacao
+                              from vw_assinaturas_eletronicas a
+                              where a.idassinaturaeletronica = ( select max(ad.idassinaturaeletronica)
+                                                                 from assinaturaseletronicas ad
+                                                                 where ad.idnotavenda = n.idnotavenda
+                                                                   and ad.status = 'C' ) ),'Nao Encontrada' ) assinatura
+                     , p.email
+                     , nvl( ( select 'Sim'
+                              from dual
+                              where ( select count(1)
+                                      from notasvendas nv
+                                      where nv.idvendedora = v.idvendedora 
+                                        and nv.idsituacaonotavenda in (3,4) ) >= 4 ),'Não') romance_casa
+                     , nvl( ( select ct.nomecategoria -- 16593086
+                              from roman.pontuacoesclubedesucesso pp
+                                 , roman.categoriasclubes ct
+                              where pp.idcategoriaclube = ct.idcategoriaclube
+                                and pp.idpontuacaoclube = ( select max(pc.idpontuacaoclube)
+                                                            from vendedoras vv
+                                                               , roman.pontuacoesclubedesucesso pc
+                                                            where pc.idvendedora = vv.idvendedora
+                                                              and vv.idpessoa = p.idpessoa ) ), 'Não participa') categoria_estrelas
+                
+                from pessoas p
+                   , vendedoras v
+                   , notasvendas n
+                   , reimpressaolistavend r
+                where v.idpessoa        = p.idpessoa
+                  and r.idnotavenda     = n.idnotavenda
+                  and n.semanacobranca  = ( select semana
+                                            from regioesrepresentantes r
+                                            where idrepresentante = :P158_IDREPRESENTANTE
+                                              and idregiaovenda   = :P158_IDREGIAOVENDA)-- v.idregiaovenda = pidregiaovenda                            
+                  and v.idvendedora     = n.idvendedora
+                  and nvl(n.idrepresentanteatende, n.idrepresentante) = :P158_IDREPRESENTANTE
+                  and n.idsituacaonotavenda = 3
+                  and r.usuario = v('APP_USER')
+                order by r.ordem
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P158_IDREGIAOVENDA
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Verifique os Filtros!
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        searchBar {
+            searchField: false
+        }
+        actionsMenu {
+            savePublicReport: true
+            savePublicReportAuthorization: @desenvolvedores
+        }
+        advanced {
+            savedReportMappingIdentifier: 300946732471200904
+        }
+
+        column APP (
+            type: plainText
+            heading {
+                heading: APP
+                alignment: center
+            }
+            layout {
+                sequence: 142
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column ASSINATURA (
+            type: plainText
+            heading {
+                heading: Assinatura?
+                alignment: center
+            }
+            layout {
+                sequence: 172
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AB
+            }
+        )
+
+        column ATENDIMENTOSUP (
+            type: plainText
+            heading {
+                heading: Atendimentosup
+                alignment: center
+            }
+            layout {
+                sequence: 122
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column BAIRRO (
+            type: plainText
+            heading {
+                heading: Bairro
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column CATEGORIA_ESTRELAS (
+            type: plainText
+            heading {
+                heading: Categoria Estrelas
+                alignment: center
+            }
+            layout {
+                sequence: 242
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AI
+            }
+        )
+
+        column CONFIRMAATENDIMENTO (
+            type: plainText
+            heading {
+                heading: Confirma Atendimento
+                alignment: center
+            }
+            layout {
+                sequence: 212
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AF
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from acessos a
+                    where a.usuario = v('APP_USER')
+                      and a.idaplicacao = 2409
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DATANASCIMENTO (
+            type: plainText
+            heading {
+                heading: Dt Nasc.
+                alignment: center
+            }
+            layout {
+                sequence: 11
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column DATARETORNO (
+            type: plainText
+            heading {
+                heading: Dt Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column DATARETORNOORIG (
+            type: plainText
+            heading {
+                heading: Dt Retorno Orig.
+                alignment: center
+            }
+            layout {
+                sequence: 132
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column DETALHAR (
+            type: link
+            heading {
+                heading: Detalhar
+                alignment: center
+            }
+            layout {
+                sequence: 82
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 399
+                    items: {
+                        P399_IDNOTAVENDA: #IDNOTAVENDA#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#magnifying_glass_white_bg.gif" alt=""/>
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from acessos a
+                    where a.usuario = v('APP_USER')
+                      and a.idaplicacao = 2409
+                    ```
+            }
+        )
+
+        column EMAIL (
+            type: plainText
+            heading {
+                heading: E-mail
+                alignment: center
+            }
+            layout {
+                sequence: 182
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column ENDERECO (
+            type: plainText
+            heading {
+                heading: Endereco
+                alignment: center
+            }
+            layout {
+                sequence: 202
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AE
+            }
+        )
+
+        column FOTOSDOCUMENTOS (
+            type: plainText
+            heading {
+                heading: Fotos Recebidas?
+                alignment: center
+            }
+            layout {
+                sequence: 92
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column IDNOTAVENDA (
+            type: hidden
+            heading {
+                heading: Idnotavenda
+            }
+            layout {
+                sequence: 72
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDPESSOA (
+            type: hidden
+            heading {
+                heading: Idpessoa
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column MEDIAPGTO3CICLOS (
+            type: plainText
+            heading {
+                heading: Média Pgto 126 dias
+                alignment: center
+            }
+            layout {
+                sequence: 152
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column NOMECIDADE (
+            type: plainText
+            heading {
+                heading: Cidade
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column NOMEPESSOA (
+            type: plainText
+            heading {
+                heading: Nome
+                alignment: center
+            }
+            layout {
+                sequence: 192
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AD
+            }
+        )
+
+        column NROCONSULTASPC (
+            type: plainText
+            heading {
+                heading: Nr Consulta SPC
+                alignment: center
+            }
+            layout {
+                sequence: 22
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column NUMERONOTA (
+            type: plainText
+            heading {
+                heading: Nr Nota
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column ORDEM (
+            type: hidden
+            heading {
+                heading: Ordem
+            }
+            layout {
+                sequence: 52
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column POSSUIPEDIDO (
+            type: plainText
+            heading {
+                heading: Possui Pedido?
+                alignment: center
+            }
+            layout {
+                sequence: 162
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column PROMISSORIARECEBIDA (
+            type: plainText
+            heading {
+                heading: Promissória Rec.?
+                alignment: center
+            }
+            layout {
+                sequence: 102
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column ROMANCE_CASA (
+            type: plainText
+            heading {
+                heading: Apta RMC Casa
+                alignment: center
+            }
+            layout {
+                sequence: 232
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AH
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from favorita.liberacoesvendasdistribuidores l
+                    where l.idrepresentante = :P158_IDREPRESENTANTE
+                    ```
+            }
+        )
+
+        column "Regiao Vendedora" (
+            type: plainText
+            heading {
+                heading: Região Vendedora
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column SEMANADISTRIBUICAO (
+            type: plainText
+            heading {
+                heading: Sem. Distribuição
+                alignment: center
+            }
+            layout {
+                sequence: 62
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column SEMANASATENDER (
+            type: plainText
+            heading {
+                heading: Semanas do acerto
+                alignment: center
+            }
+            layout {
+                sequence: 42
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column TELEFONE (
+            type: plainText
+            heading {
+                heading: Telefone
+                alignment: center
+            }
+            layout {
+                sequence: 222
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column VALORTOTALNOTA (
+            type: plainText
+            heading {
+                heading: Valor Total da Nota
+                alignment: center
+            }
+            layout {
+                sequence: 32
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 13817739 (
+            visibility: alternativeDefault
+            name: Relatorio Supervisores
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn APP (
+                sequence: 16
+            )
+
+            displayColumn BAIRRO (
+                sequence: 3
+            )
+
+            displayColumn DATANASCIMENTO (
+                sequence: 6
+            )
+
+            displayColumn DATARETORNO (
+                sequence: 7
+            )
+
+            displayColumn DATARETORNOORIG (
+                sequence: 8
+            )
+
+            displayColumn DETALHAR (
+                sequence: 13
+            )
+
+            displayColumn FOTOSDOCUMENTOS (
+                sequence: 14
+            )
+
+            displayColumn MEDIAPGTO3CICLOS (
+                sequence: 17
+            )
+
+            displayColumn NOMECIDADE (
+                sequence: 4
+            )
+
+            displayColumn NROCONSULTASPC (
+                sequence: 10
+            )
+
+            displayColumn NUMERONOTA (
+                sequence: 1
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 9
+            )
+
+            displayColumn POSSUIPEDIDO (
+                sequence: 18
+            )
+
+            displayColumn PROMISSORIARECEBIDA (
+                sequence: 15
+            )
+
+            displayColumn "Regiao Vendedora" (
+                sequence: 5
+            )
+
+            displayColumn SEMANADISTRIBUICAO (
+                sequence: 2
+            )
+
+            displayColumn SEMANASATENDER (
+                sequence: 12
+            )
+
+            displayColumn VALORTOTALNOTA (
+                sequence: 11
+            )
+
+            sort (
+                column: SEMANASATENDER
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: VALORTOTALNOTA
+            )
+
+            highlight ir-condition (
+                name: Muitissimo atrasada
+                condition {
+                    column: SEMANASATENDER
+                    operator: >=
+                    value: 12
+                }
+                colors {
+                    background: #FF5353
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Nota pouco Atrasada
+                condition {
+                    column: SEMANASATENDER
+                    operator: between
+                    from: 2
+                    to: 3
+                }
+                colors {
+                    background: #FFE3E3
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-3 (
+                name: Nota atrasada
+                condition {
+                    column: SEMANASATENDER
+                    operator: between
+                    from: 4
+                    to: 5
+                }
+                colors {
+                    background: #FFB3B3
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-4 (
+                name: Muito Atrasada
+                condition {
+                    column: SEMANASATENDER
+                    operator: between
+                    from: 6
+                    to: 11
+                }
+                colors {
+                    background: #FF8383
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+        savedReport 3009528 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn APP (
+                sequence: 17
+            )
+
+            displayColumn ASSINATURA (
+                sequence: 21
+            )
+
+            displayColumn BAIRRO (
+                sequence: 6
+            )
+
+            displayColumn CATEGORIA_ESTRELAS (
+                sequence: 2
+            )
+
+            displayColumn DATANASCIMENTO (
+                sequence: 9
+            )
+
+            displayColumn DATARETORNO (
+                sequence: 10
+            )
+
+            displayColumn DATARETORNOORIG (
+                sequence: 11
+            )
+
+            displayColumn EMAIL (
+                sequence: 22
+            )
+
+            displayColumn ENDERECO (
+                sequence: 5
+            )
+
+            displayColumn FOTOSDOCUMENTOS (
+                sequence: 15
+            )
+
+            displayColumn MEDIAPGTO3CICLOS (
+                sequence: 19
+            )
+
+            displayColumn NOMECIDADE (
+                sequence: 7
+            )
+
+            displayColumn NOMEPESSOA (
+                sequence: 1
+            )
+
+            displayColumn NROCONSULTASPC (
+                sequence: 13
+            )
+
+            displayColumn NUMERONOTA (
+                sequence: 3
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 12
+            )
+
+            displayColumn POSSUIPEDIDO (
+                sequence: 20
+            )
+
+            displayColumn PROMISSORIARECEBIDA (
+                sequence: 16
+            )
+
+            displayColumn "Regiao Vendedora" (
+                sequence: 8
+            )
+
+            displayColumn SEMANADISTRIBUICAO (
+                sequence: 4
+            )
+
+            displayColumn SEMANASATENDER (
+                sequence: 14
+            )
+
+            displayColumn TELEFONE (
+                sequence: 23
+            )
+
+            displayColumn VALORTOTALNOTA (
+                sequence: 18
+            )
+
+            aggregate (
+                column: VALORTOTALNOTA
+            )
+
+            aggregate (
+                column: MEDIAPGTO3CICLOS
+            )
+
+            highlight ir-condition (
+                name: Com Pedido Favorita
+                condition {
+                    column: POSSUIPEDIDO
+                    value: Sim
+                }
+                colors {
+                    background: #99FF99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Vender RMC Casa
+                condition {
+                    column: ROMANCE_CASA
+                    value: Sim
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #99CCFF
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    region lista-de-clientes-v (
+        name: Lista de Clientes V
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+    )
+
+    region lista-de-débitos (
+        name: Lista de Débitos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distinct p.idpessoa
+                     , n.dataretorno
+                     , n.dataretornoorig
+                     , initcap(p.nomepessoa) nomepessoa
+                     , n.numeronota
+                     , null detalhar
+                     , n.idnotavenda
+                     , pck_romance.fnc_retornatelefones(v.idvendedora) telefone
+                     , initcap(p.enderecoprincipal) ||', '|| p.numero||'<br>'||p.bairro endereco
+                     , ( select initcap(c.nomecidade)||' - '||e.sigla
+                         from cidades c
+                            , estados e
+                         where p.idcidade = c.idcidade
+                           and c.idestado = e.idestado ) nomecidade
+                     , ( select rv.descricao from regioesvenda rv where rv.idregiaovenda = ( select vv.idregiaovenda from vendedoras vv where vv.idpessoa = p.idpessoa)) "Regiao Vendedora"
+                     , v.observacao||', '||p.observacao observacao
+                     , n.saldo SALDO
+                     , p.nroconsultaspc
+                     , n.valortotalnota
+                     , ( select min(r.idsemana)
+                         from roman.regioesrepresentantes r
+                         where r.idrepresentante = :P158_IDREPRESENTANTE) - n.idsemanacobranca semanasatender
+                     , n.semanadistribuicao
+                     , case
+                         when not exists( select 1
+                                          from classificacoesnotasvendas cn
+                                          where cn.idnotavenda = n.idnotavenda
+                                            and cn.idcaracteristicanotavenda = 23 ) then
+                           '<a href="javascript: fnc_atender('|| n.idnotavenda ||')" ><img src="#APP_IMAGES#ok.png"  border="0"></a>'
+                         else
+                           'Atendimento Realizado'
+                       end confirmaatendimento
+                     , nvl((select 'S'
+                            from classificacoesnotasvendas cn
+                            where cn.idnotavenda = n.idnotavenda
+                              and cn.idcaracteristicanotavenda = 23),'N') atendimentosup
+                     , nvl( (select 'Sim'
+                             from dual
+                             where exists ( select 1
+                                            from registrosloginminhasacola rr
+                                            where rr.idvendedora = v.idvendedora)),'Não') app
+                     , round(( select avg(valorpago)
+                               from notasvendas nn
+                               where nn.idvendedora = n.idvendedora
+                                 and dataacerto > sysdate - 126 ),2) mediapgto3ciclos
+                from pessoas p
+                   , vendedoras v
+                   , notasvendas n
+                 where v.idpessoa        = p.idpessoa
+                   and nvl(n.enviadocobranca,'N') = 'N'
+                   and n.semanacobranca  != ( select semana
+                                              from regioesrepresentantes r
+                                              where r.idrepresentante = :P158_IDREPRESENTANTE
+                                                and r.idregiaovenda = :P158_IDREGIAOVENDA )
+                   and n.idregiaovenda   = :P158_IDREGIAOVENDA
+                   and ( n.idrepresentante = :P158_IDREPRESENTANTE
+                      or n.idrepresentanteatende = :P158_IDREPRESENTANTE )
+                   and v.idvendedora     = n.idvendedora
+                   and n.idrepresentante = v.idrepresentante
+                   AND N.SALDO > 0
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body-3
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P158_IDREGIAOVENDA
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum Débito Encontrado!
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        advanced {
+            savedReportMappingIdentifier: 300957647199410956
+        }
+
+        column APP (
+            type: plainText
+            heading {
+                heading: APP
+                alignment: center
+            }
+            layout {
+                sequence: 119
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column ATENDIMENTOSUP (
+            type: plainText
+            heading {
+                heading: Atendimentosup
+                alignment: center
+            }
+            layout {
+                sequence: 99
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column CONFIRMAATENDIMENTO (
+            type: plainText
+            heading {
+                heading: Confirma Atendimento
+                alignment: center
+            }
+            layout {
+                sequence: 89
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from acessos a
+                    where a.usuario = v('APP_USER')
+                      and a.idaplicacao = 2409
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DATARETORNO (
+            type: plainText
+            heading {
+                heading: Dt Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column DATARETORNOORIG (
+            type: plainText
+            heading {
+                heading: Dt. Retorno Orig.
+                alignment: center
+            }
+            layout {
+                sequence: 109
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column DETALHAR (
+            type: link
+            heading {
+                heading: Detalhar
+                alignment: center
+            }
+            layout {
+                sequence: 69
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 399
+                    items: {
+                        P399_IDNOTAVENDA: #IDNOTAVENDA#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#magnifying_glass_white_bg.gif" alt=""/>
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from acessos a
+                    where a.usuario = v('APP_USER')
+                      and a.idaplicacao = 2409
+                    ```
+            }
+        )
+
+        column ENDERECO (
+            type: plainText
+            heading {
+                heading: Endereço
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDNOTAVENDA (
+            type: hidden
+            heading {
+                heading: Idnotavenda
+            }
+            layout {
+                sequence: 79
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDPESSOA (
+            type: hidden
+            heading {
+                heading: Idpessoa
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column MEDIAPGTO3CICLOS (
+            type: plainText
+            heading {
+                heading: Média Pgto 126 dias
+                alignment: center
+            }
+            layout {
+                sequence: 129
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column NOMECIDADE (
+            type: plainText
+            heading {
+                heading: Cidade
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column NOMEPESSOA (
+            type: plainText
+            heading {
+                heading: Nome
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column NROCONSULTASPC (
+            type: plainText
+            heading {
+                heading: Nr Consulta SPC
+                alignment: center
+            }
+            layout {
+                sequence: 29
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column NUMERONOTA (
+            type: plainText
+            heading {
+                heading: Nr Nota
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "Regiao Vendedora" (
+            type: plainText
+            heading {
+                heading: Região Vendedora
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 19
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column SEMANADISTRIBUICAO (
+            type: plainText
+            heading {
+                heading: Sem. Distribuição
+                alignment: center
+            }
+            layout {
+                sequence: 59
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column SEMANASATENDER (
+            type: plainText
+            heading {
+                heading: Semanas do acerto
+                alignment: center
+            }
+            layout {
+                sequence: 49
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column TELEFONE (
+            type: plainText
+            heading {
+                heading: Telefone
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column VALORTOTALNOTA (
+            type: plainText
+            heading {
+                heading: Valor Total da Nota
+                alignment: center
+            }
+            layout {
+                sequence: 39
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 3009651 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn APP (
+                sequence: 15
+            )
+
+            displayColumn CONFIRMAATENDIMENTO (
+                sequence: 1
+            )
+
+            displayColumn DATARETORNO (
+                sequence: 5
+            )
+
+            displayColumn DATARETORNOORIG (
+                sequence: 6
+            )
+
+            displayColumn DETALHAR (
+                sequence: 13
+            )
+
+            displayColumn ENDERECO (
+                sequence: 7
+            )
+
+            displayColumn MEDIAPGTO3CICLOS (
+                sequence: 17
+            )
+
+            displayColumn NOMECIDADE (
+                sequence: 8
+            )
+
+            displayColumn NOMEPESSOA (
+                sequence: 2
+            )
+
+            displayColumn NROCONSULTASPC (
+                sequence: 12
+            )
+
+            displayColumn NUMERONOTA (
+                sequence: 3
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 11
+            )
+
+            displayColumn "Regiao Vendedora" (
+                sequence: 9
+            )
+
+            displayColumn SEMANADISTRIBUICAO (
+                sequence: 4
+            )
+
+            displayColumn SEMANASATENDER (
+                sequence: 14
+            )
+
+            displayColumn TELEFONE (
+                sequence: 10
+            )
+
+            displayColumn VALORTOTALNOTA (
+                sequence: 16
+            )
+
+            aggregate (
+                column: VALORTOTALNOTA
+            )
+
+            highlight ir-condition (
+                name: ATENDIMENTO REALIZADO
+                condition {
+                    column: ATENDIMENTOSUP
+                    value: S
+                }
+                colors {
+                    background: #99FF99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P158_ATIVO (
+        type: radioGroup
+        label {
+            label: Situação Distribuidor
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Ativos;S,Inativos;N,Ambos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @lista-de-clientes-v
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P158_IDEDITAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 60
+            region: @lista-de-clientes-v
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P158_IDREGIAOVENDA (
+        type: selectList
+        label {
+            label: Região de Venda
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select r.descricao||' - '||rr.semana display_value
+                     , r.idregiaovenda return_value
+                from regioesvenda r
+                   , regioesrepresentantes rr
+                where r.idregiaovenda = rr.idregiaovenda
+                  and rr.idrepresentante = :P158_IDREPRESENTANTE
+                order by rr.idsemana
+                ```
+            nullDisplayValue: - Selecione a Região -
+        }
+        cascadingLov {
+            parentItems: P158_IDREPRESENTANTE
+        }
+        layout {
+            sequence: 30
+            region: @lista-de-clientes-v
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P158_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(pidrepresentante => r.idrepresentante)||' ('||decode(r.ativo,'S','Ativo','N','Inativo')||') - '||r.idrepresentante display_value
+                     , r.idrepresentante
+                from representantes r
+                where pck_romance.fnc_filialgerente(pidgerente => r.idgerente) = :P0_IDFILIAL
+                  and ( :P158_ATIVO = 'A' and r.ativo in ('S','N') 
+                       or :P158_ATIVO = 'S' and r.ativo  = 'S'
+                       or :P158_ATIVO = 'N' and r.ativo  = 'N')
+                order by 1 
+                ```
+            nullDisplayValue: - Selecione o Distribuidor -
+        }
+        cascadingLov {
+            parentItems: P158_ATIVO
+            itemsToSubmit: P158_IDREPRESENTANTE
+        }
+        layout {
+            sequence: 20
+            region: @lista-de-clientes-v
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P158_TIPOORDENACAO (
+        type: selectList
+        label {
+            label: Ordernar por
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Consultora;3,Cidade;7,Bairro;10,Nr Nota;4,Dt Retorno;2,Média de Pgto (126 dias);14
+            nullDisplayValue: - Escolha o filtro -
+            nullReturnValue: 3
+        }
+        layout {
+            sequence: 40
+            region: @lista-de-clientes-v
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button apoio-acordoaki (
+        buttonName: APOIO_ACORDOAKI
+        label: Apoio AcordoAki
+        layout {
+            sequence: 10
+            region: @lista-de-clientes-v
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 604
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P0_IDFILIAL = 100
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 50
+            region: @lista-de-clientes-v
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button imprimir (
+        buttonName: IMPRIMIR
+        label: Imprimir
+        layout {
+            sequence: 10
+            region: @lista-de-clientes
+            slot: copy
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--iconRight
+            ]
+            icon: fa-share-square-o
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript: fnc_imprime();
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process atender-nota-supervisor (
+        name: Atender Nota Supervisor
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidclassificacaonotavenda  number := null;
+                  vidnotavenda               number := :P158_IDEDITAR;
+                  vidcaracteristicanotavenda number := 23;
+                  vdataclassificado          date := sysdate;
+                  vidusuario                 number;
+                  vidvalorcaracteristica     number;
+                  vobservacao                varchar2(1000);
+                  --
+                begin
+                  --
+                  select idusuario
+                  into vidusuario
+                  from usuarios u
+                  where u.usuario = v('APP_USER');
+                  --
+                  pck_cadastros_rmc.prc_classificacoesnotasvendas(pidclassificacaonotavenda  => vidclassificacaonotavenda,
+                                                                  pidnotavenda               => vidnotavenda,
+                                                                  pidcaracteristicanotavenda => vidcaracteristicanotavenda,
+                                                                  pdataclassificado          => vdataclassificado,
+                                                                  pidusuario                 => vidusuario,
+                                                                  pidvalorcaracteristica     => vidvalorcaracteristica,
+                                                                  pobservacao                => vobservacao,
+                                                                  poperacao_dml              => 'I');
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        advanced {
+            executionMappingIdentifier: 1504176942928062950
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ATENDER
+        }
+    )
+
+    process insert (
+        name: insert
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  type cur_typ is ref cursor;
+                  --
+                  c cur_typ;
+                  --
+                  query_str       varchar2(2000);
+                  --
+                  vidpessoa       number;
+                  vdataretorno    date;
+                  vnomepessoa     varchar2(200);
+                  vnumeronota     varchar2(15);
+                  vtelefone       varchar2(2000);
+                  vendereco       varchar2(1000);
+                  vnomecidade     varchar2(150);
+                  vregiaovenda    varchar2(50);
+                  vobsercacao     varchar2(2000);
+                  vbairro         varchar2(100);
+                  vdatanascimento date;
+                  vdocreb         varchar2(10);
+                  vidnotavenda    number;
+                  vsemana         varchar2(10);
+                  vmedia          number(15,2);
+                  vorderby          varchar2(100);
+                  --
+                  vordem          number := 0;
+                  --
+                begin
+                  --
+                  delete reimpressaolistavend
+                  where usuario = v('APP_USER');
+                  --
+                  select semana
+                  into vsemana
+                  from regioesrepresentantes r
+                  where r.idrepresentante = :P158_IDREPRESENTANTE
+                    and r.idregiaovenda   = :P158_IDREGIAOVENDA;
+                  --
+                  --STATIC2:Consultora;3,Cidade;7,Bairro;10,Nr Nota;4,Dt Retorno;2
+                  --STATIC2:Consultora;3,Cidade;7,Bairro;10,Nr Nota;4,Dt Retorno;2,Média de Pgto (126 dias);14
+                  query_str := 'select distinct p.idpessoa'||
+                  			   '     , n.dataretorno'||
+                			   ' 	 , initcap(p.nomepessoa) nomepessoa'||
+                			   '     , n.numeronota'||
+                			   '     , pck_romance.fnc_retornatelefones(v.idvendedora) telefone '||
+                			   '     , pck_romance.fnc_enderecovendedora(v.idvendedora) '||
+                			   '     , pck_romance.fnc_nomecidade(p.idcidade) nomecidade '||
+                			   '     , ( select rv.descricao from regioesvenda rv where rv.idregiaovenda = ( select vv.idregiaovenda from vendedoras vv where vv.idpessoa = p.idpessoa)) RegiaoVendedora'||
+                			   '     , p.observacao observacao'||
+                			   '     , p.bairro'||
+                			   '     , p.datanascimento'||
+                			   '     , null docreb '||
+                               '     , idnotavenda '||
+                               '     , nvl(round(( select avg(valorpago) from notasvendas nn where nn.idvendedora = n.idvendedora and dataacerto > sysdate - 126 ),2),0) MEDIA '||
+                			   'from pessoas p '||
+                			   '   , vendedoras v '||
+                			   '   , notasvendas n '||
+                			   'where v.idpessoa        = p.idpessoa '||
+                			   '   and v.idvendedora     = n.idvendedora '||
+                			   '   and n.idsituacaonotavenda = 3';
+                  --
+                  query_str := query_str ||' and n.semanacobranca  = '''||vsemana||'''';
+                  query_str := query_str ||' and nvl(n.idrepresentanteatende, n.idrepresentante) = '||:P158_IDREPRESENTANTE;
+                  --
+                  vorderby := :P158_TIPOORDENACAO;
+                  --
+                  if :P158_TIPOORDENACAO = 14 then
+                    vorderby := vorderby||' desc';
+                  end if;
+                  query_str := query_str ||' order by '||vorderby;
+                  --		 
+                  --insert into teste values ( query_str,'reimpressao');
+                  --
+                  OPEN c FOR query_str;
+                  LOOP
+                      FETCH c INTO   vidpessoa,  vdataretorno, vnomepessoa, vnumeronota, vtelefone, vendereco, vnomecidade, vregiaovenda, vobsercacao, vbairro, vdatanascimento, vdocreb, vidnotavenda, vmedia;
+                      EXIT WHEN c%NOTFOUND;
+                      -- process row here
+                      insert into reimpressaolistavend (usuario,idnotavenda, reimprimir , ordem, data, origem)
+                      values ( v('APP_USER'),vidnotavenda,'S', vordem , sysdate,'D');
+                      --
+                      vordem := vordem+1;
+                      --
+                  END LOOP;
+                  CLOSE c;
+                  --
+                  --exception
+                  -- when others then  
+                  --  insert into teste values ( query_str,'reimpressao');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 300941907128094806
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+    branch (
+        name: filtrar
+        execution {
+            sequence: 20
+        }
+        behavior {
+            target: {
+                page: 158
+                items: {
+                    P158_IDREPRESENTANTE: &P158_IDREPRESENTANTE.
+                    P158_IDREGIAOVENDA: &P158_IDREGIAOVENDA.
+                    P158_TIPOORDENACAO: &P158_TIPOORDENACAO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where v('REQUEST') in ('ATENDER','FILTRAR')
+                ```
+        }
+    )
+
+)
+

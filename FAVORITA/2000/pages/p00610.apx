@@ -1,0 +1,1048 @@
+page 610 (
+    name: Relatório de Produtos não Movimentados
+    title: Relatório de Produtos não Movimentados
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region produtos-não-movimentados (
+        name: Produtos não Movimentados
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                /*DECLARE
+                  p_where VARCHAR2(4000);
+                  p_where2 VARCHAR2(4000);
+                  p_retorno varchar2(4000);
+                BEGIN
+                
+                  IF :P610_DATASEMMOVINI IS NOT NULL THEN
+                    p_where := ' AND ef.idestoque NOT IN (SELECT DISTINCT m.idestoque '
+                               || 'FROM favorita.movimentosestoques m '
+                               || 'WHERE m.datamovimento BETWEEN '|| '''' || v('P610_DATASEMMOVINI')||'''' 
+                               || ' AND ' || '''' || v('P610_DATASEMMOVFIM')||'''';
+                  END IF;
+                
+                  IF :P610_IDFILIAL IS NOT NULL THEN
+                    p_where := p_where || ' AND m.idfilialfavorita = ' || v('P610_IDFILIAL') ;
+                    p_where2 := ' AND ef.idfilialfavorita = ' || v('P610_IDFILIAL') ;
+                  END IF;
+                
+                  IF :P610_IDPRODUTO IS NOT NULL THEN
+                    p_where := p_where || ' AND m.idproduto = ' || v('P610_IDPRODUTO') ;
+                    p_where2 := p_where2 || ' AND ef.idproduto = ' || v('P610_IDPRODUTO') ;
+                  END IF;
+                
+                  IF :P610_IDPRODUTODETALHADO IS NOT NULL THEN
+                    p_where := p_where || ' AND m.idprodutodetalhado = ' || v('P610_IDPRODUTODETALHADO')  ;
+                    p_where2 := p_where2 || ' AND ef.idprodutodetalhado = ' || v('P610_IDPRODUTODETALHADO') ;
+                  END IF;
+                  
+                  IF :P610_IDCATEGORIA IS NOT NULL THEN
+                    p_where := p_where || ' AND EXISTS (SELECT 1 '
+                               || 'FROM favorita.produtos p '
+                               || 'WHERE p.idproduto = m.idproduto '
+                               || 'AND p.idcategoria = ' || v('P610_IDCATEGORIA') || ')';
+                               
+                    p_where2 := p_where2 || ' AND EXISTS (SELECT 1 '
+                               || 'FROM favorita.produtos p '
+                               || 'WHERE p.idproduto = ef.idproduto '
+                               || 'AND p.idcategoria = ' || v('P610_IDCATEGORIA') || ')';
+                  END IF;
+                
+                  IF :P610_IDFORNECEDOR IS NOT NULL THEN
+                    p_where := p_where || ' AND m.idproduto IN '
+                               || '(SELECT idproduto '
+                               || 'FROM fornecedoresprodutos '
+                               || 'WHERE idproduto = m.idproduto '
+                               || 'AND idfornecedor = ' || v('P610_IDFORNECEDOR')||')';
+                               
+                    p_where2 := p_where2 || ' AND ef.idproduto IN '
+                               || '(SELECT idproduto '
+                               || 'FROM fornecedoresprodutos '
+                               || 'WHERE idproduto = ef.idproduto '
+                               || 'AND idfornecedor = ' || v('P610_IDFORNECEDOR')||')';
+                  END IF;
+                
+                  IF :P610_IDEDICAOREVISTA IS NOT NULL THEN
+                    p_where := p_where || ' AND m.idprodutodetalhado IN '
+                               || '(SELECT idprodutodetalhado '
+                               || 'FROM produtosdetedrevistas '
+                               || 'WHERE idedicaorevista = ' || v('P610_IDEDICAOREVISTA') || ')';
+                  END IF;
+                  
+                  IF :P610_IDUSUARIO IS NOT NULL THEN
+                    p_where := p_where || ' AND m.idusuario = ' || v('P610_IDUSUARIO')  ;
+                  END IF;
+                
+                  IF :P610_IDFILIAL IS NOT NULL OR 
+                     :P610_IDPRODUTO IS NOT NULL OR
+                     :P610_IDPRODUTODETALHADO IS NOT NULL OR
+                     :P610_IDCATEGORIA IS NOT NULL OR
+                     :P610_IDFORNECEDOR IS NOT NULL OR 
+                     :P610_IDEDICAOREVISTA IS NOT NULL OR
+                     :P610_IDUSUARIO IS NOT NULL THEN
+                    p_where := p_where || ' )' ;
+                  END IF;
+                  
+                  p_retorno := 'SELECT ef.idprodutodetalhado id
+                           , pck_util_fav.fnc_nomeproduto(ef.idproduto,ef.ididioma,''S'') nomeprod
+                           , pck_util_fav.fnc_nomeprodutodetalhado(ef.idprodutodetalhado,ef.ididioma) nomeproddet
+                           , pck_util_fav.fnc_nomefilialfavorita(ef.idfilialfavorita) filial 
+                           , ef.valorcusto
+                           , ef.quantidade * NVL(ef.valorcusto, 1) totalcusto
+                           , ef.quantidade
+                           , ef.quantidade - ef.quantidadereservada quantidadedisponivel
+                           , ef.quantidadereservada
+                           , NVL(ef.quantidadecomprada, 0) quantidadecomprada
+                           , NVL( (SELECT dep.skuvirtualage
+                                     FROM favorita.deparaprodfavoritavirtualage dep
+                                    WHERE dep.idprodutodetalhado = ef.idprodutodetalhado), 6000000 + ef.idprodutodetalhado) sku_virtual
+                           , ef.ativo
+                           , m.tipomovimentacao
+                           , m.datamovimento
+                           , m.quantidade qtd_mov
+                           , m.nomeusuario
+                        FROM vw_estoques_fav ef
+                           , (SELECT mt.*
+                                FROM favorita.vw_movimentosestoques_fav mt
+                               WHERE mt.idmovimentoestoque = (SELECT MAX(idmovimentoestoque)
+                                                                FROM movimentosestoques m
+                                                               WHERE m.idestoque = mt.idestoque
+                                                                 AND m.idfilialfavorita = :P610_IDFILIAL)
+                                 AND mt.idfilialfavorita = :P610_IDFILIAL
+                                 AND mt.ididioma = 1) m
+                       WHERE ef.idprodutodetalhado = m.idprodutodetalhado(+) 
+                         and :P610_FILTRAR = ''S''
+                         and ef.ididioma = 1 '
+                     || p_where || p_where2;
+                       
+                  RETURN p_retorno ;
+                
+                END;*/
+                
+                DECLARE
+                  p_where VARCHAR2(4000);
+                  p_where2 VARCHAR2(4000);
+                  p_retorno varchar2(4000);
+                BEGIN
+                
+                  -- Construindo as cláusulas WHERE
+                  p_where := '';
+                  p_where2 := '';
+                
+                  IF :P610_DATASEMMOVINI IS NOT NULL THEN
+                    p_where := ' AND NOT EXISTS (SELECT 1 '
+                               || 'FROM favorita.movimentosestoques m '
+                               || 'WHERE m.idestoque = ef.idestoque '
+                               || 'AND m.datamovimento BETWEEN :P610_DATASEMMOVINI AND :P610_DATASEMMOVFIM)';
+                  END IF;
+                
+                  IF :P610_IDFILIAL IS NOT NULL THEN
+                    p_where := p_where || ' AND m.idfilialfavorita = :P610_IDFILIAL';
+                    p_where2 := ' AND ef.idfilialfavorita = :P610_IDFILIAL';
+                  END IF;
+                
+                  IF :P610_IDPRODUTO IS NOT NULL THEN
+                    p_where := p_where || ' AND m.idproduto = :P610_IDPRODUTO';
+                    p_where2 := p_where2 || ' AND ef.idproduto = :P610_IDPRODUTO';
+                  END IF;
+                
+                  IF :P610_IDPRODUTODETALHADO IS NOT NULL THEN
+                    p_where := p_where || ' AND m.idprodutodetalhado = :P610_IDPRODUTODETALHADO';
+                    p_where2 := p_where2 || ' AND ef.idprodutodetalhado = :P610_IDPRODUTODETALHADO';
+                  END IF;
+                
+                  IF :P610_IDCATEGORIA IS NOT NULL THEN
+                    p_where := p_where || ' AND EXISTS (SELECT 1 '
+                               || 'FROM favorita.produtos p '
+                               || 'WHERE p.idproduto = m.idproduto '
+                               || 'AND p.idcategoria = :P610_IDCATEGORIA)';
+                               
+                    p_where2 := p_where2 || ' AND EXISTS (SELECT 1 '
+                               || 'FROM favorita.produtos p '
+                               || 'WHERE p.idproduto = ef.idproduto '
+                               || 'AND p.idcategoria = :P610_IDCATEGORIA)';
+                  END IF;
+                
+                  IF :P610_IDFORNECEDOR IS NOT NULL THEN
+                    p_where := p_where || ' AND m.idproduto IN '
+                               || '(SELECT idproduto '
+                               || 'FROM fornecedoresprodutos '
+                               || 'WHERE idproduto = m.idproduto '
+                               || 'AND idfornecedor = :P610_IDFORNECEDOR)';
+                               
+                    p_where2 := p_where2 || ' AND ef.idproduto IN '
+                               || '(SELECT idproduto '
+                               || 'FROM fornecedoresprodutos '
+                               || 'WHERE idproduto = ef.idproduto '
+                               || 'AND idfornecedor = :P610_IDFORNECEDOR)';
+                  END IF;
+                
+                  IF :P610_IDEDICAOREVISTA IS NOT NULL THEN
+                    p_where := p_where || ' AND m.idprodutodetalhado IN '
+                               || '(SELECT idprodutodetalhado '
+                               || 'FROM produtosdetedrevistas '
+                               || 'WHERE idedicaorevista = :P610_IDEDICAOREVISTA)';
+                  END IF;
+                  
+                  IF :P610_IDUSUARIO IS NOT NULL THEN
+                    p_where := p_where || ' AND m.idusuario = :P610_IDUSUARIO';
+                  END IF;
+                
+                  -- Montando a consulta
+                  p_retorno := 'SELECT ef.idprodutodetalhado id
+                           , pck_util_fav.fnc_nomeproduto(ef.idproduto,ef.ididioma,''S'') nomeprod
+                           , pck_util_fav.fnc_nomeprodutodetalhado(ef.idprodutodetalhado,ef.ididioma) nomeproddet
+                           , pck_util_fav.fnc_nomefilialfavorita(ef.idfilialfavorita) filial 
+                           , ef.valorcusto
+                           , ef.quantidade * NVL(ef.valorcusto, 1) totalcusto
+                           , ef.quantidade
+                           , ef.quantidade - ef.quantidadereservada quantidadedisponivel
+                           , ef.quantidadereservada
+                           , NVL(ef.quantidadecomprada, 0) quantidadecomprada
+                           , NVL( (SELECT dep.skuvirtualage
+                                     FROM favorita.deparaprodfavoritavirtualage dep
+                                    WHERE dep.idprodutodetalhado = ef.idprodutodetalhado), 6000000 + ef.idprodutodetalhado) sku_virtual
+                           , ef.ativo
+                           , m.tipomovimentacao
+                           , m.datamovimento
+                           , m.quantidade qtd_mov
+                           , m.nomeusuario
+                        FROM vw_estoques_fav ef
+                           LEFT JOIN (
+                               SELECT mt.*
+                                FROM favorita.vw_movimentosestoques_fav mt
+                               WHERE mt.idmovimentoestoque = (
+                                            SELECT MAX(idmovimentoestoque)
+                                            FROM movimentosestoques m
+                                            WHERE m.idestoque = mt.idestoque
+                                              AND m.idfilialfavorita = :P610_IDFILIAL)
+                                 AND mt.idfilialfavorita = :P610_IDFILIAL
+                                 AND mt.ididioma = 1) m ON ef.idprodutodetalhado = m.idprodutodetalhado
+                       WHERE :P610_FILTRAR = ''S''
+                         and ef.ididioma = 1 '
+                     || p_where || p_where2;
+                       
+                  RETURN p_retorno ;
+                
+                END;
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1110694985019299718
+        }
+
+        column ATIVO (
+            type: plainText
+            heading {
+                heading: Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column DATAMOVIMENTO (
+            type: plainText
+            heading {
+                heading: Data Ultima Movimentação
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: "DD/MM/RRRR "
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column ID (
+            type: plainText
+            heading {
+                heading: Id
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column NOMEPROD (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 190
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column NOMEPRODDET (
+            type: plainText
+            heading {
+                heading: Produto Detalhado
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column NOMEUSUARIO (
+            type: plainText
+            heading {
+                heading: Usuário Ult. Mov.
+                alignment: center
+            }
+            layout {
+                sequence: 180
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column QTD_MOV (
+            type: plainText
+            heading {
+                heading: Quantidade
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column QUANTIDADE (
+            type: plainText
+            heading {
+                heading: Estoque
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column QUANTIDADECOMPRADA (
+            type: plainText
+            heading {
+                heading: Comprada
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column QUANTIDADEDISPONIVEL (
+            type: plainText
+            heading {
+                heading: Disponível
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column QUANTIDADERESERVADA (
+            type: plainText
+            heading {
+                heading: Reservada
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column SKU_VIRTUAL (
+            type: plainText
+            heading {
+                heading: Sku Virtual
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column TIPOMOVIMENTACAO (
+            type: plainText
+            heading {
+                heading: "Movimentação "
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column TOTALCUSTO (
+            type: plainText
+            heading {
+                heading: Custo Total
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column VALORCUSTO (
+            type: plainText
+            heading {
+                heading: Custo
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15054932 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ATIVO (
+                sequence: 11
+            )
+
+            displayColumn DATAMOVIMENTO (
+                sequence: 13
+            )
+
+            displayColumn FILIAL (
+                sequence: 1
+            )
+
+            displayColumn NOMEPROD (
+                sequence: 2
+            )
+
+            displayColumn NOMEPRODDET (
+                sequence: 3
+            )
+
+            displayColumn NOMEUSUARIO (
+                sequence: 15
+            )
+
+            displayColumn QTD_MOV (
+                sequence: 14
+            )
+
+            displayColumn QUANTIDADE (
+                sequence: 6
+            )
+
+            displayColumn QUANTIDADECOMPRADA (
+                sequence: 9
+            )
+
+            displayColumn QUANTIDADEDISPONIVEL (
+                sequence: 7
+            )
+
+            displayColumn QUANTIDADERESERVADA (
+                sequence: 8
+            )
+
+            displayColumn SKU_VIRTUAL (
+                sequence: 10
+            )
+
+            displayColumn TIPOMOVIMENTACAO (
+                sequence: 12
+            )
+
+            displayColumn TOTALCUSTO (
+                sequence: 5
+            )
+
+            displayColumn VALORCUSTO (
+                sequence: 4
+            )
+
+        )
+
+    )
+
+    pageItem P610_DATASEMMOVFIM (
+        type: datePickerJquery
+        label {
+            label: Data s/ Movimentação - Até:
+            alignment: left
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: dd/mm/rrrr
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P610_DATASEMMOVINI (
+        type: datePickerJquery
+        label {
+            label: Data s/ Movimentação - De:
+            alignment: left
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: dd/mm/rrrr
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P610_FILTRAR (
+        type: hidden
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P610_IDCATEGORIA (
+        type: plugin/select
+        label {
+            label: Categoria
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select c.nome display_value
+                     , c.idcategoria
+                from favorita.vw_categorias_fav c
+                where c.ididioma = :P0_IDIDIOMA
+                order by c.nome  
+                ```
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P610_IDEDICAOREVISTA (
+        type: plugin/select
+        label {
+            label: Revista
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.numeroedicao||'-'||p.nome display_value
+                     , p.idedicaorevista
+                from favorita.edicoesrevistas p
+                where p.idpais = :P0_IDIDIOMA
+                order by p.numeroedicao desc
+                ```
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P610_IDFILIAL (
+        type: plugin/select
+        label {
+            label: Filial Favorita
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select favorita.pck_util_fav.fnc_nomefilialfavorita(f.idfilialfavorita) display_value
+                     , f.idfilialfavorita   return_value
+                from favorita.filiaisfavorita f
+                where  exists ( select 1
+                                  from favorita.usuariosfiliaisfavorita u
+                                 where u.idfilialfavorita = f.idfilialfavorita
+                                   and u.consultar = 'S'
+                                   and u.idusuario = :P0_IDUSUARIO )
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P610_IDFORNECEDOR (
+        type: plugin/select
+        label {
+            label: Fornecedor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.nomepessoa display_value
+                     , f.idfornecedor return_value
+                from catal.pessoas p
+                   , catal.fornecedores f
+                where p.idpessoa = f.idpessoa
+                  and f.ativo    = 'S'
+                  and exists ( select 1 
+                               from favorita.fornecedoresprodutos fp
+                               where fp.idfornecedor = f.idfornecedor  )
+                order by 1 
+                ```
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P610_IDPRODUTO (
+        type: plugin/select
+        label {
+            label: Produto
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.referencia||'-'||p.nomeproduto display_value
+                     , p.idproduto
+                from favorita.vw_produtos_fav p
+                where p.ididioma = :P0_IDIDIOMA
+                order by p.nomeproduto
+                ```
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P610_IDPRODUTODETALHADO (
+        type: plugin/select
+        label {
+            label: Produto Detalhado
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select favorita.pck_util_fav.fnc_nomeprodutodetalhado(pd.idprodutodetalhado, :P0_IDIDIOMA) as d
+                     , pd.idprodutodetalhado as r
+                from favorita.produtosdetalhados pd
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P610_IDUSUARIO (
+        type: plugin/select
+        label {
+            label: Usuário
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select favorita.pck_util_fav.fnc_nomeusuario(u.idusuario) display_value
+                     , u.idusuario return_value
+                from catal.usuarios u
+                where exists ( select 1
+                               from roman.usuariosgruposatendimento ug
+                               where ug.usuario = u.usuario 
+                                 and ug.idgrupoatendimento in ( select uu.idgrupoatendimento
+                                                                from roman.usuariosgruposatendimento uu
+                                                                where uu.usuario = v('APP_USER') ) ) 
+                 or favorita.pck_util_fav.fnc_verificaacesso(58305,:P0_IDUSUARIO) = 'S'                                                
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: belowBox
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--warning
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 610
+                items: {
+                    P610_FILTRAR: S
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

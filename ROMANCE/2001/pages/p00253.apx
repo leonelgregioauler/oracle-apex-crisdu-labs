@@ -1,0 +1,1356 @@
+page 253 (
+    name: Pedidos Pagos
+    title: Pedidos Pagos
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region filtro (
+        name: Filtro
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region pedidos-pagos-detalhado (
+        name: Pedidos Pagos Detalhado
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.idpedido
+                     , 'P'||p.nrpedido "Nr Pedido"
+                     , pck_romance.fnc_nomevendedora(pidvendedora => p.idvendedora) "Vendedora"
+                     , pck_romance.fnc_retornatelefones(p.idvendedora) telefone
+                     , p.databaixa "Data Baixa"
+                     , p.datavencimento "Data Vencimento"
+                     , p.valorcobrado "Valor Total"
+                     , p.comissao  vlrdistrib
+                     , nvl(( select 'Sim'
+                             from dual
+                             where exists ( select 1 
+                                            from pagamentocomissoes pf
+                                            where pf.idpedido = p.idpedido
+                                              and pf.idrepresentante = p.idrepresentante )) ,'Não') comissaopagadist
+                     , p.comissaogerente vlrgerente
+                     , nvl(( select 'Sim'
+                             from dual
+                             where exists ( select 1
+                                            from pagamentocomissoes pf
+                                            where pf.idpedido = p.idpedido
+                                              and pf.idgerente = p.idgerente ) ) ,'Não') comissaopagager
+                     , ( select count(1)
+                         from boletos v
+                         where v.idpedido = p.idpedido
+                           and v.situacao != 'Z')||'/'||              
+                       ( select count(1)
+                         from boletos v
+                         where v.idpedido = p.idpedido
+                           and v.situacao != 'Z'
+                           and databaixa is not null) boletosquitados
+                     , p.valorcobrado base_comissao
+                from vw_comissoes_pagar p
+                where (:P253_CLIENTE is null or p.idrepresentante = :P253_CLIENTE)
+                  and p.idfilial = :P0_IDFILIAL
+                  and ( :P253_TIPO_DATA is null
+                    or ( :P253_TIPO_DATA = 'S' and pck_util.fnc_idsemanadata(p.databaixa) = :P253_IDSEMANA )
+                    or ( :P253_TIPO_DATA = 'B' and trunc(p.databaixa) between to_date(:P253_DTINI,'dd/mm/yyyy') and to_date(:P253_DTFIM,'dd/mm/yyyy') ) )
+                  and :P253_FILTRAR = 'S'
+                union all
+                select pp.idpedido 
+                     , pp.numeropedido
+                     , pp.vendedora
+                     , pck_romance.fnc_retornatelefones(pp.idvendedora)
+                     , pp.databaixa
+                     , pp.datavencimentomenor
+                     , pp.valorapagar
+                     , nvl(pp.comissaodistribuidor,0)
+                     , nvl(( select 'Sim'
+                             from pagamentocomissoes pf
+                             where pf.idpedido = pp.idpedido
+                               and pf.idrepresentante = pp.idrepresentante
+                               and pf.idvencimentopedido = pp.idvencimentopedido
+                               and rownum <= 1 ) ,'Não')
+                     , nvl(pp.comissaogerente,0)
+                     , nvl(( select 'Sim'
+                             from pagamentocomissoes pf
+                             where pf.idpedido = pp.idpedido
+                               and pf.idgerente = pp.idgerente
+                               and pf.idvencimentopedido = pp.idvencimentopedido
+                               and rownum <= 1 ) ,'Não')
+                     , null boletosquitados
+                     , case
+                         when exists ( select 1
+                                       from favorita.classificacoespedidos cp
+                                       where cp.idpedido = pp.idpedido
+                                         and cp.idcaracteristicapedido = 106 
+                                         and exists (select 1
+                                                       from favorita.itenspedidos
+                                                      where idpedido = pp.idpedido
+                                                        and perccomissaodistribuidor = 18)  ) then
+                          round(( select ( valortotal * 0.70 )
+                                   from favorita.pedidos p
+                                   where p.idpedido = pp.idpedido ) / ( select count(1)
+                                                                        from favorita.vencimentospedidos vc
+                                                                        where vc.idpedido = pp.idpedido
+                                                                          and vc.situacaovencimento = 'V' ),2) 
+                         else
+                           round( pp.valorapagar / ( select count(1)
+                                                    from favorita.vencimentospedidos vc
+                                                    where vc.idpedido = pp.idpedido
+                                                      and vc.situacaovencimento = 'V' ),2) 
+                       end base_comissao
+                from favorita.VW_COMISSOESPAGAR_NOVA_M pp
+                where (:P253_CLIENTE is null or pp.idrepresentante = :P253_CLIENTE)
+                  and pp.idfilialromance = :P0_IDFILIAL
+                  and ( :P253_TIPO_DATA is null
+                    or ( :P253_TIPO_DATA = 'S' and pp.idsemanabaixa = :P253_IDSEMANA )
+                    or ( :P253_TIPO_DATA = 'B' and trunc(pp.databaixa) between to_date(:P253_DTINI,'dd/mm/yyyy') and to_date(:P253_DTFIM,'dd/mm/yyyy') ) )
+                  and :P253_FILTRAR = 'S'
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P253_TIPO
+            value: D
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Use os Filtros
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        advanced {
+            savedReportMappingIdentifier: 80377993847857921
+        }
+
+        column BASE_COMISSAO (
+            type: plainText
+            heading {
+                heading: Base Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 137
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column BOLETOSQUITADOS (
+            type: plainText
+            heading {
+                heading: Boletosquitados
+                alignment: center
+            }
+            layout {
+                sequence: 127
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column COMISSAOPAGADIST (
+            type: plainText
+            heading {
+                heading: Com. Paga Dist
+                alignment: center
+            }
+            layout {
+                sequence: 107
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column COMISSAOPAGAGER (
+            type: plainText
+            heading {
+                heading: Com. Paga Ger
+                alignment: center
+            }
+            layout {
+                sequence: 117
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    not exists ( select 1
+                                 from usuarios u
+                                    , supervisores s
+                                 where u.usuario = v('APP_USER') 
+                                   and s.idpessoa = u.idpessoa 
+                                   and s.ativo = 'S' )
+                    ```
+            }
+        )
+
+        column "Data Baixa" (
+            type: plainText
+            heading {
+                heading: Data baixa
+                alignment: center
+            }
+            layout {
+                sequence: 57
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column "Data Vencimento" (
+            type: plainText
+            heading {
+                heading: Data vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 67
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column IDPEDIDO (
+            type: hidden
+            heading {
+                heading: ID
+            }
+            layout {
+                sequence: 17
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Nr Pedido" (
+            type: plainText
+            heading {
+                heading: Nr pedido
+                alignment: center
+            }
+            layout {
+                sequence: 27
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column TELEFONE (
+            type: plainText
+            heading {
+                heading: Telefone
+                alignment: center
+            }
+            layout {
+                sequence: 47
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column VLRDISTRIB (
+            type: plainText
+            heading {
+                heading: Vlr Distrib
+                alignment: center
+            }
+            layout {
+                sequence: 87
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column VLRGERENTE (
+            type: plainText
+            heading {
+                heading: Vlr Gerente
+                alignment: center
+            }
+            layout {
+                sequence: 97
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    not exists ( select 1
+                                 from usuarios u
+                                    , supervisores s
+                                 where u.usuario = v('APP_USER') 
+                                   and s.idpessoa = u.idpessoa 
+                                   and s.ativo = 'S' )
+                    ```
+            }
+        )
+
+        column "Valor Total" (
+            type: plainText
+            heading {
+                heading: Valor de Boleto
+                alignment: center
+            }
+            layout {
+                sequence: 77
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column Vendedora (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 37
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 803834 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn BASE_COMISSAO (
+                sequence: 7
+            )
+
+            displayColumn COMISSAOPAGADIST (
+                sequence: 10
+            )
+
+            displayColumn COMISSAOPAGAGER (
+                sequence: 11
+            )
+
+            displayColumn "Data Baixa" (
+                sequence: 4
+            )
+
+            displayColumn "Data Vencimento" (
+                sequence: 5
+            )
+
+            displayColumn "Nr Pedido" (
+                sequence: 1
+            )
+
+            displayColumn TELEFONE (
+                sequence: 3
+            )
+
+            displayColumn VLRDISTRIB (
+                sequence: 8
+            )
+
+            displayColumn VLRGERENTE (
+                sequence: 9
+            )
+
+            displayColumn "Valor Total" (
+                sequence: 6
+            )
+
+            displayColumn "Vendedora" (
+                sequence: 2
+            )
+
+            sort (
+                column: "Data Baixa"
+                sort {
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: "Vendedora"
+                sort {
+                    sequence: 2
+                }
+            )
+
+            aggregate (
+                column: "Valor Total"
+            )
+
+            aggregate (
+                column: VLRDISTRIB
+            )
+
+            aggregate (
+                column: VLRGERENTE
+            )
+
+        )
+
+    )
+
+    region pedidos-pagos-resumidos (
+        name: Pedidos Pagos Resumidos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                with t1 as (select representante  Representante
+                                 , sum(valortotal) ValorTotal
+                                 , count(1) QtdBoletos
+                                 , idrepresentante
+                            from (select p.idpedido
+                                       , p.nrpedido NrPedido
+                                       , pck_romance.fnc_nomerepresentante(idrepresentante) representante
+                                       , pck_romance.fnc_nomevendedora(pidvendedora => p.idvendedora) Vendedora
+                                       , pck_romance.fnc_retornatelefones(p.idvendedora) telefone
+                                       , p.databaixa DataBaixa
+                                       , p.datavencimento DataVencimento
+                                       , p.valorcobrado ValorTotal
+                                       , p.idrepresentante
+                                  from vw_comissoes_pagar p
+                                  where ( :P253_CLIENTE is null or p.idrepresentante = :P253_CLIENTE )
+                                    and p.idfilial = :P0_IDFILIAL
+                                    and ( :P253_DTINI is null or p.databaixa between to_date(:P253_DTINI,'dd/mm/rrrr') and to_date(:P253_DTFIM,'dd/mm/rrrr') )
+                                  union
+                                  select distinct pf.idpedido
+                                               , pf.numeropedido
+                                               , pf.representante
+                                               , pf.vendedora
+                                               , pck_romance.fnc_retornatelefones(pf.idvendedora)
+                                               , pf.databaixa
+                                               , pf.datavencimentomenor
+                                               , pf.valorapagar 
+                                               , pf.idrepresentante
+                                  from favorita.VW_COMISSOESPAGAR_NOVA_M pf
+                                  where ( :P253_CLIENTE is null or pf.idrepresentante = :P253_CLIENTE )
+                                    and pf.idfilialromance = :P0_IDFILIAL
+                                    and (:P253_DTINI is null or pf.databaixa between to_date(:P253_DTINI,'dd/mm/rrrr') and to_date(:P253_DTFIM,'dd/mm/rrrr') )  
+                                  order by 5 desc )    
+                            group by representante, idrepresentante
+                            order by 1)
+                   , t2 as (select  sum(valortotal) ValorTotalAnt
+                                 , count(1) QtdBoletosAnt
+                                 , idrepresentante
+                            from (select p.idpedido
+                                       , p.nrpedido NrPedido
+                                       , pck_romance.fnc_nomerepresentante(idrepresentante) representante
+                                       , pck_romance.fnc_nomevendedora(pidvendedora => p.idvendedora) Vendedora
+                                       , pck_romance.fnc_retornatelefones(p.idvendedora) telefone
+                                       , p.databaixa DataBaixa
+                                       , p.datavencimento DataVencimento
+                                       , p.valorcobrado ValorTotal
+                                       , p.idrepresentante
+                                  from vw_comissoes_pagar p
+                                  where ( :P253_CLIENTE is null or p.idrepresentante = :P253_CLIENTE )
+                                    and p.idfilial = :P0_IDFILIAL
+                                    and (:P253_DTINI is null or p.databaixa between add_months(to_date(:P253_DTINI,'dd/mm/rrrr'),-12) and add_months(to_date(:P253_DTFIM,'dd/mm/rrrr'),-12))
+                                  union
+                                  select distinct pf.idpedido
+                                       , pf.numeropedido
+                                       , pf.representante
+                                       , pf.vendedora
+                                       , pck_romance.fnc_retornatelefones(pf.idvendedora)
+                                       , pf.databaixa
+                                       , pf.datavencimentomenor
+                                       , pf.valorapagar 
+                                       , pf.idrepresentante
+                                  from favorita.VW_COMISSOESPAGAR_NOVA_M pf
+                                  where ( :P253_CLIENTE is null or pf.idrepresentante = :P253_CLIENTE )
+                                    and pf.idfilialromance = :P0_IDFILIAL
+                                    and (:P253_DTINI is null or pf.databaixa between add_months(to_date(:P253_DTINI,'dd/mm/rrrr'),-12) and add_months(to_date(:P253_DTFIM,'dd/mm/rrrr'),-12))
+                                  order by 5 desc)
+                            group by representante, idrepresentante
+                            order by 1)
+                            
+                select t1.Representante
+                     , t1.ValorTotal
+                     , t1.QtdBoletos
+                     , t2.ValorTotalAnt
+                     , t2.QtdBoletosAnt
+                     , round(( (sum(t1.ValorTotal)/sum(t2.ValorTotalAnt) ) -1)*100,2) crescvlr
+                     , round(( (sum(t1.QtdBoletos)/sum(t2.QtdBoletosAnt) ) -1)*100,2) crescqtd
+                  from t1
+                     , t2
+                where t1.idrepresentante = t2.idrepresentante(+)
+                group by t1.Representante
+                       , t1.ValorTotal
+                       , t1.QtdBoletos
+                       , t2.ValorTotalAnt
+                       , t2.QtdBoletosAnt
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P253_TIPO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Use os Filtros
+            whenMoreDataFound: The maximum row count for this report is #MAX_ROW_COUNT# rows.  Please apply a filter to reduce the number of records in your query.
+        }
+        advanced {
+            savedReportMappingIdentifier: 80381637086887351
+        }
+
+        column CRESCQTD (
+            type: plainText
+            heading {
+                heading: Cresc. / Perda (Qtd)
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column CRESCVLR (
+            type: plainText
+            heading {
+                heading: Cresc. / Perda (Valor)
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column QTDBOLETOS (
+            type: plainText
+            heading {
+                heading: Qtd. Boletos
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column QTDBOLETOSANT (
+            type: plainText
+            heading {
+                heading: Qtd. Boletos (Ano Anterior)
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor de Boleto
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column VALORTOTALANT (
+            type: plainText
+            heading {
+                heading: Valor de Boleto (Ano Anterior)
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 803840 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn CRESCQTD (
+                sequence: 4
+            )
+
+            displayColumn CRESCVLR (
+                sequence: 7
+            )
+
+            displayColumn QTDBOLETOS (
+                sequence: 3
+            )
+
+            displayColumn QTDBOLETOSANT (
+                sequence: 2
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 1
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 6
+            )
+
+            displayColumn VALORTOTALANT (
+                sequence: 5
+            )
+
+            aggregate (
+                column: "Qtd Boletos"
+            )
+
+            aggregate (
+                column: "Valor Total"
+            )
+
+            highlight ir-condition (
+                name: Perda Qtd
+                condition {
+                    column: CRESCQTD
+                    operator: <
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #FA0000
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Crescimento Qtd
+                condition {
+                    column: CRESCQTD
+                    operator: >
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #06BF06
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-3 (
+                name: Perda Valor
+                condition {
+                    column: CRESCVLR
+                    operator: <
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #F70000
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-4 (
+                name: Crescimento Valor
+                condition {
+                    column: CRESCVLR
+                    operator: >
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #02C202
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-5 (
+                name: Qtd de Boleto (Filtro)
+                condition {
+                    column: QTDBOLETOS
+                    operator: >=
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #99CCFF
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-6 (
+                name: Valor de Boleto (Filtro)
+                condition {
+                    column: VALORTOTAL
+                    operator: >=
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #99CCFF
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P253_CLIENTE (
+        type: popupLov
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sharedComponent
+            lov: @representantes-2
+            nullDisplayValue: <-- TODOS -->
+        }
+        layout {
+            sequence: 60
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P253_DTFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required
+            templateOptions: #DEFAULT#
+            formatMask: dd/mm/yyyy
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P253_DTINI (
+        type: datePickerJquery
+        label {
+            label: "De "
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required
+            templateOptions: #DEFAULT#
+            formatMask: dd/mm/yyyy
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P253_FILTRAR (
+        type: hidden
+        layout {
+            sequence: 80
+            region: @filtro
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P253_IDSEMANA (
+        type: selectList
+        label {
+            label: Semana
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select s.semanacompleta 
+                     , s.idsemana
+                from semana_dias s
+                where s.ano >= 2020
+                order by s.idsemana
+                ```
+        }
+        layout {
+            sequence: 30
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P253_TIPO (
+        type: radioGroup
+        label {
+            label: Tipo
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Detalhado;D,Resumido;R
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P253_TIPO_DATA (
+        type: radioGroup
+        label {
+            label: Tipo Data:
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Baixa;B,Semana;S
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 70
+            region: @filtro
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction mostra-tipo-data (
+        name: mostra tipo data
+        execution {
+            sequence: 40
+        }
+        when {
+            selectionType: items
+            items: P253_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P253_TIPO
+            value: D
+        }
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P253_TIPO_DATA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction oculta-mostra-tipo-data-detalhado (
+        name: oculta/mostra tipo data detalhado
+        execution {
+            sequence: 50
+        }
+        when {
+            selectionType: items
+            items: P253_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P253_TIPO
+            value: R
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P253_IDSEMANA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P253_DTINI
+                    P253_DTFIM
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+    )
+
+    dynamicAction oculta-tipo-data (
+        name: oculta tipo data
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P253_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P253_TIPO
+            value: R
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P253_TIPO_DATA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction tipo-data (
+        name: Tipo data
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P253_TIPO_DATA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P253_TIPO_DATA
+            value: S
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P253_IDSEMANA
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P253_DTINI
+                    P253_DTFIM
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P253_IDSEMANA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P253_DTINI
+                    P253_DTFIM
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    branch (
+        name: Go To Page 253
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 253
+                items: {
+                    P253_CLIENTE: &P253_CLIENTE.
+                    P253_TIPO: &P253_TIPO.
+                    P253_DTINI: &P253_DTINI.
+                    P253_DTFIM: &P253_DTFIM.
+                    P253_IDSEMANA: &P253_IDSEMANA.
+                    P253_FILTRAR: S
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

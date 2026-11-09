@@ -1,0 +1,1090 @@
+page 997 (
+    name: Integracao de Produtos - Virtual Age
+    title: Integracao de Produtos - Virtual Age
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function simularProduto(pref)
+            {
+              apex.submit({request:"SIMULAR_UM", set:{"P997_REFERENCIA":pref}});
+            }
+            
+            function integrarProduto(pref)
+            {
+              apex.confirm("Confirma o envio da referencia " + pref + " para o Virtual Age? " +
+                           "O cadastro e criado em PRODUCAO e a API nao permite exclusao.", {
+                request:"INTEGRAR_UM",
+                set:{"P997_REFERENCIA":pref}
+              });
+            }
+            ```
+    }
+
+    region boas-praticas-leia-antes-de-integrar (
+        name: Boas praticas - leia antes de integrar
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <div style="line-height:1.7">
+                <b>Antes de integrar</b>
+                <ul style="margin-top:4px">
+                <li>Confira o cadastro no <b>Optimus</b>: todo SKU precisa de <b>grade/tamanho, cor ou caracteristica, codigo de barras e fornecedor</b>. SKU incompleto bloqueia a referencia inteira.</li>
+                <li>Use <b>Simular</b> antes de Integrar: mostra se esta apto e o que sera enviado, sem gravar nada.</li>
+                </ul>
+                <b>Nunca faca</b>
+                <ul style="margin-top:4px">
+                <li><b>Nao cadastre produto ou cor direto na tela do Virtual Age.</b> Isso cria SKU com codigo proprio do VA e a integracao passa a falhar com "ColorCode/SizeName already exist".</li>
+                <li><b>Nao use o EDIFP008 (importacao por arquivo) para produtos.</b> Importacao parcial deixa registros orfaos no VA que travam a referencia.</li>
+                <li><b>Nao altere a referencia de um produto ja integrado</b> no Optimus. O VA nao move referencia; o produto fica dividido entre duas arvores.</li>
+                </ul>
+                <b>Erros comuns e o que fazer</b>
+                <ul style="margin-top:4px">
+                <li><i>Combinacao de tamanhos sem de-para</i>: grade nova. Cadastre o gridCode na regiao "De-para de grades" (consulte "Grades disponiveis no VA") e integre de novo.</li>
+                <li><i>EAN ja existe</i>: o produto entra sem aquele codigo de barras (veja o AVISO). O EAN esta em outro produto no VA - verifique la.</li>
+                <li><i>ColorCode/SizeName already exist</i> ou <i>registros orfaos</i>: existe cadastro manual ou sobra de importacao antiga no VA. Abra chamado para exclusao no VA e integre de novo depois.</li>
+                <li>Erro repetido apos as correcoes: consulte o <b>Historico</b> abaixo (mensagem e JSON) e acione a TI.</li>
+                </ul>
+                </div>
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region de-para-de-grades-assinatura-gridcode (
+        name: De-para de grades (assinatura -> gridCode)
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select gv.assinatura,
+                       gv.cd_grade_va,
+                       gv.qt_produtos,
+                       gv.origem,
+                       gv.ativo,
+                       gv.observacao
+                  from favorita.tb_grades_va gv
+                 order by gv.qt_produtos desc, gv.assinatura
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--stretch
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        messages {
+            whenNoDataFound: Nenhuma combinacao cadastrada.
+        }
+
+        column ASSINATURA (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Assinatura (tamanhos)
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column ATIVO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CD_GRADE_VA (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: gridCode VA
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column OBSERVACAO (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Observacao
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column ORIGEM (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Origem
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column QT_PRODUTOS (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Qt Produtos
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region grades-disponiveis-no-virtual-age-catalogo (
+        name: Grades disponiveis no Virtual Age (catalogo)
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select c.cd_grade_va,
+                       c.nome,
+                       c.tamanhos,
+                       c.datacarga
+                  from favorita.tb_gradesva_catalogo c
+                 order by c.cd_grade_va
+                ```
+        }
+        layout {
+            sequence: 60
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--stretch
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+        messages {
+            whenNoDataFound: Catalogo vazio. Rode pck_intprodutosva_fav.prc_sincroniza_catalogo_grades.
+        }
+
+        column CD_GRADE_VA (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: gridCode
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DATACARGA (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Carregado em
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column NOME (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Nome
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column TAMANHOS (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Tamanhos
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region historico-de-integracoes (
+        name: Historico de integracoes
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select t.id,
+                       t.dataenvio,
+                       t.referencia,
+                       t.qt_skus,
+                       t.status,
+                       t.mensagem_erro,
+                       t.usuario,
+                       dbms_lob.substr(t.json_envio,   4000, 1) as json_envio,
+                       dbms_lob.substr(t.json_retorno, 4000, 1) as json_retorno
+                  from favorita.tb_produtos_va t
+                 order by t.id desc
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 5000
+        }
+        messages {
+            whenNoDataFound: Nenhuma integracao registrada.
+        }
+        download {
+            formats: [
+                csv
+                html
+                excel
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 89770000000001101
+        }
+
+        column DATAENVIO (
+            type: plainText
+            heading {
+                heading: Data Envio
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column ID (
+            type: plainText
+            heading {
+                heading: Id
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column JSON_ENVIO (
+            type: hidden
+            heading {
+                heading: Json Envio
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column JSON_RETORNO (
+            type: hidden
+            heading {
+                heading: Json Retorno
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column MENSAGEM_ERRO (
+            type: plainText
+            heading {
+                heading: Mensagem
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column QT_SKUS (
+            type: plainText
+            heading {
+                heading: Qt SKUs
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column REFERENCIA (
+            type: plainText
+            heading {
+                heading: Referencia
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column STATUS (
+            type: plainText
+            heading {
+                heading: Status
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column USUARIO (
+            type: plainText
+            heading {
+                heading: Usuario
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 15514508 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATAENVIO (
+                sequence: 2
+            )
+
+            displayColumn ID (
+                sequence: 1
+            )
+
+            displayColumn JSON_ENVIO (
+                sequence: 8
+            )
+
+            displayColumn JSON_RETORNO (
+                sequence: 9
+            )
+
+            displayColumn MENSAGEM_ERRO (
+                sequence: 6
+            )
+
+            displayColumn QT_SKUS (
+                sequence: 4
+            )
+
+            displayColumn REFERENCIA (
+                sequence: 3
+            )
+
+            displayColumn STATUS (
+                sequence: 5
+            )
+
+            displayColumn USUARIO (
+                sequence: 7
+            )
+
+        )
+
+    )
+
+    region integrar-produto-no-virtual-age (
+        name: Integrar produto no Virtual Age
+        type: staticContent
+        layout {
+            sequence: 15
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region produtos-pendentes-de-integracao (
+        name: Produtos pendentes de integracao
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.referencia,
+                       upper(p.nomeproduto)                                     as nomeproduto,
+                       count(pd.idprodutodetalhado)                             as qt_skus,
+                       pck_intprodutosva_fav.fnc_assinatura(p.idproduto)        as assinatura,
+                       ( select gv.cd_grade_va
+                           from favorita.tb_grades_va gv
+                          where gv.assinatura =
+                                pck_intprodutosva_fav.fnc_assinatura(p.idproduto) ) as gridcode_va,
+                       '<a href="javascript:void(0);" data-ref="' || p.referencia ||
+                       '" onclick="simularProduto(this.dataset.ref);">Simular</a>'  as acao_simular,
+                       '<a href="javascript:void(0);" data-ref="' || p.referencia ||
+                       '" onclick="integrarProduto(this.dataset.ref);" style="font-weight:bold">Integrar</a>' as acao_integrar
+                  from favorita.produtos p
+                  join favorita.produtosdetalhados pd
+                    on pd.idproduto = p.idproduto
+                 where exists ( select 1
+                                  from favorita.produtosdetalhados pd2
+                                 where pd2.idproduto = p.idproduto
+                                   and not exists ( select 1
+                                                      from favorita.produtosdetalhadosvirtualage pv
+                                                     where pv.idprodutodetalhado = pd2.idprodutodetalhado ) )
+                   and not exists ( select 1
+                                      from favorita.tb_produtos_va t
+                                     where t.idproduto = p.idproduto
+                                       and t.status = 'ENVIADO' )
+                 group by p.idproduto, p.referencia, p.nomeproduto
+                 order by p.referencia
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 5000
+        }
+        messages {
+            whenNoDataFound: Nenhum produto pendente de integracao.
+        }
+        download {
+            formats: [
+                csv
+                html
+                excel
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 89770000000001401
+        }
+
+        column ACAO_INTEGRAR (
+            type: plainText
+            heading {
+                heading: Integrar
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column ACAO_SIMULAR (
+            type: plainText
+            heading {
+                heading: Simular
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column ASSINATURA (
+            type: plainText
+            heading {
+                heading: Tamanhos
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column GRIDCODE_VA (
+            type: plainText
+            heading {
+                heading: gridCode VA
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column NOMEPRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column QT_SKUS (
+            type: plainText
+            heading {
+                heading: Qt SKUs
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column REFERENCIA (
+            type: plainText
+            heading {
+                heading: Referencia
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 15514504 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ACAO_INTEGRAR (
+                sequence: 7
+            )
+
+            displayColumn ACAO_SIMULAR (
+                sequence: 6
+            )
+
+            displayColumn ASSINATURA (
+                sequence: 4
+            )
+
+            displayColumn GRIDCODE_VA (
+                sequence: 5
+            )
+
+            displayColumn NOMEPRODUTO (
+                sequence: 2
+            )
+
+            displayColumn QT_SKUS (
+                sequence: 3
+            )
+
+            displayColumn REFERENCIA (
+                sequence: 1
+            )
+
+        )
+
+    )
+
+    region resultado (
+        name: Resultado
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  htp.p(:P997_RETORNO);
+                end;
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P997_RETORNO
+        }
+    )
+
+    pageItem P997_REFERENCIA (
+        type: textField
+        label {
+            label: Referencia (um produto por vez)
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @integrar-produto-no-virtual-age
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 40
+        }
+        validation {
+            maxLength: 60
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P997_RETORNO (
+        type: hidden
+        layout {
+            sequence: 20
+            region: @integrar-produto-no-virtual-age
+            slot: regionBody
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+        }
+    )
+
+    button integrar-va (
+        buttonName: INTEGRAR_VA
+        label: Integrar no Virtual Age
+        layout {
+            sequence: 20
+            region: @integrar-produto-no-virtual-age
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            executeValidations: false
+            warnOnUnsavedChanges: doNotCheck
+            requiresConfirmation: true
+        }
+        confirmation {
+            message: Confirma o envio para o Virtual Age? O cadastro e criado em PRODUCAO e a API nao permite exclusao.
+            style: danger
+        }
+    )
+
+    button simular-va (
+        buttonName: SIMULAR_VA
+        label: Simular (nao envia)
+        layout {
+            sequence: 10
+            region: @integrar-produto-no-virtual-age
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            executeValidations: false
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process integrar-produto-va (
+        name: Integrar produto VA
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  v_ref      varchar2(60) := trim(:P997_REFERENCIA);
+                  v_mensagem varchar2(4000);
+                begin
+                  if v_ref is null then
+                    :P997_RETORNO := 'Informe uma referencia.';
+                    return;
+                  end if;
+                  if instr(v_ref, ',') > 0 then
+                    :P997_RETORNO := 'Informe UMA unica referencia - a integracao e feita produto a produto.';
+                    return;
+                  end if;
+                  pck_intprodutosva_fav.prc_envia_lote(
+                    p_referencias => v_ref,
+                    pmensagem     => v_mensagem );
+                  :P997_RETORNO := '<b>' || apex_escape.html(v_ref) || '</b>:<br>' ||
+                                   replace(apex_escape.html(v_mensagem), chr(10), '<br>');
+                  -- So limpa o campo quando nao houve erro nenhum
+                  if instr(v_mensagem, 'Com erro: 0') > 0 then
+                    :P997_REFERENCIA := null;
+                  end if;
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        error {
+            displayLocation: onErrorPage
+        }
+        advanced {
+            executionMappingIdentifier: 89770000000001060
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: v('REQUEST') in ('INTEGRAR_VA','INTEGRAR_UM')
+        }
+    )
+
+    process simular-integracao-va (
+        name: Simular integracao VA
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  v_ref    varchar2(60) := trim(:P997_REFERENCIA);
+                  v_msg    varchar2(4000);
+                  v_ok     boolean;
+                  v_saida  clob;
+                  v_achou  number := 0;
+                begin
+                  if v_ref is null then
+                    :P997_RETORNO := 'Informe uma referencia.';
+                    return;
+                  end if;
+                  if instr(v_ref, ',') > 0 then
+                    :P997_RETORNO := 'Informe UMA unica referencia - a integracao e feita produto a produto.';
+                    return;
+                  end if;
+                  for p in ( select p.idproduto
+                               from favorita.produtos p
+                              where p.referencia = v_ref ) loop
+                    v_achou := 1;
+                    v_ok := pck_intprodutosva_fav.fnc_valida_referencia(p.idproduto, v_msg);
+                    v_saida := v_saida || '<b>' || apex_escape.html(v_ref) || '</b>: ' ||
+                               case when v_ok
+                                 then '<span style="color:green;font-weight:bold">APTO PARA ENVIO</span>'
+                                 else '<span style="color:red;font-weight:bold">BLOQUEADO</span> - ' ||
+                                      apex_escape.html(v_msg)
+                               end ||
+                               '<br><details><summary>JSON que seria enviado</summary>' ||
+                               '<pre style="white-space:pre-wrap">' ||
+                               apex_escape.html(dbms_lob.substr(
+                                 pck_intprodutosva_fav.fnc_json_referencia(p.idproduto), 12000, 1)) ||
+                               '</pre></details>';
+                  end loop;
+                  if v_achou = 0 then
+                    v_saida := '<b>' || apex_escape.html(v_ref) ||
+                               '</b>: <span style="color:red">referencia nao encontrada</span>';
+                  end if;
+                  :P997_RETORNO := dbms_lob.substr(v_saida, 30000, 1);
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        error {
+            displayLocation: onErrorPage
+        }
+        advanced {
+            executionMappingIdentifier: 89770000000001050
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: v('REQUEST') in ('SIMULAR_VA','SIMULAR_UM')
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 997
+            }
+        }
+    )
+
+)
+

@@ -1,0 +1,1120 @@
+page 688 (
+    name: Painel Mesa de Crédito
+    title: Painel Mesa de Credito
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function aprova(pid, pidhist){ 
+            
+              document.getElementById('P688_IDREP').value = pid;
+              document.getElementById('P688_IDHIST').value = pidhist;
+                
+              var answer = confirm("Aprova esse Cadastro?")
+              if (answer)
+                {
+                  apex.submit('APROVA');
+                }
+            }
+            
+            function reprova(pid, pidhist){ 
+            
+              document.getElementById('P688_IDREP').value = pid;
+              document.getElementById('P688_IDHIST').value = pidhist;
+                
+              var answer = confirm("Reprovar esse Cadastro?")
+              if (answer)
+                {
+                  apex.submit('REPROVA');
+                }
+            }
+            
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region painel-mesa-de-crédito (
+        name: Painel Mesa de Crédito
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  --
+                  v_sql clob;
+                  --
+                begin
+                  --
+                  v_sql := q'[
+                    select cp.dataconsulta
+                         , roman.pck_romance.fnc_nomefilial(ms.idfilial) franquia
+                         , roman.pck_romance.fnc_nomerepresentante (ms.idrepresentante) distribuidor
+                         , initcap( cp.nome) nome
+                         , nvl(cp.cpf,cp.documentoestrangeiro) documento
+                         , cp.nomemae
+                         , cp.protocolo
+                         --, cp.regiaocpf
+                         --, cp.situacaocpf
+                         , cp.datanascimento
+                         , case
+                             when ms.status = 'A' and ms.sigla = 'MS' then
+                               '<font color="green"><b>Aprovada!</b></font>'
+                             when ms.status = 'P' and ms.sigla = 'MS'  then
+                               '<a href=javascript:aprova('||ms.idrepresentante||','||ms.idhistoricoconsultadoc||');><img src="#APP_IMAGES#ok.png" alt=""/></a>'
+                             else
+                               '-'
+                           end aprovarcadastro
+                         , case
+                             when ms.status = 'R' and ms.sigla = 'MS' then
+                               '<font color="red"><b>Reprovada</b></font>'
+                             when ms.status = 'P' and ms.sigla = 'MS' then
+                               '<a href=javascript:reprova('||ms.idrepresentante||','||ms.idhistoricoconsultadoc||');><img src="#APP_IMAGES#excluir.png" alt=""/></a>'
+                             else
+                               '-'
+                           end reprovarcadastro
+                         , case
+                             when ms.status = 'A' and ms.sigla = 'GC' then
+                               '<font color="green"><b>Aprovada!</b></font>'
+                             when ms.status = 'P' and ms.sigla = 'GC'  then
+                               '<a href=javascript:aprova('||ms.idrepresentante||','||ms.idhistoricoconsultadoc||');><img src="#APP_IMAGES#ok.png" alt=""/></a>'
+                             else
+                               '-'
+                           end aprovarcadastrogest
+                         , case
+                             when ms.status = 'R' and ms.sigla = 'GC' then
+                               '<font color="red"><b>Reprovada</b></font>'
+                             when ms.status = 'P' and ms.sigla = 'GC' then
+                               '<a href=javascript:reprova('||ms.idrepresentante||','||ms.idhistoricoconsultadoc||');><img src="#APP_IMAGES#excluir.png" alt=""/></a>'
+                             else
+                               '-'
+                           end reprovarcadastrogest
+                         , ms.idconsultaspc infocred
+                         , ms.sigla
+                         , case
+                             when ms.situacao  = 'S' then 
+                              'Aprovado'
+                             else
+                              'Reprovado'
+                           end sitconsult
+                        , case 
+                           when ms.status = 'P' then 
+                             'Pendente'
+                           when ms.status = 'A' then 
+                             'Aprovado'
+                           when ms.status = 'R' then 
+                             'Reprovado'
+                          end sitmesa
+                        , ms.dataenviomesa
+                        , cp.runrut RUNRUT
+                    from roman.mesadecreditos ms
+                       , roman.consultaspc cp
+                    where ms.idconsultaspc = cp.idconsultaspc
+                      and trunc(ms.dataenviomesa) between to_date(:P688_DATAINICIO,'DD/MM/RRRR') and to_date(:P688_DATAFIM,'DD/MM/RRRR')  ]';
+                  --
+                  if :P688_IDFILIAL is not null then 
+                    v_sql := v_sql ||
+                             ' and ms.idfilial = :P688_IDFILIAL';
+                  end if;
+                  --
+                  if :P688_IDREPRESENTANTE is not null then 
+                    v_sql := v_sql ||
+                             ' and ms.idrepresentante = :P688_IDREPRESENTANTE ';
+                  end if;
+                  --
+                  if :P688_TIPO = 'M' then 
+                    v_sql := v_sql ||
+                             q'[ and ms.sigla = 'MS' ]';
+                  end if;
+                  --
+                  if :P688_TIPO = 'G' then 
+                    v_sql := v_sql ||
+                             q'[ and ms.sigla = 'GC' ]';
+                  end if;
+                  --
+                  if :P688_SITMESA = 'P' then 
+                    v_sql := v_sql ||
+                             q'[ and ms.status = 'P' ]';
+                  end if;
+                  --
+                  if :P688_SITMESA = 'A' then 
+                    v_sql := v_sql ||
+                             q'[ and ms.status = 'A' ]';
+                  end if;
+                  --
+                  if :P688_SITMESA = 'R' then 
+                    v_sql := v_sql ||
+                             q'[ and ms.status = 'R' ]';
+                  end if;
+                  --
+                  v_sql := v_sql || ' order by dataenviomesa ';
+                  --
+                  return v_sql;
+                  --
+                end;
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1110034018605416402
+        }
+
+        column APROVARCADASTRO (
+            type: plainText
+            heading {
+                heading: Aprovar o Cadastro? (Mesa)
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column APROVARCADASTROGEST (
+            type: plainText
+            heading {
+                heading: Aprovar o Cadastro? (Gestor)
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from dual
+                    where pck_util.fnc_verificaacesso(3548,v('APP_USER')) = 'S'
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DATACONSULTA (
+            type: plainText
+            heading {
+                heading: Data da Consulta
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column DATAENVIOMESA (
+            type: plainText
+            heading {
+                heading: Data do envio p/ Mesa
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column DATANASCIMENTO (
+            type: plainText
+            heading {
+                heading: Data de Nascimento
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DOCUMENTO (
+            type: plainText
+            heading {
+                heading: Documento
+            }
+            layout {
+                sequence: 240
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column FRANQUIA (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column INFOCRED (
+            type: link
+            heading {
+                heading: Info. de Crédito
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 689
+                    items: {
+                        P689_IDCONSULTA: #INFOCRED#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#magnifying_glass_white_bg.gif" alt=""/>
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column NOME (
+            type: plainText
+            heading {
+                heading: Nome
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column NOMEMAE (
+            type: plainText
+            heading {
+                heading: Nome da Mãe
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column PROTOCOLO (
+            type: plainText
+            heading {
+                heading: Protocolo
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column REPROVARCADASTRO (
+            type: plainText
+            heading {
+                heading: Reprovar o Cadastro? (Mesa)
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column REPROVARCADASTROGEST (
+            type: plainText
+            heading {
+                heading: Reprovar o Cadastro? (Gestor)
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from dual
+                    where pck_util.fnc_verificaacesso(3548,v('APP_USER')) = 'S'
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column RUNRUT (
+            type: plainText
+            heading {
+                heading: Rut
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column SIGLA (
+            type: plainText
+            heading {
+                heading: Sigla
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column SITCONSULT (
+            type: plainText
+            heading {
+                heading: Situação Analise
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column SITMESA (
+            type: plainText
+            heading {
+                heading: Situção Mesa
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 11100476 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn APROVARCADASTRO (
+                sequence: 14
+            )
+
+            displayColumn APROVARCADASTROGEST (
+                sequence: 16
+            )
+
+            displayColumn DATACONSULTA (
+                sequence: 10
+            )
+
+            displayColumn DATAENVIOMESA (
+                sequence: 1
+            )
+
+            displayColumn DATANASCIMENTO (
+                sequence: 12
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 4
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 6
+            )
+
+            displayColumn FRANQUIA (
+                sequence: 3
+            )
+
+            displayColumn INFOCRED (
+                sequence: 11
+            )
+
+            displayColumn NOME (
+                sequence: 5
+            )
+
+            displayColumn NOMEMAE (
+                sequence: 8
+            )
+
+            displayColumn PROTOCOLO (
+                sequence: 9
+            )
+
+            displayColumn REPROVARCADASTRO (
+                sequence: 15
+            )
+
+            displayColumn REPROVARCADASTROGEST (
+                sequence: 17
+            )
+
+            displayColumn RUNRUT (
+                sequence: 7
+            )
+
+            displayColumn SIGLA (
+                sequence: 18
+            )
+
+            displayColumn SITCONSULT (
+                sequence: 13
+            )
+
+            displayColumn SITMESA (
+                sequence: 2
+            )
+
+            filter ir-condition (
+                column: FRANQUIA
+                value: Santiago
+                advanced {
+                    enabled: false
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P688_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até:
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: dd/mm/yyyy
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P688_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De:
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: dd/mm/yyyy
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P688_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa:
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and f.idgrupo != 5
+                union
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and f.ididioma in (2,4,6)
+                union
+                /*
+                    Maicon Aimi - 23/09/2024
+                    Adicionado as lojas de brsília a pedido da Janny
+                */
+                select f.nome
+                     , f.idfilial
+                  from roman.vw_filiais f
+                 where f.idfilial in (1217,1246,1275)
+                   and f.tipofilial = 'D'
+                   and f.ativo = 'S'
+                order by 1
+                ```
+            nullDisplayValue: "- Todas - "
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P688_IDHIST (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P688_IDREP (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P688_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor:
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(idrepresentante) d
+                     , idrepresentante r
+                from representantes r
+                where r.ativo = 'S'
+                  and r.idgerente = ( select idgerente
+                                      from gerentes g
+                                      where g.idfilial = :P688_IDFILIAL )
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P688_IDFILIAL
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P688_SITMESA (
+        type: radioGroup
+        label {
+            label: Situação Mesa
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Todos;T,Pendente;P,Aprovado;A,Reprovado;R
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P688_TIPO (
+        type: radioGroup
+        label {
+            label: Tipo Pesquisa:
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Avaliação da Mesa;M,Avaliação de Gestor;G,Ambos;T
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--primary
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button parametros (
+        buttonName: PARAMETROS
+        label: Parâmetros Crédito
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--success
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 690
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from dual
+                 where roman.pck_util.fnc_verificaacesso(pidaplicacao => 2597, pusuario => v('APP_USER')) = 'S'
+                union
+                select 1
+                  from dual
+                 where v('APP_USER') = 'DIEGOPIECHO'
+                ```
+        }
+    )
+
+    process informa-valores (
+        name: Informa Valores
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin 
+                  --
+                  if :P688_DATAINICIO is null then
+                    --
+                    select trunc(SYSDATE,'MM')
+                    into :P688_DATAINICIO
+                    from dual;
+                    --
+                  end if;
+                  --
+                  if :P688_DATAFIM is null then
+                    --
+                    select trunc(sysdate) 
+                    into :P688_DATAFIM
+                    from dual;
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 1109959169768011323
+        }
+    )
+
+    process realiza-procedimento (
+        name: Realiza procedimento
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidrep number := :P688_IDREP;
+                  --
+                  vidhistoricoconsultadoc number := :P688_IDHIST;
+                  --
+                  vsituacao  varchar2(1);
+                  vidusuario number;
+                  --
+                begin 
+                  --
+                  select idusuario
+                  into vidusuario
+                  from usuarios
+                  where usuario = v('APP_USER');
+                
+                  if v('REQUEST') = 'APROVA' then
+                     vsituacao := 'A';
+                  elsif v('REQUEST') = 'REPROVA' then
+                     vsituacao := 'R';
+                  end if;
+                  --
+                     roman.pck_cadastros_rmc.prc_atualizasituacaomesa(pidhistoricoconsultadoc => vidhistoricoconsultadoc,
+                                                                      psituacao               => vsituacao,
+                                                                      pidusuario              => vidusuario,
+                                                                      pidrepresentante        => vidrep );
+                
+                  --
+                  commit;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Dados Atualizados!
+        }
+        error {
+            errorMessage: Erro ao processar, por favor, registre um ticket.
+        }
+        advanced {
+            executionMappingIdentifier: 1110035554438416417
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: v('REQUEST') in ('APROVA','REPROVA')
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 688
+                items: {
+                    P688_DATAINICIO: &P688_DATAINICIO.
+                    P688_DATAFIM: &P688_DATAFIM.
+                    P688_IDFILIAL: &P688_IDFILIAL.
+                    P688_IDREPRESENTANTE: &P688_IDREPRESENTANTE.
+                    P688_TIPO: &P688_TIPO.
+                    P688_SITMESA: &P688_SITMESA.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

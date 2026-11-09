@@ -1,0 +1,1351 @@
+page 573 (
+    name: Assinaturas Eletrônicas
+    title: Assinaturas Eletrônicas
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function aprovaassinatura(pid){ 
+            
+              document.getElementById('P573_ID').value = pid;
+                
+              var answer = confirm("Aprova a Assinatura Eletronica?")
+              if (answer)
+                {
+                  apex.submit('APROVA_ASSINATURA');
+                }
+            }
+            
+            function voltarassinatura(pid){ 
+            
+              document.getElementById('P573_ID').value = pid;
+                
+              var answer = confirm("Deseja Voltar a Situação da Assinatura Eletronica?")
+              if (answer)
+                {
+                  apex.submit('VOLTAR_ASSINATURA');
+                }
+            }
+            
+            function reprovaassinatura(pid){ 
+            
+              document.getElementById('P573_ID').value = pid;
+              openModal('REPROVAR');
+              
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region assinaturas-realizadas (
+        name: Assinaturas Realizadas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  --
+                  v_sql clob;
+                  --
+                begin
+                  --
+                  v_sql := q'~
+                    select a.datarealizada dataclassificado
+                         , a.vendedora nomepessoa
+                         , a.cpf
+                         , a.representante
+                         , a.link
+                         , case
+                             when a.situacao = 'A' then
+                               '<font color="green"><b>Aprovada!</b></font>'
+                             when a.situacao = 'P' then
+                               '<a href=javascript:aprovaassinatura('||a.idassinaturaeletronica||');><img src="#APP_IMAGES#ok.png" alt=""/></a>' 
+                             else
+                               '-'
+                           end aprovarassinatura
+                         , case
+                             when a.situacao = 'R' then
+                               '<font color="red"><b>Reprovada</b></font>'||' - '||nvl(a.motivoreprovacao,'Motivo não informado')
+                             when a.situacao = 'P' then
+                               '<a href=javascript:reprovaassinatura('||a.idassinaturaeletronica||');><img src="#APP_IMAGES#excluir.png" alt=""/></a>' 
+                             else
+                               '-'
+                           end reprovarassinatura
+                         , case
+                             when a.situacao  != 'P' then
+                               '<a href=javascript:voltarassinatura('||a.idassinaturaeletronica||');><img src="#APP_IMAGES#VOLTAR.png" alt=""/></a>' 
+                             else
+                               '-'
+                           end voltarsituacao
+                         , identificacao
+                         , a.desctiponota tipo
+                         , decode (a.tipoassinatura, 'P', 'Titular', 'T', 'Terceiro') Tipo_de_Assinatura
+                         , case
+                           when (select count(1)
+                                   from roman.notasvendas nv
+                                  where a.idvendedora = nv.idvendedora) = '1' then 'Sim'
+                            else 'Não'
+                           end Abertura
+                         , a.descorigem origem
+                         , ( select initcap(p.nomepessoa)
+                             from usuarios u
+                                , pessoas p
+                             where p.idpessoa = u.idpessoa
+                               and u.idusuario = a.idusuarioavaliacao ) analisado_por
+                         , decode(status_avaliacao,'F','Sim','V','Nao') foto_preta
+                         , a.nome_terceiro nome_terceiro
+                         , a.cpf_terceiro cpf_terceiro
+                         , case
+                             when zs.idintegracaozapsign is null then
+                               '-'
+                             when zs.decisao = 'aprovado_automaticamente' then
+                               '<span style="background:#EAF3DE;color:#3B6D11;padding:2px 8px;border-radius:8px;white-space:nowrap">'||zs.descaplicada||'</span>'
+                             when zs.decisao = 'rejeitado_automaticamente' then
+                               '<span style="background:#FCEBEB;color:#A32D2D;padding:2px 8px;border-radius:8px;white-space:nowrap">'||zs.descaplicada||'</span>'
+                             when zs.decisao = 'revisao_manual' then
+                               '<span style="background:#FAEEDA;color:#854F0B;padding:2px 8px;border-radius:8px;white-space:nowrap">'||zs.descaplicada||'</span>'
+                             else
+                               zs.descaplicada
+                           end agente
+                         , zs.score            agente_score
+                         , zs.reasonprioridade agente_prioridade
+                         , zs.reasonlabel      agente_motivo
+                         , zs.sinaisfalhos     agente_sinais
+                         , zs.evidencias       agente_evidencias
+                    from vw_assinaturas_eletronicas a
+                    left join roman.vw_integracao_zapsign zs
+                           on zs.idassinaturaeletronica = a.idassinaturaeletronica
+                    where a.datarealizada between to_date(:P573_DATAINICIO||' 00:00:01','DD/MM/RRRR HH24:MI:SS') 
+                                              and to_date(:P573_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                      and a.idfilial         = :P573_IDFILIAL 
+                      and a.status           = 'C' ~';
+                
+                  if :P573_IDREPRESENTANTE is not null then 
+                    v_sql := v_sql || chr(10) || 
+                            ' and a.idrepresentante = :P573_IDREPRESENTANTE ' ;
+                  end if;
+                  --
+                  if :P573_SITUACAO = 'A' then 
+                    v_sql := v_sql || chr(10) || 
+                            ' and a.situacao = ''A''';
+                  end if;
+                  --
+                  if :P573_SITUACAO = 'R' then 
+                    v_sql := v_sql || chr(10) || 
+                             ' and a.situacao = ''R''';
+                  end if;
+                  --
+                  if :P573_ANALISE = 'S' then 
+                    v_sql := v_sql || chr(10) || 
+                             ' and a.situacao = ''P''';
+                  end if;
+                  --
+                  if :P573_ANALISE = 'N' then 
+                    v_sql := v_sql || chr(10) || 
+                             ' and a.situacao != ''P''';
+                  end if;
+                  --
+                  v_sql := v_sql || chr(10) ||
+                           ' order by a.datarealizada desc ';
+                  --
+                  return v_sql;
+                  --
+                end;
+                ```
+            pageItemsToSubmit: [
+                P573_DATAINICIO
+                P573_DATAFIM
+                P573_IDREPRESENTANTE
+                P573_SITUACAO
+            ]
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        messages {
+            whenNoDataFound: Nenhuma assinatura encontrada!
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 6617908734408809832
+        }
+
+        column ABERTURA (
+            type: plainText
+            heading {
+                heading: Abertura
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column AGENTE (
+            type: plainText
+            heading {
+                heading: Agente
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column AGENTE_EVIDENCIAS (
+            type: plainText
+            heading {
+                heading: Agente Evidencias
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column AGENTE_MOTIVO (
+            type: plainText
+            heading {
+                heading: Agente Motivo
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column AGENTE_PRIORIDADE (
+            type: plainText
+            heading {
+                heading: Agente Prioridade
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column AGENTE_SCORE (
+            type: plainText
+            heading {
+                heading: Agente Score
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column AGENTE_SINAIS (
+            type: plainText
+            heading {
+                heading: Agente Sinais
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column ANALISADO_POR (
+            type: plainText
+            heading {
+                heading: Analisado Por
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    Exists ( select 1
+                             from usuariosgruposatendimento a
+                             where a.idgrupoatendimento = 0
+                               and a.usuario = v('APP_USER') ) 
+                    or v('APP_USER') in ('PAULOSARAIVA','NATHALIAKINAST','DIAQUELPEREIRA','TAISEDORNELLES','BIANCAMANICA','LILIANCOSTA','GABRIELEROLIM')
+                    ```
+            }
+        )
+
+        column APROVARASSINATURA (
+            type: plainText
+            heading {
+                heading: Aprovar Assinatura?
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: CPF Titular
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column CPF_TERCEIRO (
+            type: plainText
+            heading {
+                heading: CPF Terceiro
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column DATACLASSIFICADO (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column FOTO_PRETA (
+            type: plainText
+            heading {
+                heading: Foto Preta?
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column IDENTIFICACAO (
+            type: plainText
+            heading {
+                heading: Identificação
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column LINK (
+            type: plainText
+            heading {
+                heading: Acessar Envelope
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                    from dual
+                    where pck_util.fnc_verificaacesso(3569,v('APP_USER')) = 'S'
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NOMEPESSOA (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column NOME_TERCEIRO (
+            type: plainText
+            heading {
+                heading: Nome Terceiro
+                alignment: center
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column ORIGEM (
+            type: plainText
+            heading {
+                heading: Origem da Assinatura
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column REPROVARASSINATURA (
+            type: plainText
+            heading {
+                heading: Reprovar Assinatura?
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TIPO (
+            type: plainText
+            heading {
+                heading: Tipo de Nota
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column TIPO_DE_ASSINATURA (
+            type: plainText
+            heading {
+                heading: Tipo De Assinatura
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column VOLTARSITUACAO (
+            type: plainText
+            heading {
+                heading: Voltar Situação
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    Exists ( select 1
+                             from usuariosgruposatendimento a
+                             where a.idgrupoatendimento = 0
+                               and a.usuario = v('APP_USER') ) 
+                               
+                    or v('APP_USER') in ('PAULOSARAIVA','NATHALIAKINAST','DIAQUELPEREIRA','TAISEDORNELLES','LILIANCOSTA','BIANCAMANICA','GABRIELEROLIM')
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 10391385 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ABERTURA (
+                sequence: 12
+            )
+
+            displayColumn AGENTE (
+                sequence: 15
+            )
+
+            displayColumn AGENTE_MOTIVO (
+                sequence: 16
+            )
+
+            displayColumn AGENTE_SCORE (
+                sequence: 17
+            )
+
+            displayColumn ANALISADO_POR (
+                sequence: 14
+            )
+
+            displayColumn APROVARASSINATURA (
+                sequence: 5
+            )
+
+            displayColumn CPF (
+                sequence: 3
+            )
+
+            displayColumn CPF_TERCEIRO (
+                sequence: 11
+            )
+
+            displayColumn DATACLASSIFICADO (
+                sequence: 1
+            )
+
+            displayColumn NOMEPESSOA (
+                sequence: 2
+            )
+
+            displayColumn NOME_TERCEIRO (
+                sequence: 10
+            )
+
+            displayColumn ORIGEM (
+                sequence: 13
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 4
+            )
+
+            displayColumn REPROVARASSINATURA (
+                sequence: 6
+            )
+
+            displayColumn TIPO (
+                sequence: 8
+            )
+
+            displayColumn TIPO_DE_ASSINATURA (
+                sequence: 9
+            )
+
+            displayColumn VOLTARSITUACAO (
+                sequence: 7
+            )
+
+        )
+
+    )
+
+    region assinaturas-recebidas-no-dia (
+        name: Assinaturas Recebidas no dia
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select 'Assinaturas Recebidas no dia' situacao
+                     , count(1) qtd
+                from assinaturaseletronicas a
+                where a.datarealizada between trunc(sysdate) and sysdate
+                  and a.status = 'C'
+                  and idnotavenda is not null   
+                ```
+        }
+        layout {
+            sequence: 20
+            parentRegion: @placar-do-momento
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        settings {
+            labelColumn: SITUACAO
+            valueColumn: QTD
+        }
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region notas-realizadas-no-dia (
+        name: Notas Realizadas no dia
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select 'Notas Feitas no dia' situacao
+                     , count(1) qtd
+                from notasvendas n
+                where n.datanota between trunc(sysdate) and sysdate
+                  and n.idfilial not in (
+                                          select idfilial
+                                          from vw_filiais
+                                          where idgrupo = 5)
+                  and n.idfilial != 1083               
+                  and exists ( select 1 
+                               from parametrosrepresentantes r
+                               where r.idrepresentante = n.idrepresentante
+                                 and r.parametro = 'UTILIZAASSINATURAELETRONICA'
+                                 AND R.Valor = 'Z')
+                ```
+        }
+        layout {
+            sequence: 10
+            parentRegion: @placar-do-momento
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        settings {
+            labelColumn: SITUACAO
+            valueColumn: QTD
+        }
+    )
+
+    region placar-do-momento (
+        name: Placar do Momento
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region reprovar-assinatura (
+        name: Reprovar Assinatura
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: dialogsDrawersAndPopups
+        }
+        appearance {
+            template: @/inline-dialog
+            templateOptions: [
+                #DEFAULT#
+                js-dialog-size480x320
+            ]
+        }
+        advanced {
+            htmlDomId: REPROVAR
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P573_ANALISE (
+        type: radioGroup
+        label {
+            label: <b>Para Revisar?</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Ambos;A,Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P573_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: <b>Até</b>
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P573_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: <b>De</b>
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P573_ID (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @assinaturas-realizadas
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P573_IDFILIAL (
+        type: selectList
+        label {
+            label: <b>Empresa</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                  from vw_filiais f
+                 where f.ativo = 'S'
+                   and exists ( select 1
+                                  from parametrosrepresentantes pr
+                                     , representantes r
+                                 where pr.parametro = 'UTILIZAASSINATURAELETRONICA'
+                                   and pr.valor     = 'Z'
+                                   and r.idrepresentante = pr.idrepresentante
+                                   and r.idfilial = f.idfilial )
+                
+                union
+                
+                select f.nome
+                     , f.idfilial
+                  from vw_filiais f
+                 where idfilial = 1217
+                
+                union
+                
+                 select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.idfilial in  (1275,1246)
+                  and ( pck_util.fnc_verificaacesso(2844,v('APP_USER')) = 'S'
+                     or v('APP_USER') = 'LUCASRAMOS' )
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P573_IDMOTIVO (
+        type: selectList
+        label {
+            label: Motivo Reprovação
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select motivo
+                     , idmotivoreprovacao
+                from motivosreprovacoes 
+                order by 1
+                ```
+            nullDisplayValue: - Selecione o Motivo -
+        }
+        layout {
+            sequence: 10
+            region: @reprovar-assinatura
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P573_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: <b>Distribuidor</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(idrepresentante) d
+                     , idrepresentante r
+                from representantes r
+                where r.ativo = 'S'
+                  and r.idfilial = :P573_IDFILIAL 
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P573_IDFILIAL
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P573_SITUACAO (
+        type: radioGroup
+        label {
+            label: <b>Situação</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Ambos;X,Aprovado;A,Reprovado;R
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: X
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button reprovar (
+        buttonName: REPROVAR
+        label: "Reprovar "
+        layout {
+            sequence: 10
+            region: @reprovar-assinatura
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--danger
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    validation valida-motivo-reprovação (
+        name: Valida Motivo Reprovação
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: itemIsNotNull
+            item: P573_IDMOTIVO
+        }
+        error {
+            errorMessage: Por favor, informe um motivo para reprovação!
+        }
+        serverSideCondition {
+            type: request=Value
+            value: REPROVAR
+        }
+    )
+
+    process informa-valores (
+        name: Informa Valores
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin 
+                  --
+                  if :P573_DATAINICIO is null then
+                    --
+                    select trunc(SYSDATE,'MM')
+                    into :P573_DATAINICIO
+                    from dual;
+                    --
+                  end if;
+                  --
+                  if :P573_DATAFIM is null then
+                    --
+                    select trunc(sysdate) 
+                    into :P573_DATAFIM
+                    from dual;
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 1039143564997782372
+        }
+    )
+
+    process realiza-procedimento (
+        name: Realiza procedimento
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vid number := :P573_ID;
+                  --
+                  vsituacao  varchar2(1);
+                  vidmotivo  number := null;
+                  vidusuario number;
+                  --
+                begin 
+                  --
+                  select idusuario
+                  into vidusuario
+                  from usuarios
+                  where usuario = v('APP_USER');
+                  --
+                  if v('REQUEST') = 'APROVA_ASSINATURA' then
+                     vsituacao := 'A';
+                  elsif v('REQUEST') = 'REPROVAR' then
+                     vsituacao := 'R';
+                     vidmotivo := :P573_IDMOTIVO;
+                  elsif v('REQUEST') = 'VOLTAR_ASSINATURA' then
+                     vsituacao := 'P';
+                  end if;
+                  --
+                     pck_cadastros_rmc.prc_atualizasituacaoassinatura( pidassinaturaeletronica => vid,
+                                                                    psituacao               => vsituacao,
+                                                                    pidmotivo               => vidmotivo,
+                                                                    pidusuario              => vidusuario);
+                  --
+                  if vsituacao = 'R' and vidmotivo is not null then
+                    pck_controle_rmc.prc_geranotificacao_assinatura(vid);
+                  end if;
+                  --
+                  commit;
+                  --
+                  :P573_IDMOTIVO := '';
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Assinatura atualizada com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 1039143938570782373
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: v('REQUEST') in ('APROVA_ASSINATURA','REPROVAR','VOLTAR_ASSINATURA')
+        }
+    )
+
+    branch (
+        name: Go To Page 573
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 573
+                items: {
+                    P573_IDREPRESENTANTE: &P573_IDREPRESENTANTE.
+                    P573_ANALISE: &P573_ANALISE.
+                    P573_SITUACAO: &P573_SITUACAO.
+                    P573_IDFILIAL: &P573_IDFILIAL.
+                    P573_DATAINICIO: &P573_DATAINICIO.
+                    P573_DATAFIM: &P573_DATAFIM.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

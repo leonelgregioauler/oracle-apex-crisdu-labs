@@ -1,0 +1,1474 @@
+page 78 (
+    name: Cadastro de Resgates
+    title: Cadastro de Resgates
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        width: 50%
+        height: 70%
+        resizable: false
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            var htmldb_delete_message='Confirma o não pagamento de todos os resgates?';
+            
+            
+            var htmldb_delete_message_2='É necessário entrar em contato com a Controladoria para executar esta operação!';
+            
+            function deletapgto(pid)
+            {
+              document.getElementById('P78_DELETAR').value = pid;
+                
+              var answer = confirm("Confirma exlusão do Resgate?");
+              if (answer)
+                {
+                  apex.submit('REMOVER');
+                }
+            }
+            ```
+    }
+    security {
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: Não há ajuda disponível para esta página.
+    }
+
+    region cadastro-de-resgates (
+        name: Cadastro de Resgates
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <script language="javascript">
+                function  confirmaresgate(event)
+                { 
+                var tecla = event.keyCode ? event.keyCode : event.which ? event.which : event.charCode;
+                
+                if (tecla==13) {
+                var answer = confirm("Confirma inclusão de resgate?")
+                	if (answer){            
+                		apex.submit('CREATE');
+                	}
+                }
+                }
+                </script>
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    region defeitos-pendentes-de-pagamento (
+        name: Defeitos Pendentes de Pagamento
+        type: tabform
+        source {
+            sqlQuery:
+                ```sql
+                select IDITEMDEVOLUCAOREPRES
+                     , ( select d.semana 
+                         from devolucoesrepresentantes d 
+                         where d.iddevolucaorepres = i.iddevolucaorepres ) "Devolução"
+                     , (select p.codigosisdist||'-'||p.nomeproduto
+                        from produtos p
+                        where p.idproduto = i.idproduto) "Produto"
+                     , ( select initcap(d.descricao)
+                         from defeitos d 
+                         where d.iddefeito = i.iddefeito) defeito
+                     , ( nvl(i.qtd_pp,0)
+                      + nvl(i.qtd_p,0)
+                      + nvl(i.qtd_m,0)
+                      + nvl(i.qtd_g,0)
+                      + nvl(i.qtd_gg,0)
+                      + nvl(i.qtd_egg,0)
+                      + nvl(i.qtd_exgg,0)
+                      + nvl(i.qtd_u,0) ) Qtd
+                     , i.valorproduto vlrund
+                     , ( nvl(i.qtd_pp,0)
+                      + nvl(i.qtd_p,0)
+                      + nvl(i.qtd_m,0)
+                      + nvl(i.qtd_g,0)
+                      + nvl(i.qtd_gg,0)
+                      + nvl(i.qtd_egg,0)
+                      + nvl(i.qtd_exgg,0)
+                      + nvl(i.qtd_u,0) ) * i.valorproduto vlrtotal
+                     , case 
+                         when :P0_IDFILIAL not in (1095,1111,1121,1094,1109,1129,1194,1081,1108,1041) then
+                           ((( nvl(i.qtd_pp,0)
+                              + nvl(i.qtd_p,0)
+                              + nvl(i.qtd_m,0)
+                              + nvl(i.qtd_g,0)
+                              + nvl(i.qtd_gg,0)
+                              + nvl(i.qtd_egg,0)
+                              + nvl(i.qtd_exgg,0)
+                              + nvl(i.qtd_u,0) ) * i.valorproduto)*decode( i.comissao,'S',0.6 /*tira 40% da vendedora*/
+                                                                                         , 1  /* produto sem comissao */)) 
+                                                                                         /* comissao do representante é retirada depois no acerto*/
+                         when :P0_IDFILIAL in (1095,1111,1121,1094,1109,1129,1194,1081,1108,1041) then
+                           ((( nvl(i.qtd_pp,0)
+                              + nvl(i.qtd_p,0)
+                              + nvl(i.qtd_m,0)
+                              + nvl(i.qtd_g,0)
+                              + nvl(i.qtd_gg,0)
+                              + nvl(i.qtd_egg,0)
+                              + nvl(i.qtd_exgg,0)
+                              + nvl(i.qtd_u,0) ) * i.valorproduto)*decode( i.comissao,'S',0.7 /*tira 40% da vendedora*/
+                                                                                         , 1  /* produto sem comissao */)) 
+                                                                                         /* comissao do representante é retirada depois no acerto*/
+                       end vlrtotalpagar
+                     , i.situacaodefeito
+                     , i.idfechamentoreprespago
+                     , observacao
+                from itensdevolucaorepres i
+                where i.iddefeito is not null
+                  and i.situacaodefeito is null
+                  and exists ( select 1
+                                 from defeitos d
+                                 where d.iddefeito = i.iddefeito
+                                   and d.origemdefeito = 'R')
+                  and exists ( select 1
+                               from devolucoesrepresentantes d 
+                               where d.iddevolucaorepres = i.iddevolucaorepres 
+                               and d.idrepresentante = ( select idrepresentante 
+                                                         from fechamentorepresentantes 
+                                                         where idfechamentorepres = :P78_IDFECHAMENTOREPRES ) )
+                order by i.iddevolucaorepres desc
+                
+                ```
+        }
+        layout {
+            sequence: 35
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        reportLayout {
+            numberOfRows: 50
+        }
+        componentAppearance {
+            template: @/standard
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+            partialPageRefresh: false
+        }
+        performance {
+            maxRowsToProcess: 500
+        }
+        messages {
+            whenNoDataFound: Não há peças com defeitos para ser cobrado.
+        }
+        componentAdvanced {
+            stripHtml: true
+        }
+
+        column DEFEITO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Defeito
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column Devolução (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Devolução
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDFECHAMENTOREPRESPAGO (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            type: radioGroup
+            heading {
+                heading: Pagar
+                alignment: center
+            }
+            lov {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select 'Pagar'
+                        , :P78_IDFECHAMENTOREPRES
+                    from dual
+                    ```
+                displayNullValue: false
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDITEMDEVOLUCAOREPRES (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 1
+            }
+            primaryKeySource {
+                type: existingTrigger
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column OBSERVACAO (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            type: textField
+            heading {
+                heading: Observação
+            }
+            layout {
+                sequence: 11
+            }
+            appearance {
+                width: 50
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column Produto (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column QTD (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Qtd
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SITUACAODEFEITO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 9
+            }
+        )
+
+        column VLRTOTAL (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Vlr Total
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VLRTOTALPAGAR (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Vlr Total Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VLRUND (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Vlr Und
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region new (
+        name: New
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: dialogFooter
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region pago-neste-acerto (
+        name: Pago neste acerto
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select '<a href="javascript: deletapgto('||IDITEMDEVOLUCAOREPRES||')"> Excluir </a>' remover
+                     , IDITEMDEVOLUCAOREPRES
+                     , ( select d.semana 
+                         from devolucoesrepresentantes d 
+                         where d.iddevolucaorepres = i.iddevolucaorepres ) "Devolução"
+                     , pck_romance.fnc_nomeproduto(i.idproduto) produto
+                     , ( select initcap(d.descricao)
+                         from defeitos d 
+                         where d.iddefeito = i.iddefeito) defeito
+                     , ( nvl(i.qtd_pp,0)
+                      + nvl(i.qtd_p,0)
+                      + nvl(i.qtd_m,0)
+                      + nvl(i.qtd_g,0)
+                      + nvl(i.qtd_gg,0)
+                      + nvl(i.qtd_egg,0)
+                      + nvl(i.qtd_exgg,0)
+                      + nvl(i.qtd_u,0) ) "Qtd"
+                     , i.valorproduto vlrund
+                     , ( nvl(i.qtd_pp,0)
+                      + nvl(i.qtd_p,0)
+                      + nvl(i.qtd_m,0)
+                      + nvl(i.qtd_g,0)
+                      + nvl(i.qtd_gg,0)
+                      + nvl(i.qtd_egg,0)
+                      + nvl(i.qtd_exgg,0)
+                      + nvl(i.qtd_u,0) )* i.valorproduto vlrtotal
+                     , ((( nvl(i.qtd_pp,0)
+                      + nvl(i.qtd_p,0)
+                      + nvl(i.qtd_m,0)
+                      + nvl(i.qtd_g,0)
+                      + nvl(i.qtd_gg,0)
+                      + nvl(i.qtd_egg,0)
+                      + nvl(i.qtd_exgg,0)
+                      + nvl(i.qtd_u,0) ) * i.valorproduto)*0.6 /*tira 40% da vendedora*/)*0.8 vlrtotalpago
+                     , i.situacaodefeito
+                     , i.idfechamentoreprespago
+                from itensdevolucaorepres i
+                where idfechamentoreprespago = :P78_IDFECHAMENTOREPRES
+                  and idfechamentoreprespago < 80783
+                union
+                select '<a href="javascript: deletapgto('||IDITEMDEVOLUCAOREPRES||')"> Excluir </a>' remover
+                     , IDITEMDEVOLUCAOREPRES
+                     , ( select d.semana 
+                         from devolucoesrepresentantes d 
+                         where d.iddevolucaorepres = i.iddevolucaorepres ) "Devolução"
+                     , pck_romance.fnc_nomeproduto(i.idproduto) produto
+                     , ( select initcap(d.descricao)
+                         from defeitos d 
+                         where d.iddefeito = i.iddefeito) defeito
+                     , ( nvl(i.qtd_pp,0)
+                      + nvl(i.qtd_p,0)
+                      + nvl(i.qtd_m,0)
+                      + nvl(i.qtd_g,0)
+                      + nvl(i.qtd_gg,0)
+                      + nvl(i.qtd_egg,0)
+                      + nvl(i.qtd_exgg,0)
+                      + nvl(i.qtd_u,0) ) "Qtd"
+                     , i.valorproduto vlrund
+                     , ( nvl(i.qtd_pp,0)
+                      + nvl(i.qtd_p,0)
+                      + nvl(i.qtd_m,0)
+                      + nvl(i.qtd_g,0)
+                      + nvl(i.qtd_gg,0)
+                      + nvl(i.qtd_egg,0)
+                      + nvl(i.qtd_exgg,0)
+                      + nvl(i.qtd_u,0) )* i.valorproduto vlrtotal
+                     , case 
+                         when :P0_IDFILIAL not in (1041,1095,1094,1081) then
+                           ((( nvl(i.qtd_pp,0)
+                              + nvl(i.qtd_p,0)
+                              + nvl(i.qtd_m,0)
+                              + nvl(i.qtd_g,0)
+                              + nvl(i.qtd_gg,0)
+                              + nvl(i.qtd_egg,0)
+                              + nvl(i.qtd_exgg,0)
+                              + nvl(i.qtd_u,0) ) * i.valorproduto)*decode( i.comissao,'S',0.6 /*tira 40% da vendedora*/
+                                                                                         , 1  /* produto sem comissao */)) 
+                                                                                         /* comissao do representante é retirada depois no acerto*/
+                         when :P0_IDFILIAL in (1041,1095,1094,1081) then
+                           ((( nvl(i.qtd_pp,0)
+                              + nvl(i.qtd_p,0)
+                              + nvl(i.qtd_m,0)
+                              + nvl(i.qtd_g,0)
+                              + nvl(i.qtd_gg,0)
+                              + nvl(i.qtd_egg,0)
+                              + nvl(i.qtd_exgg,0)
+                              + nvl(i.qtd_u,0) ) * i.valorproduto)*decode( i.comissao,'S',0.7 /*tira 40% da vendedora*/
+                                                                                         , 1  /* produto sem comissao */)) 
+                                                                                         /* comissao do representante é retirada depois no acerto*/
+                       end vlrtotalpagar
+                     , i.situacaodefeito
+                     , i.idfechamentoreprespago
+                from itensdevolucaorepres i
+                where idfechamentoreprespago = :P78_IDFECHAMENTOREPRES
+                  and idfechamentoreprespago >= 80783
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        reportLayout {
+            numberOfRows: 50
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: " - "
+        }
+        messages {
+            whenNoDataFound: Nenhuma peça paga neste acerto.
+        }
+        componentAdvanced {
+            stripHtml: true
+        }
+
+        column DEFEITO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Defeito
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column Devolução (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Devolução
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDFECHAMENTOREPRESPAGO (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 10
+            }
+        )
+
+        column IDITEMDEVOLUCAOREPRES (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 2
+            }
+        )
+
+        column PRODUTO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column Qtd (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Qtd
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+        )
+
+        column REMOVER (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Remover
+                alignment: center
+            }
+            layout {
+                sequence: 1
+                columnAlignment: center
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SITUACAODEFEITO (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 9
+            }
+        )
+
+        column VLRTOTAL (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Valor Total
+            }
+            layout {
+                sequence: 8
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VLRTOTALPAGO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 11
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VLRUND (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Valor Und
+            }
+            layout {
+                sequence: 7
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    pageItem P78_ANO (
+        type: hidden
+        layout {
+            sequence: 40
+            region: @cadastro-de-resgates
+            slot: regionBody
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: ANO
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                begin
+                return to_char(sysdate,'RRRR');
+                end;
+                ```
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P78_DELETAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @pago-neste-acerto
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P78_IDFECHAMENTOREPRES (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 20
+            region: @cadastro-de-resgates
+            slot: regionBody
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: IDFECHAMENTOREPRES
+            used: always
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P78_IDFILIAL (
+        type: hidden
+        layout {
+            sequence: 30
+            region: @cadastro-de-resgates
+            slot: regionBody
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: IDFILIAL
+            used: always
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P78_IDPERDA (
+        type: hidden
+        layout {
+            sequence: 10
+            region: @cadastro-de-resgates
+            slot: regionBody
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: IDPERDA
+            used: always
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P78_IDREPRESENTANTE (
+        type: hidden
+        layout {
+            sequence: 50
+            region: @cadastro-de-resgates
+            slot: regionBody
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: IDREPRESENTANTE
+            used: always
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P78_OBSERVACAO (
+        type: textField
+        label {
+            label: Observação
+            alignment: left
+        }
+        settings {
+            trimSpaces: none
+        }
+        layout {
+            sequence: 90
+            region: @cadastro-de-resgates
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 20
+        }
+        validation {
+            maxLength: 200
+        }
+        advanced {
+            customAttributes: javascript: onKeyUp="confirmaresgate(event)";
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: OBSERVACAO
+            used: always
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P78_SEMANA (
+        type: hidden
+        layout {
+            sequence: 100
+            region: @cadastro-de-resgates
+            slot: regionBody
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: SEMANA
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                begin
+                return to_char(to_number(to_char(sysdate,'IW'))-1)||'/'||to_char(sysdate,'RRRR');
+                end;
+                ```
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P78_TIPO (
+        type: selectList
+        label {
+            label: Tipo
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Erro de Soma;E,Peça Suja;P,Outros;O
+            displayNullValue: false
+        }
+        layout {
+            sequence: 70
+            region: @cadastro-de-resgates
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: TIPO
+            used: always
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P78_VALOR (
+        type: numberField
+        label {
+            label: Valor
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 80
+            region: @cadastro-de-resgates
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+            width: 10
+        }
+        validation {
+            maxLength: 255
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: VALOR
+            used: always
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    button create (
+        buttonName: CREATE
+        label: Inserir
+        layout {
+            sequence: 40
+            region: @cadastro-de-resgates
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+            databaseAction: insert
+        }
+        serverSideCondition {
+            type: itemIsNull
+            item: P78_IDPERDA
+        }
+    )
+
+    button deleta (
+        buttonName: DELETA
+        label: Deleta
+        layout {
+            sequence: 20
+            region: @cadastro-de-resgates
+            slot: delete
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            executeValidations: false
+            warnOnUnsavedChanges: doNotCheck
+            databaseAction: delete
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P78_IDPERDA
+        }
+    )
+
+    button nao-pagar-tudo-contrl (
+        buttonName: NAO_PAGAR_TUDO_CONTRL
+        label: Não Pagar Tudo
+        layout {
+            sequence: 30
+            region: @new
+            slot: change
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--danger
+                t-Button--simple
+            ]
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:apex.confirm(htmldb_delete_message,'DELETAR');
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from usuarios 
+                where usuario = v('APP_USER')
+                  and idgerente = 257
+                ```
+        }
+    )
+
+    button nao-pagar-tudo-ger (
+        buttonName: NAO_PAGAR_TUDO_GER
+        label: Não Pagar Tudo
+        layout {
+            sequence: 20
+            region: @new
+            slot: change
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--danger
+                t-Button--simple
+            ]
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:apex.confirm(htmldb_delete_message_2,'DELETARMSG');
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    button pagar-tudo (
+        buttonName: PAGAR_TUDO
+        label: Pagar Tudo
+        layout {
+            sequence: 10
+            region: @new
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:apex.confirm('Deseja realmente PAGAR tudo?','PAGAR_TUDO');
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from itensdevolucaorepres i
+                where i.iddefeito is not null
+                  and i.situacaodefeito is null
+                  and exists ( select 1
+                                 from defeitos d
+                                 where d.iddefeito = i.iddefeito
+                                   and d.origemdefeito = 'R')
+                  and exists ( select 1
+                               from devolucoesrepresentantes d 
+                               where d.iddevolucaorepres = i.iddevolucaorepres 
+                               and d.idrepresentante = ( select idrepresentante 
+                                                         from fechamentorepresentantes 
+                                                         where idfechamentorepres = :P78_IDFECHAMENTOREPRES ) )
+                ```
+        }
+    )
+
+    button save (
+        buttonName: SAVE
+        label: Salvar
+        layout {
+            sequence: 30
+            region: @cadastro-de-resgates
+            slot: change
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+            databaseAction: update
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P78_IDPERDA
+        }
+    )
+
+    button submit (
+        buttonName: SUBMIT
+        label: "Salvar "
+        layout {
+            sequence: 40
+            region: @defeitos-pendentes-de-pagamento
+            slot: change
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button voltar (
+        buttonName: Voltar
+        label: Fechar e Atualizar Acerto
+        layout {
+            sequence: 40
+            region: @new
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 75
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    validation p78-valor (
+        name: P78_VALOR
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where nvl(:P78_VALOR,0) > 0
+                ```
+        }
+        error {
+            errorMessage: #LABEL# deve ser maior que zero.
+            associatedItem: @P78_VALOR
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    validation valida-observação (
+        name: Valida Observação
+        execution {
+            sequence: 20
+        }
+        validation {
+            editableRegion: @defeitos-pendentes-de-pagamento
+            type: columnIsNotNull
+            column: OBSERVACAO
+        }
+        error {
+            errorMessage: É necessário informar o motivo de não cobrar o defeito.
+            associatedColumn: OBSERVACAO
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :SITUACAODEFEITO = 'D' or v('REQUEST') = 'NAO_PAGAR_TUDO'
+        }
+    )
+
+    process applymru (
+        name: ApplyMRU
+        type: tabformUpdate
+        editableRegion: @defeitos-pendentes-de-pagamento
+        target {
+            tableName: ITENSDEVOLUCAOREPRES
+            pkColumn: IDITEMDEVOLUCAOREPRES
+        }
+        execution {
+            sequence: 70
+        }
+        successMessage {
+            successMessage: #MRU_COUNT# row(s) updated, #MRI_COUNT# row(s) inserted.
+        }
+        advanced {
+            executionMappingIdentifier: 580692335219159468
+        }
+        serverSideCondition {
+            whenButtonPressed: @submit
+        }
+    )
+
+    process fetch-row-from-perdas (
+        name: Fetch Row from PERDAS
+        type: autoRowFetch
+        source {
+            tableName: PERDAS
+            pkColumn: IDPERDA
+            pkItem: P78_IDPERDA
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        error {
+            errorMessage: Não é possível extrair a linha.
+        }
+        advanced {
+            executionMappingIdentifier: 580698244814159472
+        }
+    )
+
+    process get-pk (
+        name: Get PK
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare 
+                  function get_pk return varchar2 
+                  is 
+                  begin 
+                    for c1 in (select SEQ_IDPERDA.nextval next_val
+                               from dual)
+                    loop
+                        return c1.next_val;
+                    end loop;
+                  end; 
+                begin 
+                  :P78_IDPERDA := get_pk; 
+                end; 
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        error {
+            errorMessage: Não é possível obter valor de item de chave primária.
+            displayLocation: onErrorPage
+        }
+        advanced {
+            executionMappingIdentifier: 580698694769159473
+        }
+        serverSideCondition {
+            whenButtonPressed: @create
+        }
+    )
+
+    process não-pagar-tudo (
+        name: Não pagar tudo
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  update itensdevolucaorepres i
+                  set situacaodefeito = 'D'
+                    , idfechamentoreprespago = null
+                  where i.iddefeito is not null
+                    and i.situacaodefeito is null
+                    and exists ( select 1
+                                 from defeitos d
+                                 where d.iddefeito = i.iddefeito
+                                   and d.origemdefeito = 'R')
+                    and exists ( select 1
+                                 from devolucoesrepresentantes d 
+                                 where d.iddevolucaorepres = i.iddevolucaorepres 
+                                 and d.idrepresentante = ( select idrepresentante 
+                                                           from fechamentorepresentantes 
+                                                           where idfechamentorepres = :P78_IDFECHAMENTOREPRES ) );
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 50
+        }
+        successMessage {
+            successMessage: Resgates atualizados com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 580699496244159474
+        }
+        serverSideCondition {
+            type: request=Value
+            value: DELETAR
+        }
+    )
+
+    process pagar-tudo (
+        name: Pagar tudo
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  update itensdevolucaorepres i
+                  set situacaodefeito = 'P'
+                    , idfechamentoreprespago = :P78_IDFECHAMENTOREPRES
+                  where i.iddefeito is not null
+                    and i.situacaodefeito is null
+                    and exists ( select 1
+                                 from defeitos d
+                                 where d.iddefeito = i.iddefeito
+                                   and d.origemdefeito = 'R')
+                    and exists ( select 1
+                                 from devolucoesrepresentantes d 
+                                 where d.iddevolucaorepres = i.iddevolucaorepres 
+                                 and d.idrepresentante = ( select idrepresentante 
+                                                           from fechamentorepresentantes 
+                                                           where idfechamentorepres = :P78_IDFECHAMENTOREPRES ) );
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 60
+        }
+        successMessage {
+            successMessage: Resgates atualizados com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 580699848942159474
+        }
+        serverSideCondition {
+            whenButtonPressed: @pagar-tudo
+        }
+    )
+
+    process process-row-of-perdas (
+        name: Process Row of PERDAS
+        type: autoRowProcessing
+        target {
+            tableName: PERDAS
+            pkColumn: IDPERDA
+            pkItem: P78_IDPERDA
+        }
+        execution {
+            sequence: 80
+        }
+        successMessage {
+            successMessage: Ação Processada.
+        }
+        error {
+            errorMessage: Não é possível processar a linha da tabela PERDAS.
+            displayLocation: onErrorPage
+        }
+        advanced {
+            executionMappingIdentifier: 580699022193159474
+        }
+    )
+
+    process remover (
+        name: REMOVER
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                --
+                  update itensdevolucaorepres id
+                  set id.idfechamentoreprespago = null
+                    , id.situacaodefeito = null
+                  where id.iditemdevolucaorepres = :P78_DELETAR;
+                  
+                --
+                end;
+                ```
+        }
+        execution {
+            sequence: 40
+        }
+        advanced {
+            executionMappingIdentifier: 580697883368159471
+        }
+        serverSideCondition {
+            type: request=Value
+            value: REMOVER
+        }
+    )
+
+    branch (
+        name: Go To Page 75
+        execution {
+            sequence: 20
+        }
+        behavior {
+            target: {
+                page: 75
+                items: {
+                    P75_IDFECHAMENTOREPRES: &P78_IDFECHAMENTOREPRES.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: DELETAR
+        }
+    )
+
+    branch (
+        name: Go To Page 78
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 78
+                items: {
+                    P78_IDFECHAMENTOREPRES: &P78_IDFECHAMENTOREPRES.
+                    P78_IDREPRESENTANTE: &P78_IDREPRESENTANTE.
+                }
+                successMessage: false
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: REMOVER
+        }
+    )
+
+)
+

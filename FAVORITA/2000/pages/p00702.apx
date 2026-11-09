@@ -1,0 +1,606 @@
+page 702 (
+    name: Franquias Participantes
+    title: Bônus Adimplência - Franquias
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    css {
+        inline:
+            ```css
+            /* Bonus Adimplencia - visual comum das paginas 702, 703 e 704 */
+            .bonus-card { border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.06); margin-bottom: 16px; }
+            .bonus-card > .t-Region-header, .bonus-card .t-IRR-region > .t-Region-header { background: #f4f6f9; }
+            .bonus-card .t-Region-title { font-weight: 600; color: #1f2a37; }
+            .bonus-card .a-IRR-header { background: #f4f6f9; font-weight: 600; color: #3d4a5c; }
+            .bonus-card .a-IRR-table tr:hover td { background: #eef5ff; }
+            .bonus-card .a-IRR-table td { border-color: #edf0f3; vertical-align: middle; }
+            .bonus-filtros { border: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+            .bonus-filtros > .t-Region-header { background: linear-gradient(90deg, #0b5394, #1c7ed6); border: 0; }
+            .bonus-filtros .t-Region-title { color: #fff; font-weight: 600; letter-spacing: .3px; }
+            .bonus-filtros .t-Region-title::before { content: "\f0b0"; font-family: "Font APEX", FontAwesome; margin-right: 8px; opacity: .9; }
+            .bonus-filtros .t-Form-label { font-weight: 600; color: #3d4a5c; }
+            .bonus-filtros .t-Button--primary { border-radius: 8px; font-weight: 600; margin-top: 8px; }
+            .bonus-toolbar { margin-bottom: 6px; }
+            .bonus-toolbar .t-Button--success { border-radius: 8px; font-weight: 600; }
+            .bonus-nota { border: 1px dashed #1c7ed6; background: #f2f8ff; border-radius: 8px; box-shadow: none; }
+            .bonus-nota .t-Region-body { color: #1f2a37; }
+            .bonus-nova-faixa { background: #fbfcfd; }
+            .bonus-ajuda .t-Form-inputContainer, .bonus-ajuda { color: #5d6b7c; font-size: 12.5px; }
+            .bonus-badge { display: inline-block; padding: 2px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+            .bonus-badge--vigente, .bonus-badge--pago { background: #e3fcef; color: #006644; }
+            .bonus-badge--pendente, .bonus-badge--futura { background: #fff4d6; color: #8a5a00; }
+            .bonus-badge--cancelado { background: #ffebe6; color: #bf2600; }
+            .bonus-badge--encerrada, .bonus-badge--desativada { background: #eceff3; color: #5d6b7c; }
+            .bonus-valor { font-weight: 700; color: #006644; }
+            .bonus-total { font-weight: 700; color: #0b5394; }
+            .bonus-alerta { color: #bf2600; font-weight: 600; }
+            .bonus-editar { color: #0b5394; font-size: 15px; }
+            ```
+    }
+    security {
+        authorizationScheme: @valida-acesso-a-página
+    }
+
+    region ações (
+        name: Ações
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/buttons-container
+            templateOptions: [
+                #DEFAULT#
+                t-ButtonRegion--noPadding
+                t-ButtonRegion--noUI
+            ]
+            cssClasses: bonus-toolbar
+        }
+        advanced {
+            htmlDomId: acoes-702
+        }
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+            cssClasses: bonus-filtros
+        }
+        advanced {
+            htmlDomId: filtros-702
+        }
+    )
+
+    region franquias-participantes (
+        name: Franquias Participantes
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select x.*
+                     , lower(x.situacao) situacao_css
+                from (
+                select p.idparametro
+                     , p.idfilialromance
+                     , favorita.pck_util_fav.fnc_nomefilialromance(p.idfilialromance) franquia
+                     , case
+                         when p.ativo = 'N' then 'Desativada'
+                         when p.dtiniciovigencia > trunc(sysdate) then 'Futura'
+                         when nvl(p.dtfimvigencia, date '9999-12-31') < trunc(sysdate) then 'Encerrada'
+                         else 'Vigente'
+                       end situacao
+                     , to_char(p.dtiniciovigencia,'DD/MM/YYYY')||' -> '||nvl(to_char(p.dtfimvigencia,'DD/MM/YYYY'),'sem fim') vigencia
+                     , p.dtiniciovigencia
+                     , nvl(( select listagg(f.descricao||' ('||to_char(f.inad_de,'FM990D00')||'% a '
+                                        ||nvl2(f.inad_ate, to_char(f.inad_ate,'FM990D00')||'%', 'mais')
+                                        ||' = +'||to_char(f.perc_bonus,'FM990D0099')||'%)', '<br>')
+                                 within group (order by f.inad_de)
+                         from roman.comger_faixas f
+                         where f.idfilialromance = p.idfilialromance
+                           and f.ativo           = 'S'
+                           and nvl(f.dtfimvigencia, date '9999-12-31') >= trunc(sysdate) ), '<span class="bonus-alerta">Sem faixas</span>') faixas
+                     , ( select d.perc_inad
+                         from roman.comger_inad_diaria d
+                         where d.idfilialromance = p.idfilialromance
+                           and d.dtreferencia    = ( select max(x.dtreferencia)
+                                                     from roman.comger_inad_diaria x
+                                                     where x.idfilialromance = p.idfilialromance ) ) ultima_inad
+                     , ( select max(x.dtreferencia)
+                         from roman.comger_inad_diaria x
+                         where x.idfilialromance = p.idfilialromance ) dt_ultima_inad
+                     , p.usuario
+                     , p.datacadastro
+                from roman.comger_parametros p
+                ) x
+                where ( :P702_FRANQUIA is null or x.idfilialromance = :P702_FRANQUIA )
+                  and ( :P702_SITUACAO is null or x.situacao = :P702_SITUACAO )
+                ```
+            pageItemsToSubmit: [
+                P702_FRANQUIA
+                P702_SITUACAO
+            ]
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+            cssClasses: bonus-card
+        }
+        advanced {
+            htmlDomId: franquias-participantes
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 9820226930000202
+        }
+
+        column DATACADASTRO (
+            type: plainText
+            heading {
+                heading: Cadastrado em
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/YYYY HH24:MI
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column DTINICIOVIGENCIA (
+            type: plainText
+            heading {
+                heading: Início Vigência
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column DT_ULTIMA_INAD (
+            type: plainText
+            heading {
+                heading: Apurada em
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column FAIXAS (
+            type: plainText
+            heading {
+                heading: Faixas Vigentes
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column FRANQUIA (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            columnFormatting {
+                htmlExpression: <b>#FRANQUIA#</b>
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column IDFILIALROMANCE (
+            type: plainText
+            heading {
+                heading: Id Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column IDPARAMETRO (
+            type: link
+            heading {
+                heading: Editar
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 703
+                    items: {
+                        P703_IDPARAMETRO: #IDPARAMETRO#
+                    }
+                    clearCache: 703
+                }
+                linkText: <span class="fa fa-pencil bonus-editar" aria-hidden="true"></span><span class="u-VisuallyHidden">Editar</span>
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column SITUACAO (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            columnFormatting {
+                htmlExpression: <span class="bonus-badge bonus-badge--#SITUACAO_CSS#">#SITUACAO#</span>
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column SITUACAO_CSS (
+            type: hidden
+            heading {
+                heading: Situacao CSS
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column ULTIMA_INAD (
+            type: plainText
+            heading {
+                heading: Últ. Inadimplência (%)
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FM999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column USUARIO (
+            type: plainText
+            heading {
+                heading: Cadastrado por
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column VIGENCIA (
+            type: plainText
+            heading {
+                heading: Vigência
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 98202273 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DT_ULTIMA_INAD (
+                sequence: 7
+            )
+
+            displayColumn FAIXAS (
+                sequence: 5
+            )
+
+            displayColumn FRANQUIA (
+                sequence: 2
+            )
+
+            displayColumn IDPARAMETRO (
+                sequence: 1
+            )
+
+            displayColumn SITUACAO (
+                sequence: 3
+            )
+
+            displayColumn ULTIMA_INAD (
+                sequence: 6
+            )
+
+            displayColumn VIGENCIA (
+                sequence: 4
+            )
+
+            sort (
+                column: FRANQUIA
+                sort {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P702_FRANQUIA (
+        type: selectList
+        label {
+            label: Franquia:
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select fl.nome
+                     , fl.idfilial
+                from roman.vw_filiais fl
+                where exists ( select 1
+                               from roman.comger_parametros p
+                               where p.idfilialromance = fl.idfilial )
+                order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--xlarge
+            ]
+            height: 1
+        }
+    )
+
+    pageItem P702_SITUACAO (
+        type: radioGroup
+        label {
+            label: Situação:
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Vigente;Vigente,Futura;Futura,Encerrada;Encerrada,Desativada;Desativada
+            displayExtraValues: false
+            nullDisplayValue: Todas
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--xlarge
+            ]
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--primary
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button nova (
+        buttonName: NOVA
+        label: Liberar Franquia
+        layout {
+            sequence: 20
+            region: @ações
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+                t-Button--iconLeft
+            ]
+            icon: fa-plus
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 703
+                clearCache: 703
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button voltar (
+        buttonName: VOLTAR
+        label: Voltar
+        layout {
+            sequence: 10
+            region: @ações
+            slot: previous
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--noUI
+                t-Button--iconLeft
+            ]
+            icon: fa-arrow-left
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 701
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        name: Volta para 702
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 702
+                successMessage: false
+            }
+        }
+    )
+
+)
+

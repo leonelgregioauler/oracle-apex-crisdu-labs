@@ -1,0 +1,487 @@
+page 376 (
+    name: Controle Atendimento e Inclusão da Tarefa
+    title: Controle Atendimento e Inclusão da Tarefa
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region controle-de-inclusão-e-atendimento-de-tarefas (
+        name: Controle de Inclusão e Atendimento de Tarefas
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+            column: 3
+            columnSpan: 6
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--accent1
+                t-Region--hiddenOverflow
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region resumo (
+        name: Resumo
+        type: interactiveGrid
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select case
+                        when tipotarefa is null then 'TOTAL'
+                        when dia is null then ''
+                        else tipotarefa
+                       end tipotarefa,
+                       dia data,
+                       incluidas,
+                       atendidas
+                  from (
+                		 select descricao tipotarefa, dia, sum(incluidas) incluidas, sum(atendidas) atendidas
+                          from (
+                                select sel.idtipotarefa, sel.descricao, sel.dia, nvl(inc.qtde,0) incluidas, nvl(atd.qtde,0) atendidas
+                                  from (select distinct tt.idtipotarefa, tt.descricao, trunc(cf.data) dia
+                                          from beepeople.controle_frequencia cf, tipostarefas tt
+                                         where cf.data between to_date(:P376_DATAI || ' 00:00:00','dd/mm/yyyy hh24:mi:ss')
+                                                           and to_date(:P376_DATAF || ' 23:59:59','dd/mm/yyyy hh24:mi:ss')
+                                        and tt.idtipotarefa in (4,9,10)) sel,
+                                       (select lt.idtipotarefa, trunc(t.datainicio) dia, count(1) qtde
+                                          from logfavorita.log_tarefas lt, tarefas t
+                                         where lt.idtarefa = t.idtarefa
+                                           and (lt.idtarefa, lt.idlog)
+                                            in (
+                                                select l.idtarefa, min(idlog) idlog
+                                                  from logfavorita.log_tarefas l
+                                                 where l.tipoalteracao = 'UPDATE'
+                                                   and l.datainclusao between to_date(:P376_DATAI || ' 00:00:00','dd/mm/yyyy hh24:mi:ss')
+                                                                          and to_date(:P376_DATAF || ' 23:59:59','dd/mm/yyyy hh24:mi:ss')
+                                                   and l.idtipotarefa = nvl(:P376_TIPO_TAREFA,l.idtipotarefa)
+                                                   and l.idtipotarefa in (4,9,10) 
+                                                 group by l.idtarefa)
+                                          and lt.idusuario = nvl(:P376_OPERADOR,lt.idusuario)
+                                        group by lt.idtipotarefa, trunc(t.datainicio)) atd,
+                                       (
+                                        select lt.idtipotarefa, trunc(lt.data_log) dia, count(1) qtde
+                                          from beecobranca.log_inclusao_tarefa_manual lt
+                                         where lt.data_log between to_date(:P376_DATAI || ' 00:00:00','dd/mm/yyyy hh24:mi:ss')
+                                                               and to_date(:P376_DATAF || ' 23:59:59','dd/mm/yyyy hh24:mi:ss')
+                                           and lt.idtipotarefa = nvl(:P376_TIPO_TAREFA,lt.idtipotarefa)
+                                           and lt.idusuario_log = nvl(:P376_OPERADOR,lt.idusuario_log)
+                                           and lt.idtipotarefa in (4,9,10) 
+                                        group by lt.idtipotarefa, trunc(lt.data_log)
+                                      ) inc
+                                  where sel.idtipotarefa = atd.idtipotarefa(+)
+                                    and sel.dia = atd.dia(+)
+                                    and sel.idtipotarefa = inc.idtipotarefa(+)
+                                    and sel.dia = inc.dia(+)
+                                    and sel.idtipotarefa = nvl(:P376_TIPO_TAREFA,sel.idtipotarefa))
+                      group by rollup (descricao, dia)
+                         order by 1, 2)
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+            column: 3
+            columnSpan: 6
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: [
+                #DEFAULT#
+                t-IRR-region--noBorders
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P376_GERAR
+            value: 1
+        }
+        pagination {
+            showTotalCount: false
+        }
+        toolbar {
+            controls: [
+                searchCol
+                searchField
+                actionsMenu
+                resetButton
+                saveButton
+            ]
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 5824048973958450387
+        }
+
+        savedReport PRIMARY (
+            visibility: primary
+            view {
+                default: grid
+            }
+            singleRowView {
+                displayedColumns: true
+            }
+
+            displayColumn (
+                column: @TIPOTAREFA
+                layout {
+                    sequence: 6
+                }
+            )
+
+            displayColumn (
+                column: @DATA
+                layout {
+                    sequence: 7
+                }
+            )
+
+            displayColumn (
+                column: @INCLUIDAS
+                layout {
+                    sequence: 8
+                }
+            )
+
+            displayColumn (
+                column: @ATENDIDAS
+                layout {
+                    sequence: 9
+                }
+            )
+
+        )
+
+        column ATENDIDAS (
+            type: numberField
+            heading {
+                heading: Atendidas
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: ATENDIDAS
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column DATA (
+            type: datePickerJquery
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: DATA
+                dataType: date
+            }
+        )
+
+        column INCLUIDAS (
+            type: numberField
+            heading {
+                heading: Incluídas
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: INCLUIDAS
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column TIPOTAREFA (
+            type: textarea
+            heading {
+                heading: Tipo de Tarefa
+            }
+            layout {
+                sequence: 10
+            }
+            validation {
+                maxLength: 200
+            }
+            source {
+                databaseColumn: TIPOTAREFA
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+    )
+
+    pageItem P376_DATAF (
+        type: datePickerJquery
+        label {
+            label: Data Final
+            alignment: left
+        }
+        layout {
+            sequence: 60
+            region: @controle-de-inclusão-e-atendimento-de-tarefas
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            formatMask: dd/mm/rrrr
+            width: 30
+        }
+        validation {
+            valueRequired: true
+        }
+        source {
+            type: expression
+            plsqlExpression: sysdate
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P376_DATAI (
+        type: datePickerJquery
+        label {
+            label: Data Inicial
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @controle-de-inclusão-e-atendimento-de-tarefas
+            slot: regionBody
+            alignment: left
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            formatMask: dd/mm/rrrr
+            width: 30
+        }
+        validation {
+            valueRequired: true
+        }
+        source {
+            type: expression
+            plsqlExpression: SYSDATE-7
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P376_GERAR (
+        type: hidden
+        layout {
+            sequence: 90
+            region: @controle-de-inclusão-e-atendimento-de-tarefas
+            slot: regionBody
+        }
+        source {
+            type: staticValue
+            staticValue: 0
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P376_OPERADOR (
+        type: plugin/select
+        label {
+            label: Atendente
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.nome, cau.idusuario
+                  from beecobranca.usuarios_atendimento ua, beeadmin.usuarios u, beepeople.vw_pessoas p, catal.usuarios cau
+                 where ua.cod_usuario = u.codigo
+                   and u.nome_login = cau.usuario
+                   and u.cod_pessoa = p.codigo
+                   and u.empresa = p.empresa
+                   and u.status = 'A'
+                 order by 1
+                ```
+            nullDisplayValue: Todos
+        }
+        layout {
+            sequence: 30
+            region: @controle-de-inclusão-e-atendimento-de-tarefas
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P376_TIPO_TAREFA (
+        type: plugin/select
+        label {
+            label: Tipo de Tarefa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select descricao, idtipotarefa
+                  from tipostarefas
+                 where idtipotarefa in (4,9,10)
+                 order by 1
+                ```
+            nullDisplayValue: Todas
+        }
+        layout {
+            sequence: 40
+            region: @controle-de-inclusão-e-atendimento-de-tarefas
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button gerar (
+        buttonName: Gerar
+        label: Gerar Relatório
+        layout {
+            sequence: 10
+            region: @controle-de-inclusão-e-atendimento-de-tarefas
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction geraraction (
+        name: GerarAction
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @gerar
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: GERAR
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    branch (
+        name: Go To Page 376
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 376
+                items: {
+                    P376_GERAR: 1
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERAR
+        }
+    )
+
+)
+

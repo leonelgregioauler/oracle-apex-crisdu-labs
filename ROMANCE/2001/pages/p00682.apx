@@ -1,0 +1,1423 @@
+page 682 (
+    name: Contratos Enviados para o PAP
+    title: Contratos Enviados para o PAP
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region contratos-enviados-para-o-pap (
+        name: Contratos Enviados Para o PAP
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                -- query pra trazer informações da ROMANCE!
+                select 'Romance'                                                   as "Origem",
+                       cn.dataclassificado                                         as "Data do Envio",
+                       roman.pck_romance.fnc_nomefilial(nv.idfilial)               as "Franquia",
+                       roman.pck_romance.fnc_nomerepresentante(nv.idrepresentante) as "Distribuidor",
+                       roman.pck_romance.fnc_nomevendedora(nv.idvendedora)         as "Consultora",
+                       pes.cpf                                                     as "Cpf",
+                       np.datanegociacao                                           as "Data Negociacao",
+                       nv.numeronota                                               as "Nr Nota/Pedido",
+                       trunc(nv.dataacerto)                                        as "Data Debito",
+                       nvl(dn.valororiginal,0)                                     as "Valor Original",
+                       nvl(dn.valoratualizado,0)                                   as "Valor Atualizado",
+                       nvl(np.valornegociacao,0)                                   as "Valor Negociacao",
+                       nvl(dn.valordesconto,0)                                     as "Valor Desconto",
+                       nvl(np.qtdparcelas,0)                                       as "qtd Parcelas",
+                       nvl(np.valorpago,0)                                         as "Valor Pago Vigente",
+                       nvl(np.valorpago,0)                                         as "Valor Pago Acumulado Negociação",
+                       favorita.pck_util_fav.fnc_nomeusuario(cn.idusuario)         as "Responsavel"
+                  from roman.notasvendas               nv,
+                       roman.classificacoesnotasvendas cn,
+                       roman.documentosnegociacao      dn,
+                       roman.negociacoesparceiros      np,
+                       catal.vendedoras                ven,
+                       catal.pessoas                   pes
+                 where  -- Ligações entre tabelas
+                       cn.idnotavenda               = nv.idnotavenda
+                   and cn.idcaracteristicanotavenda = 50
+                   and dn.idnotavenda               = nv.idnotavenda
+                   and np.idnegociacaoparceiro      = dn.idnegociacaoparceiro
+                   and ven.idvendedora              = nv.idvendedora
+                   and pes.idpessoa                 = ven.idpessoa
+                   and ( np.datanegociacao is null or (trunc(np.datanegociacao) >= trunc(cn.dataclassificado) ))
+                   -- Filtro TIPO E DATA
+                   and (    ( :P682_TIPODATA = 'E' and cn.dataclassificado between to_date(:P682_DATAINICIO||' 00:00:01','DD/MM/RRRR HH24:MI:SS') 
+                                                                               and to_date(:P682_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') )
+                         or ( :P682_TIPODATA = 'D' and nv.dataacerto between to_date(:P682_DATAINICIO||' 00:00:01','DD/MM/RRRR HH24:MI:SS') 
+                                                                         and to_date(:P682_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') ) )
+                   -- Filtro SITUAÇÃO
+                   and (   :P682_SITUACAO = 'T'
+                      or ( :P682_SITUACAO = 'N' and np.valornegociacao > 0 )
+                      or ( :P682_SITUACAO = 'P' and dn.valorpago > 0 )
+                      or ( :P682_SITUACAO = 'A' and dn.saldo > 0 ) )
+                   -- Filtro CARTEIRA A=Ambas, R=Romance
+                   and ( :P682_CARTEIRA = 'A'          or  :P682_CARTEIRA = 'R')  
+                   -- Filtro FRANQUIA
+                   and ( :P682_IDFILIAL is null        or nv.idfilial = :P682_IDFILIAL )
+                   -- Filtro DISTRIBUIDOR
+                   and ( :P682_IDREPRESENTANTE is null or nv.idrepresentante = :P682_IDREPRESENTANTE )
+                   -- Filtro CONSULTORA
+                   and ( :P682_IDVENDEDORA is null     or nv.idvendedora = :P682_IDVENDEDORA )
+                   -- Filtro CPF VENDEDORA
+                   and ( :P682_CPF_VENDEDORA is null   or pes.cpf = :P682_CPF_VENDEDORA)
+                   -- Filtro RESPONSÁVEL COBRANÇA
+                   and ( :P682_RESPONSAVEL is null     or cn.idusuario  = :P682_RESPONSAVEL ) 
+                           
+                union
+                
+                -- query pra trazer informações da FAVORITA!
+                select 'Favorita'                                                 as "Origem",
+                       c.dataclassificado                                         as "Data do Envio",
+                       roman.pck_romance.fnc_nomefilial(p.idfilialromance)        as "Franquia",
+                       roman.pck_romance.fnc_nomerepresentante(p.idrepresentante) as "Distribuidor",
+                       roman.pck_romance.fnc_nomevendedora(p.idvendedora)         as "Consultora",
+                       pes.cpf                                                    as "CPF",
+                       n.datanegociacao                                           as "Data Negociacao" ,              
+                       to_char(p.numeropedido)                                    as "Nr Nota/Pedido",
+                       ( select max(v.datavencimento)
+                           from favorita.vencimentospedidos v
+                          where v.idpedido = p.idpedido)                          as "Data Debito" ,
+                       nvl(d.valororiginal,0)                                     as "Valor Original",
+                       nvl(d.valoratualizado,0)                                   as "Valor Atualizado",
+                       nvl(n.valornegociacao,0)                                   as "Valor Negociacao",
+                       nvl(d.valordesconto,0)                                     as "Valor Desconto",
+                       nvl(n.qtdparcelas,0)                                       as "qtd Parcelas",
+                       nvl(n.valorpago,0)                                         as "Valor Pago Vigente",
+                       nvl(n.valorpago,0)                                         as "Valor Pago Acumulado Negociação",
+                       favorita.pck_util_fav.fnc_nomeusuario(c.idusuario)         as "Responsavel"
+                  from favorita.pedidos               p,
+                       favorita.classificacoespedidos c,
+                       catal.vendedoras               ven,
+                       catal.pessoas                  pes,
+                       roman.documentosnegociacao     d,
+                       roman.negociacoesparceiros     n
+                 where -- Ligações entre tabelas
+                       c.idpedido               = p.idpedido
+                   and c.idcaracteristicapedido = 98
+                   and d.idpedido               = p.idpedido
+                   and n.idnegociacaoparceiro   = d.idnegociacaoparceiro
+                   and ven.idvendedora          = p.idvendedora
+                   and pes.idpessoa             = ven.idpessoa
+                   and ( n.datanegociacao is null or (trunc(n.datanegociacao) >= trunc(c.dataclassificado) ))
+                   -- Filtro TIPO E DATA
+                   and (    ( :P682_TIPODATA = 'E' and c.dataclassificado between to_date(:P682_DATAINICIO||' 00:00:01','DD/MM/RRRR HH24:MI:SS') 
+                                                                              and to_date(:P682_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS'))
+                         or ( :P682_TIPODATA = 'D' and (select max(v.datavencimento)
+                                                          from favorita.vencimentospedidos v
+                                                         where v.idpedido = p.idpedido)  between to_date(:P682_DATAINICIO||' 00:00:01','DD/MM/RRRR HH24:MI:SS') 
+                                                                                             and to_date(:P682_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') ) )
+                   -- Filtro SITUAÇÃO
+                   and (     :P682_SITUACAO = 'T'
+                        or ( :P682_SITUACAO = 'N' and n.valornegociacao > 0 )
+                        or ( :P682_SITUACAO = 'P' and d.valorpago > 0 )
+                        or ( :P682_SITUACAO = 'A' and d.saldo > 0) )
+                   -- Filtro CARTEIRA (A=Ambas, F=Favorita)
+                   and ( :P682_CARTEIRA = 'A'          or :P682_CARTEIRA = 'F')
+                   -- Filtro FRANQUIA
+                   and ( :P682_IDFILIAL is null        or p.idfilialromance = :P682_IDFILIAL )
+                   -- Filtro DISTRIBUIDOR
+                   and ( :P682_IDREPRESENTANTE is null or p.idrepresentante = :P682_IDREPRESENTANTE )
+                   -- Filtro CONSULTORA
+                   and ( :P682_IDVENDEDORA is null     or p.idvendedora = :P682_IDVENDEDORA )
+                   -- Filtro CPF VENDEDORA
+                   and ( :P682_CPF_VENDEDORA is null   or pes.cpf = :P682_CPF_VENDEDORA)
+                   -- Filtro RESPONSÁVEL COBRANÇA
+                   and ( :P682_RESPONSAVEL is null     or c.idusuario = :P682_RESPONSAVEL )   
+                 order by 8;
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--stacked
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 566519242886089235
+        }
+
+        column Consultora (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column Cpf (
+            type: plainText
+            heading {
+                heading: CPF Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 170
+            }
+            appearance {
+                formatMask: 000.000.000-00
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column "Data Debito" (
+            type: plainText
+            heading {
+                heading: Data Débito
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "Data Negociacao" (
+            type: plainText
+            heading {
+                heading: Data Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column "Data do Envio" (
+            type: plainText
+            heading {
+                heading: Data Envio
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column Franquia (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Nr Nota/Pedido" (
+            type: plainText
+            heading {
+                heading: Nr Nota/Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column Origem (
+            type: plainText
+            heading {
+                heading: Origem
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column Responsavel (
+            type: plainText
+            heading {
+                heading: Responsável
+                alignment: center
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column "Valor Atualizado" (
+            type: plainText
+            heading {
+                heading: Valor Atualizado
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column "Valor Desconto" (
+            type: plainText
+            heading {
+                heading: Valor Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "Valor Negociacao" (
+            type: plainText
+            heading {
+                heading: Valor Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column "Valor Original" (
+            type: plainText
+            heading {
+                heading: Valor Original
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "Valor Pago Acumulado Negociação" (
+            type: plainText
+            heading {
+                heading: Valor Pago Acumulado Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column "Valor Pago Vigente" (
+            type: plainText
+            heading {
+                heading: Valor Pago Vigente
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column "qtd Parcelas" (
+            type: plainText
+            heading {
+                heading: Qtd Parcelas
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 5666672 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Consultora" (
+                sequence: 6
+            )
+
+            displayColumn "Cpf" (
+                sequence: 7
+            )
+
+            displayColumn "Data Debito" (
+                sequence: 9
+            )
+
+            displayColumn "Data Negociacao" (
+                sequence: 3
+            )
+
+            displayColumn "Data do Envio" (
+                sequence: 2
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 5
+            )
+
+            displayColumn "Franquia" (
+                sequence: 4
+            )
+
+            displayColumn "Nr Nota/Pedido" (
+                sequence: 8
+            )
+
+            displayColumn "Origem" (
+                sequence: 1
+            )
+
+            displayColumn "Responsavel" (
+                sequence: 17
+            )
+
+            displayColumn "Valor Atualizado" (
+                sequence: 11
+            )
+
+            displayColumn "Valor Desconto" (
+                sequence: 13
+            )
+
+            displayColumn "Valor Negociacao" (
+                sequence: 12
+            )
+
+            displayColumn "Valor Original" (
+                sequence: 10
+            )
+
+            displayColumn "Valor Pago Acumulado Negociação" (
+                sequence: 16
+            )
+
+            displayColumn "Valor Pago Vigente" (
+                sequence: 15
+            )
+
+            displayColumn "qtd Parcelas" (
+                sequence: 14
+            )
+
+        )
+
+    )
+
+    region contratos-enviados-para-o-pap-aguardando-negociação (
+        name: Contratos Enviados Para o PAP (Aguardando Negociação)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                -- query pra trazer informações da ROMANCE!
+                select 'Romance'                                                   as "Origem",
+                       cn.dataclassificado                                         as "Data do Envio",
+                       roman.pck_romance.fnc_nomefilial(nv.idfilial)               as "Franquia",
+                       roman.pck_romance.fnc_nomerepresentante(nv.idrepresentante) as "Distribuidor",
+                       roman.pck_romance.fnc_nomevendedora(nv.idvendedora)         as "Consultora",
+                       pes.cpf                                                     as "Cpf",
+                       nv.idnotavenda                                              as "ID Nota/Pedido",
+                       nv.numeronota                                               as "Nr Nota/Pedido",
+                       ( select nvl(n.saldo,0) + nvl((select sum(nvl(p.valorpago,0)) 
+                                                        from roman.pagamentosnotasvendas p
+                                                       where p.idnotavenda = n.idnotavenda),0) saldo_congelado
+                           from roman.notasvendas n
+                          where n.idnotavenda = nv.idnotavenda)                    as "Saldo Congelado Nota/Pedido",
+                       favorita.pck_util_fav.fnc_nomeusuario(cn.idusuario)         as "Responsavel",
+                       (select decode(pp.origem,'R','Representante','C','Cobrança','P','Perda') "Origem"
+                          from roman.pagamentosnotasvendas pp
+                         where pp.idpagtonotavenda = (select max(pag.idpagtonotavenda) idpagtonotavenda
+                                                        from roman.pagamentosnotasvendas pag
+                                                       where pag.idnotavenda = nv.idnotavenda)) as  "Situação"
+                  from roman.notasvendas               nv,
+                       roman.classificacoesnotasvendas cn,
+                       catal.vendedoras                ven,
+                       catal.pessoas                   pes
+                 where  -- Ligações entre tabelas
+                       cn.idnotavenda               = nv.idnotavenda
+                   and cn.idcaracteristicanotavenda = 50
+                   and ven.idvendedora              = nv.idvendedora
+                   and pes.idpessoa                 = ven.idpessoa
+                   -- Filtro DATA
+                   and cn.dataclassificado between to_date(:P682_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS')  and to_date(:P682_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                   -- Filtro CARTEIRA A=Ambas, R=Romance
+                   and ( :P682_CARTEIRA = 'A'          or  :P682_CARTEIRA = 'R')  
+                   -- Filtro FRANQUIA
+                   and ( :P682_IDFILIAL is null        or nv.idfilial = :P682_IDFILIAL )
+                   -- Filtro DISTRIBUIDOR
+                   and ( :P682_IDREPRESENTANTE is null or nv.idrepresentante = :P682_IDREPRESENTANTE )
+                   -- Filtro CONSULTORA
+                   and ( :P682_IDVENDEDORA is null     or nv.idvendedora = :P682_IDVENDEDORA )
+                   -- Filtro CPF VENDEDORA
+                   and ( :P682_CPF_VENDEDORA is null   or pes.cpf = :P682_CPF_VENDEDORA)
+                   -- Filtro RESPONSÁVEL COBRANÇA
+                   and ( :P682_RESPONSAVEL is null     or cn.idusuario  = :P682_RESPONSAVEL ) 
+                   -- Filtro para trazer somente NOTASVENDAS que não existem na tabela roman.documentosnegociacao
+                   and not exists ( select 1
+                                      from roman.documentosnegociacao d
+                                     where d.idnotavenda = nv.idnotavenda)
+                   -- Filtro: objetivo 1... é trazer somente um regitro em casos onde foi enviado e retirado do PAP varias vezes.
+                   --         objetivo 2... trazer somente registro que a data de envio é maior que a data da retirada do PAP, assim garantido que só vem registro enviado e ainda não retirados do PAP.              
+                   and cn.dataclassificado = (select max(cc.dataclassificado)
+                                               from roman.classificacoesnotasvendas cc
+                                              where cc.idnotavenda = nv.idnotavenda
+                                                and cc.idcaracteristicanotavenda in (50,51))
+                         
+                union
+                
+                -- query pra trazer informações da FAVORITA!
+                select 'Favorita'                                                 as "Origem",
+                       c.dataclassificado                                         as "Data do Envio",
+                       roman.pck_romance.fnc_nomefilial(p.idfilialromance)        as "Franquia",
+                       roman.pck_romance.fnc_nomerepresentante(p.idrepresentante) as "Distribuidor",
+                       roman.pck_romance.fnc_nomevendedora(p.idvendedora)         as "Consultora",
+                       pes.cpf                                                    as "CPF",
+                       p.idpedido                                                 as "ID Nota/Pedido",
+                       to_char(p.numeropedido)                                    as "Nr Nota/Pedido",
+                       (select nvl(ped.valorapagar,0) + nvl((select sum(nvl(v.valorpago,0))
+                                                             from favorita.vencimentospedidos v
+                                                            where v.idpedido = p.idpedido),0)
+                          from favorita.pedidos ped
+                         where ped.idpedido = p.idpedido)                         as "Saldo Congelado Nota/Pedido",
+                       favorita.pck_util_fav.fnc_nomeusuario(c.idusuario)         as "Responsavel",
+                       (select decode(pag.origempagamento,'R','Representante','C','Cobrança','P','Perda','-') as "Origem"
+                          from favorita.pagamentospedidos pag
+                         where pag.idpagamentopedido = ( select max(pp.idpagamentopedido)
+                                                        from favorita.pagamentospedidos pp
+                                                       where pp.idvencimentopedido = ( select max(ve.idvencimentopedido) idvencimentopedido
+                                                                                         from favorita.vencimentospedidos ve
+                                                                                        where ve.idpedido = p.idpedido))) as  "Situação"
+                  from favorita.pedidos               p,
+                       favorita.classificacoespedidos c,
+                       catal.vendedoras               ven,
+                       catal.pessoas                  pes
+                 where -- Ligações entre tabelas
+                       c.idpedido               = p.idpedido
+                   and c.idcaracteristicapedido = 98
+                   and ven.idvendedora          = p.idvendedora
+                   and pes.idpessoa             = ven.idpessoa
+                   -- Filtro DATA
+                   and c.dataclassificado between to_date(:P682_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS')  and to_date(:P682_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                   -- Filtro CARTEIRA (A=Ambas, F=Favorita)
+                   and ( :P682_CARTEIRA = 'A'          or :P682_CARTEIRA = 'F')
+                   -- Filtro FRANQUIA
+                   and ( :P682_IDFILIAL is null        or p.idfilialromance = :P682_IDFILIAL )
+                   -- Filtro DISTRIBUIDOR
+                   and ( :P682_IDREPRESENTANTE is null or p.idrepresentante = :P682_IDREPRESENTANTE )
+                   -- Filtro CONSULTORA
+                   and ( :P682_IDVENDEDORA is null     or p.idvendedora = :P682_IDVENDEDORA )
+                   -- Filtro CPF VENDEDORA
+                   and ( :P682_CPF_VENDEDORA is null   or pes.cpf = :P682_CPF_VENDEDORA)
+                   -- Filtro RESPONSÁVEL COBRANÇA
+                   and ( :P682_RESPONSAVEL is null     or c.idusuario = :P682_RESPONSAVEL ) 
+                   -- Filtro para trazer somente PEDIDOS que não existem na tabela roman.documentosnegociacao
+                   and not exists ( select 1
+                                      from roman.documentosnegociacao d
+                                     where d.idpedido = p.idpedido)
+                   -- Filtro: objetivo 1... é trazer somente um regitro em casos onde foi enviado e retirado do PAP varias vezes.
+                   --         objetivo 2... trazer somente registro que a data de envio é maior que a data da retirada do PAP, assim garantido que só vem registro enviado e ainda não retirados do PAP.              
+                   and c.dataclassificado = (select max(cc.dataclassificado)
+                                               from favorita.classificacoespedidos cc
+                                              where cc.idpedido = p.idpedido
+                                                and cc.idcaracteristicapedido in (98,99))
+                 order by 8;
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--stacked
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <b>Atenção: Considerar que alguns filtro para esse relatório tem comportamento diferente. </b> <br><br>
+                
+                <b>1) Filtro Tipo de Data.</b> Não considera o tipo, esse filtro fica fixo por data de envio ao PAP.<br>
+                <b>2) Filtro Situação.</b> Este filtro não tem efeito neste relatório.<br>
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 3505375456129967210
+        }
+
+        column Consultora (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column Cpf (
+            type: plainText
+            heading {
+                heading: Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column "Data do Envio" (
+            type: plainText
+            heading {
+                heading: Data Do Envio
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column Franquia (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "ID Nota/Pedido" (
+            type: plainText
+            heading {
+                heading: ID Nota/Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "Nr Nota/Pedido" (
+            type: plainText
+            heading {
+                heading: Nr Nota/Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column Origem (
+            type: plainText
+            heading {
+                heading: Origem
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column Responsavel (
+            type: plainText
+            heading {
+                heading: Responsavel
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Saldo Congelado Nota/Pedido" (
+            type: plainText
+            heading {
+                heading: Saldo Congelado Nota/Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column Situação (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 35126752 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Consultora" (
+                sequence: 5
+            )
+
+            displayColumn "Cpf" (
+                sequence: 6
+            )
+
+            displayColumn "Data do Envio" (
+                sequence: 2
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 4
+            )
+
+            displayColumn "Franquia" (
+                sequence: 3
+            )
+
+            displayColumn "ID Nota/Pedido" (
+                sequence: 7
+            )
+
+            displayColumn "Nr Nota/Pedido" (
+                sequence: 8
+            )
+
+            displayColumn "Origem" (
+                sequence: 1
+            )
+
+            displayColumn "Responsavel" (
+                sequence: 9
+            )
+
+            displayColumn "Saldo Congelado Nota/Pedido" (
+                sequence: 11
+            )
+
+            displayColumn "Situação" (
+                sequence: 10
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P682_CARTEIRA (
+        type: radioGroup
+        label {
+            label: <b>Carteira</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Ambos;A,Favorita;F,Romance;R
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P682_CPF_VENDEDORA (
+        type: textField
+        label {
+            label: <b>CPF Vendedora</b>
+            alignment: left
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P682_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: <b>Até:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        default {
+            type: expression
+            plsqlExpression: sysdate
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P682_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: <b>De:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        default {
+            type: expression
+            plsqlExpression: sysdate -7
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P682_IDFILIAL (
+        type: selectList
+        label {
+            label: <b>Franquia</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and ( :P589_IDPAIS is null or f.ididioma = :P589_IDPAIS)
+                ```
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P682_IDREPRESENTANTE (
+        type: popupLov
+        label {
+            label: <b>Distribuidor</b>
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(r.idrepresentante)||' - '||decode(r.ativo,'S','Ativo','N','Inativo') d
+                     , r.idrepresentante r
+                from representantes r
+                   , gerentes g
+                where r.idgerente = g.idgerente
+                  and ( :P682_IDFILIAL is null or g.idfilial = :P682_IDFILIAL )
+                order by 1
+                ```
+            nullDisplayValue: - Todos -
+        }
+        cascadingLov {
+            parentItems: P682_IDFILIAL
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P682_IDVENDEDORA (
+        type: popupLov
+        label {
+            label: <b>Consultora</b>
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(p.nomepessoa)||' CPF: '||p.cpf d
+                     , v.idvendedora r
+                from vendedoras v
+                   , pessoas p
+                where p.idpessoa = v.idpessoa
+                  and ( :P682_IDREPRESENTANTE is null or v.idrepresentante = :P682_IDREPRESENTANTE )
+                  and ( :P682_IDFILIAL is null or v.idfilial = :P682_IDFILIAL )
+                order by 1
+                ```
+            nullDisplayValue: - Toda -
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P682_RESPONSAVEL (
+        type: selectList
+        label {
+            label: <b>Responsável Cob.</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(nomepessoa) d
+                     , u.idusuario r
+                from pessoas p
+                   , usuarios u
+                where p.idpessoa = u.idpessoa
+                  and u.idgerente = 80
+                  and u.ativo = 'S'
+                order by 1
+                ```
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P682_SITUACAO (
+        type: radioGroup
+        label {
+            label: <b>Situação</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Todos ;T,Valor Negociado;N,Valor Pago;P,Valor em Aberto;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P682_TIPODATA (
+        type: selectList
+        label {
+            label: <b>Tipo de Data</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Envio;E,Débito;D
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: D
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--warning
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        name: Go To Page 682
+        execution {
+            sequence: 10
+            point: processing
+        }
+        behavior {
+            target: {
+                page: 682
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

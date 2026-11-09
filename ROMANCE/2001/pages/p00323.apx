@@ -1,0 +1,349 @@
+page 323 (
+    name: Relat¿ de Pagamentos da Semana
+    title: Relat¿ de Pagamentos da Semana
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    htmlHeader {
+        htmlHeader:
+            ```html
+            <style>  
+              th, td {
+                  padding: 10px;
+              }
+              
+              table tr:nth-child(even) {
+                  background-color: #eee;
+              }
+              table tr:nth-child(odd) {
+                 background-color:#fff;
+              }
+              table th {
+                  background-color: gray;
+                  color: white;
+              }
+              </style>
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region new (
+        name: New
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region relat-por-distribuidor (
+        name: Relat¿ por distribuidor
+        type: interactiveGrid
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select favorita.pck_util_fav.fnc_nomerepresentante(fr.idrepresentante) Nome
+                     , (select count(1)
+                        from catal.boletos cb
+                        where cb.idrepresentante = fr.idrepresentante
+                          and cb.idsemanabaixa = :P323_SEMANA) 
+                     +  (select count(1)
+                         from favorita.pagamentospedidos pp
+                         where exists(select vp.idvencimentopedido
+                                      from favorita.vencimentospedidos vp
+                                      where vp.idvencimentopedido = pp.idvencimentopedido
+                                        and exists (select fpp.idpedido
+                                                    from favorita.pedidos fpp
+                                                    where fpp.idrepresentante = fr.idrepresentante
+                                                      and fpp.idpedido = vp.idpedido) )
+                           and pp.idsemanapago = f.idsemana) Qtd
+                     , nvl( round( ( select sum(p.valorcobrado)
+                                     from boletos p
+                                     where p.idfilial = f.idfilial 
+                                       and p.situacao != 'Z'
+                                       and p.semanabaixa =  trim(f.semana )
+                                       and p.idrepresentante = fr.idrepresentante )) ,0)                   
+                     + nvl( round( ( select sum(pg.valorpago)
+                                     from favorita.pagamentospedidos pg
+                                     where pg.idsemanapago = f.idsemana
+                                       and pg.valorpago    > 0
+                                       and exists ( select 1
+                                                    from favorita.vencimentospedidos v
+                                                    where v.idvencimentopedido = pg.idvencimentopedido
+                                                      and v.situacaovencimento = 'V'
+                                                      and exists ( select 1
+                                                                   from favorita.pedidos pf
+                                                                   where pf.idpedido = v.idpedido
+                                                                     and pf.idfilialromance = f.idfilial
+                                                                     and fr.idrepresentante = pf.idrepresentante ) ) ) ) ,0) "Total Venda Favorita"
+                from roman.fechamentorepresentantes fr
+                   , roman.fechamentossemanais f
+                where fr.idfechamento = f.idfechamento
+                  and f.idfilial = :P0_IDFILIAL
+                  and ((f.idsemana = :P323_SEMANA
+                        and fr.idrepresentante = :P323_IDREPRESENTANTE)
+                       or (:P323_SEMANA is null
+                           and fr.idrepresentante = :P323_IDREPRESENTANTE)
+                       or (f.idsemana = :P323_SEMANA
+                           and :P323_IDREPRESENTANTE is null))
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        toolbar {
+            controls: [
+                searchCol
+                searchField
+                actionsMenu
+                resetButton
+                saveButton
+            ]
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 478288480466789014
+        }
+
+        savedReport PRIMARY (
+            visibility: primary
+            view {
+                default: grid
+            }
+            singleRowView {
+                displayedColumns: true
+            }
+
+            displayColumn (
+                column: @NOME
+                layout {
+                    sequence: 1
+                }
+            )
+
+            displayColumn (
+                column: @QTD
+                layout {
+                    sequence: 2
+                }
+            )
+
+            displayColumn (
+                column: @"Total Venda Favorita"
+                layout {
+                    sequence: 3
+                }
+            )
+
+        )
+
+        column NOME (
+            type: textarea
+            heading {
+                heading: Nome
+            }
+            layout {
+                sequence: 10
+            }
+            validation {
+                maxLength: 4000
+            }
+            source {
+                databaseColumn: NOME
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column QTD (
+            type: numberField
+            heading {
+                heading: Quantidade
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                databaseColumn: QTD
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column "Total Venda Favorita" (
+            type: numberField
+            heading {
+                heading: Total venda favorita
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: Total Venda Favorita
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+    )
+
+    pageItem P323_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select favorita.pck_util_fav.fnc_nomerepresentante(cr.idrepresentante)||'-'||cr.idrepresentante  Showvalue 
+                     , cr.idrepresentante returnvalue
+                from catal.representantes cr
+                where exists(select rf.idgerente
+                             from roman.vw_filiais rf
+                             where cr.idgerente = rf.idgerente
+                               and rf.idfilial = :P0_IDFILIAL )
+                             
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Selecione o Representante -"
+        }
+        layout {
+            sequence: 20
+            region: @new
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P323_SEMANA (
+        type: selectList
+        label {
+            label: Semana
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select (semana||'/'||ano||' ('||dt_ini||') a ('||dt_fim||')') semana
+                     , idsemana 
+                from semana_dias s
+                where ano <= extract (year from sysdate)
+                and ano > 2014
+                order by 2 desc;
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Selecione a semana -"
+        }
+        layout {
+            sequence: 10
+            region: @new
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 10
+            region: @new
+            slot: belowBox
+            horizontalAlignment: left
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+            icon: fa-filter
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+)
+

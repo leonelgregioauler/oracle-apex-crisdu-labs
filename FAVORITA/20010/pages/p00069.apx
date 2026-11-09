@@ -1,0 +1,1229 @@
+page 69 (
+    name: Reposicao Uso e Consumo
+    title: Reposicao Uso e Consumo
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: </>Filtros
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                t-Form--large
+                t-Form--stretchInputs
+                t-Form--labelsAbove
+            ]
+        }
+    )
+
+    region produto (
+        name: "Produto 1 "
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select idfilialfavorita,
+                       nome,
+                       Produto,
+                       qtdAtual,
+                       qtdDisp,
+                       ((qtdMovim) * -1) qtdMovim,
+                       sum(Qtd_Tran) Qtd_Tran,
+                       sum(Qtd_Prep) Qtd_Prep,
+                       Qtd_Receb
+                  from (
+                        --- Itens aguardando chegada na loja
+                        select distinct e.idfilialfavorita,
+                                         favorita.pck_util_fav.fnc_nomeprodutodetalhado(i.idprodutodetalhado,1) Produto,
+                                         favorita.pck_util_fav.fnc_nomefilialfavorita(e.idfilialfavorita) nome,
+                                         e.quantidade qtdAtual,
+                                         e.idestoque,
+                                         favorita.pck_estoque_fav.fnc_estoquedisponivel(e.idestoque) qtdDisp,
+                                         ( select sum(m.quantidade)
+                                           from favorita.movimentosestoques m
+                                           where m.idestoque = e.idestoque 
+                                             and m.quantidade < 0
+                                             and m.datamovimento between
+                                                 to_date(NVL(:P69_DATAINICIO,'31/12/2050') || ' 00:00:01', 'DD/MM/RRRR HH24:MI:SS') and
+                                                 to_date(NVL(:P69_DATAFIM,'31/12/2050')    || ' 23:59:59', 'DD/MM/RRRR HH24:MI:SS')) qtdMovim,
+                                         --
+                                         case
+                                           when c.idsituacao in (20, 30) -- Em Transido | Aguard. Conferencia
+                                            then
+                                            i.quantidadecomprada
+                                           else
+                                            0
+                                         end Qtd_Tran -- transito e transferido
+                                         --
+                                         ,
+                                         case
+                                           when c.idsituacao between 0 and 11 -- Em Transido | Aguard. Conferencia
+                                            then
+                                            i.quantidadecomprada
+                                           else
+                                            0
+                                         end Qtd_Prep -- qtde sendo preparada
+                                         --
+                                         ,
+                                         ( select sum(m.quantidade)
+                                           from favorita.movimentosestoques m
+                                           where m.idestoque = e.idestoque 
+                                             and m.quantidade > 0
+                                             and m.iditemcompratransf is not null
+                                             and m.datamovimento between
+                                                 to_date(NVL(:P69_DATAINICIO,'31/12/2050') || ' 00:00:01', 'DD/MM/RRRR HH24:MI:SS') and
+                                                 to_date(NVL(:P69_DATAFIM,'31/12/2050')    || ' 23:59:59', 'DD/MM/RRRR HH24:MI:SS')) Qtd_Receb
+                      
+                                         /*case
+                                           when c.idsituacao in (40) -- Recebida
+                                            then
+                                            i.quantidaderecebida
+                                           else
+                                            0
+                                         end Qtd_Receb */ --
+                                        
+                          from favorita.estoques                   e,
+                                favorita.itenscomprastransferencias i,
+                                favorita.comprastransferencias      c,
+                                favorita.filiaisfavorita            f,
+                                favorita.produtosdetalhados         p
+                         where e.idfilialfavorita = f.idfilialfavorita
+                           and e.idestoque = i.idestoquefildestino
+                           and i.idcompratransferencia = c.idcompratransferencia
+                           --and c.idsituacao not in (40)
+                           and p.idproduto = 4296
+                           and p.idprodutodetalhado = e.idprodutodetalhado
+                           and exists
+                         (select 1
+                           from favorita.atendimentosestoques a
+                          where c.idfilialfavoritadestino = a.idfilialfavoritadestino
+                            and ( a.idfilialfavoritaorigem = :P69_IDFILIALFAVORITA  or :P69_IDFILIALFAVORITA is null)-- filtro de filial favorita
+                            and exists ( select 1
+                                           from favorita.filiaisfavorita f
+                                         where f.idfilialfavorita = a.idfilialfavoritadestino
+                                           and f.tipofilial in ('L','E')))  
+                       group by e.idfilialfavorita,
+                             e.quantidade,
+                             i.idprodutodetalhado,
+                             e.idestoque,
+                             i.quantidadecomprada, 
+                            -- i.quantidaderecebida,
+                             c.idsituacao )        
+                 group by idfilialfavorita, nome,Produto, qtdAtual, qtdAtual, qtdDisp, qtdMovim, Qtd_Receb
+                 order by 1
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        messages {
+            whenNoDataFound: Não encontrou informações.
+        }
+        advanced {
+            savedReportMappingIdentifier: 4540342141727989735
+        }
+
+        column IDFILIALFAVORITA (
+            type: plainText
+            heading {
+                heading: Idfilialfavorita
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column NOME (
+            type: plainText
+            heading {
+                heading: Nome
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column PRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AB
+            }
+        )
+
+        column QTDATUAL (
+            type: plainText
+            heading {
+                heading: Físico
+                alignment: end
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column QTDDISP (
+            type: plainText
+            heading {
+                heading: Disponível
+                alignment: end
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column QTDMOVIM (
+            type: plainText
+            heading {
+                heading: Mov. Período
+                alignment: end
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column QTD_PREP (
+            type: link
+            heading {
+                heading: Sendo Preparado
+                alignment: end
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 70
+                    items: {
+                        P70_IDFILIALFAVORITA: #IDFILIALFAVORITA#
+                        P70_IDPRODUTO: &P69_IDPRODUTO_1.
+                        P70_TIPOSIT: P
+                    }
+                    clearCache: 70
+                    action: resetPagination
+                }
+                linkText: #QTD_PREP#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column QTD_RECEB (
+            type: plainText
+            heading {
+                heading: Qtd.Recebida
+                alignment: end
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column QTD_TRAN (
+            type: link
+            heading {
+                heading: Em Trânsito
+                alignment: end
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 70
+                    items: {
+                        P70_IDFILIALFAVORITA: #IDFILIALFAVORITA#
+                        P70_IDPRODUTO: &P69_IDPRODUTO_1.
+                        P70_TIPOSIT: T
+                    }
+                    clearCache: 70
+                    action: resetPagination
+                }
+                linkText: #QTD_TRAN#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 100436 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn NOME (
+                sequence: 1
+            )
+
+            displayColumn PRODUTO (
+                sequence: 2
+            )
+
+            displayColumn QTDATUAL (
+                sequence: 3
+            )
+
+            displayColumn QTDDISP (
+                sequence: 4
+            )
+
+            displayColumn QTDMOVIM (
+                sequence: 7
+            )
+
+            displayColumn QTD_PREP (
+                sequence: 6
+            )
+
+            displayColumn QTD_RECEB (
+                sequence: 8
+            )
+
+            displayColumn QTD_TRAN (
+                sequence: 5
+            )
+
+            aggregate (
+                column: VALORVENDATOTAL
+            )
+
+            aggregate (
+                column: VALORAPAGAR
+            )
+
+            aggregate (
+                column: VALORCUSTOTOTAL
+            )
+
+            aggregate (
+                column: VALORLUCROBRUTO
+            )
+
+            aggregate (
+                column: QUANTIDADEVENDIDA
+            )
+
+            aggregate (
+                column: DISPONIVEL
+            )
+
+        )
+
+    )
+
+    region produto-2 (
+        name: Produto 2
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select idfilialfavorita,
+                       nome,
+                       Produto,
+                       qtdAtual,
+                       qtdDisp,
+                       (sum(qtdMovim) * -1) qtdMovim,
+                       sum(Qtd_Tran) Qtd_Tran,
+                       sum(Qtd_Prep) Qtd_Prep
+                  from (
+                        --- Itens aguardando chegada na loja
+                        select distinct e.idfilialfavorita,
+                                         favorita.pck_util_fav.fnc_nomefilialfavorita(e.idfilialfavorita) nome,
+                                         favorita.pck_util_fav.fnc_nomeprodutodetalhado(e.idprodutodetalhado,1) Produto,
+                                         e.quantidade qtdAtual,
+                                         e.idestoque,
+                                         favorita.pck_estoque_fav.fnc_estoquedisponivel(e.idestoque) qtdDisp,
+                                         -- m.idmovimentoestoque, --, i.idcompratransferencia, i.iditemcompratransferencia
+                                         ( select sum(m.quantidade)
+                                           from favorita.movimentosestoques m
+                                           where m.idestoque = e.idestoque 
+                                             and m.quantidade < 0
+                                             and m.datamovimento between
+                                                 to_date(NVL(:P69_DATAINICIO,'31/12/2050') || ' 00:00:01', 'DD/MM/RRRR HH24:MI:SS') and
+                                                 to_date(NVL(:P69_DATAFIM,'31/12/2050')    || ' 23:59:59', 'DD/MM/RRRR HH24:MI:SS')) qtdMovim,
+                                         ( select sum ( case
+                                                       when c.idsituacao in (20, 30) -- Em Transido | Aguard. Conferencia
+                                                       then
+                                                        i.quantidadecomprada
+                                                       else
+                                                        0
+                                                       end )
+                                           from  favorita.itenscomprastransferencias i,
+                                                 favorita.comprastransferencias      c 
+                                           where e.idestoque = i.idestoquefildestino
+                                             and i.idcompratransferencia = c.idcompratransferencia
+                                             and c.idsituacao not in (40))Qtd_Tran -- transito e transferido
+                                         --
+                                        , ( select sum ( case
+                                                         when c.idsituacao between 0 and 11 -- Em Transido | Aguard. Conferencia
+                                                         then
+                                                           i.quantidadecomprada
+                                                         else
+                                                           0
+                                                         end )
+                                           from  favorita.itenscomprastransferencias i,
+                                                 favorita.comprastransferencias      c 
+                                           where e.idestoque = i.idestoquefildestino
+                                             and i.idcompratransferencia = c.idcompratransferencia
+                                             and c.idsituacao not in (40))Qtd_Prep -- qtde sendo preparada
+                          from favorita.estoques                    e,
+                                favorita.filiaisfavorita            f,
+                                favorita.produtosdetalhados         p
+                         where e.idfilialfavorita = f.idfilialfavorita
+                           and p.idproduto = 4953 -- 
+                           and p.idprodutodetalhado = e.idprodutodetalhado
+                           and ( :P69_IDFILIALFAVORITA is null or e.idfilialfavorita = :P69_IDFILIALFAVORITA )
+                       group by e.idfilialfavorita,
+                             e.quantidade,
+                             e.idestoque,
+                             e.idprodutodetalhado)          
+                 group by idfilialfavorita, nome, qtdAtual, qtdAtual, qtdDisp, Produto
+                 order by 1
+                
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        messages {
+            whenNoDataFound: Não encontrou informações.
+        }
+        advanced {
+            savedReportMappingIdentifier: 4540344628331989760
+        }
+
+        column IDFILIALFAVORITA (
+            type: plainText
+            heading {
+                heading: Idfilialfavorita
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column NOME (
+            type: plainText
+            heading {
+                heading: Nome
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column PRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AD
+            }
+        )
+
+        column QTDATUAL (
+            type: plainText
+            heading {
+                heading: Físico
+                alignment: end
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column QTDDISP (
+            type: plainText
+            heading {
+                heading: Disponível
+                alignment: end
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column QTDMOVIM (
+            type: plainText
+            heading {
+                heading: Mov. Período
+                alignment: end
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column QTD_PREP (
+            type: link
+            heading {
+                heading: Sendo Preparado
+                alignment: end
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 70
+                    items: {
+                        P70_IDFILIALFAVORITA: #IDFILIALFAVORITA#
+                        P70_IDPRODUTO: &P69_IDPRODUTO_2.
+                        P70_TIPOSIT: P
+                    }
+                    clearCache: 70
+                    action: resetPagination
+                }
+                linkText: #QTD_PREP#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AB
+            }
+        )
+
+        column QTD_TRAN (
+            type: link
+            heading {
+                heading: Em Trânsito
+                alignment: end
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 70
+                    items: {
+                        P70_IDFILIALFAVORITA: #IDFILIALFAVORITA#
+                        P70_IDPRODUTO: &P69_IDPRODUTO_2.
+                        P70_TIPOSIT: T
+                    }
+                    clearCache: 70
+                    action: resetPagination
+                }
+                linkText: #QTD_TRAN#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 100334 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn NOME (
+                sequence: 1
+            )
+
+            displayColumn PRODUTO (
+                sequence: 7
+            )
+
+            displayColumn QTDATUAL (
+                sequence: 2
+            )
+
+            displayColumn QTDDISP (
+                sequence: 3
+            )
+
+            displayColumn QTDMOVIM (
+                sequence: 6
+            )
+
+            displayColumn QTD_PREP (
+                sequence: 5
+            )
+
+            displayColumn QTD_TRAN (
+                sequence: 4
+            )
+
+            aggregate (
+                column: DISPONIVEL
+            )
+
+            aggregate (
+                column: QUANTIDADEVENDIDA
+            )
+
+            aggregate (
+                column: VALORCUSTOTOTAL
+            )
+
+            aggregate (
+                column: VALORAPAGAR
+            )
+
+            aggregate (
+                column: VALORVENDATOTAL
+            )
+
+            aggregate (
+                column: VALORLUCROBRUTO
+            )
+
+        )
+
+    )
+
+    region seletor (
+        name: Seletor
+        type: regionDisplaySelector
+        layout {
+            sequence: 20
+            slot: breadcrumbBar
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        settings {
+            rememberSelection: bySession
+        }
+    )
+
+    pageItem P69_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: até
+            alignment: left
+        }
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: dd/mm/rrrr
+            width: 10
+        }
+        default {
+            type: expression
+            plsqlExpression: NULL
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P69_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: Emissão de
+            alignment: left
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: dd/mm/rrrr
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P69_IDFILIALFAVORITA (
+        type: selectList
+        label {
+            label: Estoque Favorita
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomefilialfavorita(idfilialfavorita) as d,
+                       idfilialfavorita as r
+                  from filiaisfavorita
+                  where tipofilial = 'E'
+                 order by 1
+                ```
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P69_IDPRODUTO_1 (
+        type: plugin/select
+        label {
+            label: Produto 1
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select referencia||'-'||nomeproduto display_value
+                  , idproduto
+                from favorita.vw_produtos_fav w
+                where ididioma = 1
+                order by nomeproduto
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Todos - "
+        }
+        layout {
+            sequence: 120
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: static
+            staticValue: 4296
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P69_IDPRODUTO_2 (
+        type: plugin/select
+        label {
+            label: Produto 2
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select referencia||'-'||nomeproduto display_value
+                  , idproduto
+                from favorita.vw_produtos_fav w
+                where ididioma = 1
+                order by nomeproduto
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Todos - "
+        }
+        layout {
+            sequence: 130
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            warnOnUnsavedChanges: ignore
+        }
+        default {
+            type: static
+            staticValue: 4953
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P69_TIPOFILTRO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 140
+            region: @filtros
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: Filtrar
+        label: Filtrar
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: bottom
+            horizontalAlignment: left
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--warning
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction filtrar (
+        name: Filtrar
+        execution {
+            sequence: 70
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @filtrar
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: SUBMIT
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction filtro-fornecedores (
+        name: FILTRO FORNECEDORES
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P69_TIPOFILTRO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P69_TIPOFILTRO
+            value: 2
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P69_TIPOFILTROFORNECEDOR
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P69_IDFILIALFAVORITA
+                    P69_TIPOFILTROFORNECEDOR
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction filtro-produtos (
+        name: FILTRO PRODUTOS
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P69_TIPOFILTRO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P69_TIPOFILTRO
+            value: 1
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P69_IDPRODUTODETALHADO
+                    P69_IDPAIS
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P69_IDFORNECEDOR
+            }
+            execution {
+                sequence: 30
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P69_IDFILIALFAVORITA
+                    P69_DATAINICIO
+                    P69_DATAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction não-filtrar (
+        name: NÃO FILTRAR
+        execution {
+            sequence: 40
+        }
+        when {
+            selectionType: items
+            items: P69_TIPOFILTRO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P69_TIPOFILTRO
+            value: -1
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P69_IDFILIALFAVORITA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: region
+                region: @filtros
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: region
+                region: @filtros
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    validation valida-data (
+        name: Valida Data
+        execution {
+            sequence: 10
+        }
+        validation {
+            language: sql
+            sqlExpression: :P69_DATAINICIO is not null and :P69_DATAFIM is not null
+        }
+        error {
+            errorMessage: Informe a data inicio e fim!
+        }
+    )
+
+    branch (
+        name: Go To Page 69
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 69
+                items: {
+                    P69_IDFILIALFAVORITA: &P69_IDFILIALFAVORITA.
+                    P69_DATAINICIO: &P69_DATAINICIO.
+                    P69_DATAFIM: &P69_DATAFIM.
+                }
+                clearCache: 4
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

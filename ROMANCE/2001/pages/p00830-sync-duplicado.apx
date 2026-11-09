@@ -1,0 +1,305 @@
+page 830 (
+    name: Sync Duplicado
+    alias: SYNC-DUPLICADO
+    title: Sync Duplicado
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+
+    region sync-duplicado (
+        name: Sync duplicado
+        type: staticContent
+        layout {
+            sequence: 40
+            slot: dialogHeader
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        headerAndFooter {
+            headerText: <b><font color="red">Atenção: Ao liberar um sync duplicado, o distribuidor poderá fazer mais de um sync na mesma semana, com isso as notas pulam de semana também</font></b>
+        }
+    )
+
+    region últimas-liberações (
+        name: Últimas liberações
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomerepresentante(l.idrepresentante) || ' - ' || l.idrepresentante as distribuidor,
+                       l.idrepresentante,
+                       to_char(l.dataliberacao, 'dd/mm/yyyy hh24:mi') as dataliberacao
+                  from roman.liberasyncduplicado l
+                 where l.dataliberacao >= sysdate - 1
+                   and exists (select 1
+                                 from catal.representantes r
+                                where r.idrepresentante = l.idrepresentante
+                                  and r.idfilial = :P830_IDFILIAL);
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--showIcon
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--stretch
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+        }
+
+        column DATALIBERACAO (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Liberado em
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+        )
+
+        column DISTRIBUIDOR (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+        )
+
+        column IDREPRESENTANTE (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 10
+            }
+        )
+
+    )
+
+    pageItem P830_IDFILIAL (
+        type: hidden
+        layout {
+            sequence: 20
+            region: @sync-duplicado
+            slot: regionBody
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                begin
+                 return :P0_IDFILIAL;
+                END;
+                ```
+        }
+    )
+
+    pageItem P830_IDREPRESENTANTE (
+        type: selectOne
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomerepresentante(r.idrepresentante) || ' - ' || r.idrepresentante as distribuidor,
+                       r.idrepresentante
+                  from catal.representantes r
+                 where r.ativo = 'S'
+                   and r.idfilial = :P830_IDFILIAL
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @sync-duplicado
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+    )
+
+    button liberasync (
+        buttonName: Liberasync
+        label: Liberar Sync Duplicado
+        layout {
+            sequence: 10
+            region: @sync-duplicado
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+            databaseAction: insert
+        }
+    )
+
+    button removesync (
+        buttonName: Removesync
+        label: Remover Sync Duplicado
+        layout {
+            sequence: 40
+            region: @sync-duplicado
+            slot: delete
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--danger
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+            databaseAction: delete
+        }
+    )
+
+    validation valida-sync-duplicado-liberado (
+        name: valida sync duplicado liberado
+        execution {
+            sequence: 10
+        }
+        validation {
+            language: sql
+            sqlExpression:
+                ```sql
+                not exists (select 1
+                            from roman.liberasyncduplicado l
+                            where l.idrepresentante = :P830_IDREPRESENTANTE
+                            and l.dataliberacao >= sysdate - 1)
+                ```
+        }
+        error {
+            errorMessage: "Sync duplicado já liberado para este distribuidor! "
+        }
+        serverSideCondition {
+            whenButtonPressed: @liberasync
+        }
+    )
+
+    process desfazer-sync-duplicado (
+        name: Desfazer Sync Duplicado
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  delete liberasyncduplicado
+                  where idrepresentante = :P830_IDREPRESENTANTE;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: Sync Duplicado Removido!
+        }
+        advanced {
+            executionMappingIdentifier: 25531849250516295
+        }
+        serverSideCondition {
+            whenButtonPressed: @removesync
+        }
+    )
+
+    process libera-sync-duplicado (
+        name: Libera Sync Duplicado
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  insert into liberasyncduplicado (idrepresentante)
+                  values (:P830_IDREPRESENTANTE);
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Liberação realizada com sucesso!
+        }
+        error {
+            errorMessage: Erro.
+        }
+        advanced {
+            executionMappingIdentifier: 25531553595514751
+        }
+        serverSideCondition {
+            whenButtonPressed: @liberasync
+        }
+    )
+
+    branch (
+        name: Go To Page 830
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 830
+                items: {
+                    P830_IDREPRESENTANTE: &P830_IDREPRESENTANTE.
+                }
+            }
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+)
+

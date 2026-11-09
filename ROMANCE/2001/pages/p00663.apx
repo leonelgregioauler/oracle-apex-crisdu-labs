@@ -1,0 +1,351 @@
+page 663 (
+    name: Criar uma Nova Negociação
+    title: Criar uma Nova Negociação
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region formulário (
+        name: Formulário
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P663_FORMADEPAGAMENTO (
+        type: selectList
+        label {
+            label: Forma de Pagamento
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Cartão de Crétido;C,Depósito;D,Boleto;B,PIX;P
+            displayExtraValues: false
+            nullDisplayValue: - Selecione a Forma de Pagamento -
+        }
+        layout {
+            sequence: 30
+            region: @formulário
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P663_IDNEGOCIACAO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @formulário
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P663_IDVENDEDORA (
+        type: popupLov
+        label {
+            label: Consultora
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+            initialFetch: onUserRequest
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(p.nomepessoa)||' - '||p.cpf d
+                     , v.idvendedora r
+                from vendedoras v
+                   , pessoas p
+                where p.idpessoa = v.idpessoa
+                  and v.ativo = 'S'
+                ```
+        }
+        layout {
+            sequence: 20
+            region: @formulário
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P663_OBSERVACAO (
+        type: textarea
+        label {
+            label: Observação
+            alignment: left
+        }
+        layout {
+            sequence: 70
+            region: @formulário
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 50
+            height: 5
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P663_PARCELAS (
+        type: numberField
+        label {
+            label: Parcelas
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 60
+            region: @formulário
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P663_VALOR (
+        type: numberField
+        label {
+            label: "Valor "
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 50
+            region: @formulário
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P663_VENCIMENTO (
+        type: datePickerJquery
+        label {
+            label: Primeiro Vencimento
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @formulário
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 20
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button criar (
+        buttonName: CRIAR
+        label: Criar Negociação
+        layout {
+            sequence: 20
+            region: @formulário
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button voltar (
+        buttonName: VOLTAR
+        label: Voltar
+        layout {
+            sequence: 10
+            region: @formulário
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process gera-negociação-manual (
+        name: Gera Negociação Manual
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidnegociacao number;
+                  vidcontabancaria number := null;
+                  vidusuario number;
+                  vvalorentrada number;
+                  vvencimentoentrada date;
+                  vvalorparcela number;
+                  vidtarefa number;
+                  vcampanhaespecial varchar2(1);
+                  --
+                begin
+                  --
+                  select idusuario
+                  into vidusuario
+                  from usuarios 
+                  where usuario = v('APP_USER');
+                  --
+                  vvalorparcela := round(:P663_VALOR / :P663_PARCELAS,2);
+                  --
+                  pck_negociacoes_rmc.prc_gera_acordo_bee(pidnegociacao => vidnegociacao,
+                                                          pidvendedora => :P663_IDVENDEDORA,
+                                                          pvaloracordototal => :P663_VALOR,
+                                                          pformapagamento => :P663_FORMADEPAGAMENTO,
+                                                          pvalorentrada => vvalorentrada,
+                                                          pvencimentoentrada => vvencimentoentrada,
+                                                          pqtdparcelas => :P663_PARCELAS,
+                                                          pvalorparcela => vvalorparcela,
+                                                          pidcontabancaria => vidcontabancaria,
+                                                          pidusuario => vidusuario,
+                                                          pvencimento => :P663_VENCIMENTO,
+                                                          pobservacao => :P663_OBSERVACAO,
+                                                          pidtarefa => vidtarefa,
+                                                          pcampanhaespecial => vcampanhaespecial );
+                  --
+                  :P663_IDNEGOCIACAO := vidnegociacao;
+                  --
+                end;
+                
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Negociação gerada com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 98858379083063235
+        }
+        serverSideCondition {
+            whenButtonPressed: @criar
+        }
+    )
+
+    branch (
+        name: Go To Page 591
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 591
+                items: {
+                    P591_IDNEGOCIACAOPARCEIRO: &P663_IDNEGOCIACAO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @criar
+        }
+    )
+
+)
+

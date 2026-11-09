@@ -1,0 +1,3941 @@
+page 700 (
+    name: Consulta DOC
+    alias: CONSULTA-DOC
+    title: Consulta DOC
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region ações (
+        name: Ações
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from roman.usuariosgruposatendimento ug
+                   , usuarios u
+                where ug.usuario = u.usuario
+                  and u.idusuario = :P0_IDUSUARIO
+                  and ug.idgrupoatendimento in ( 0, 3 , 7 , 9 , 10 , 22 ,25 )
+                  and :P700_CPF is not null
+                ```
+        }
+    )
+
+    region cliente (
+        name: Cliente
+        type: staticContent
+        layout {
+            sequence: 10
+            parentRegion: @cliente-2
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P700_CPF is not null
+                   or :P700_DOC is not null
+                ```
+        }
+    )
+
+    region cliente-2 (
+        name: Cliente
+        type: staticContent
+        source {
+            htmlCode: <script type="text/javascript" src="https://websocket.romancemoda.com.br/romance_spc.js"></script>
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region consulta-documento (
+        name: Consulta Documento
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region débitos-favorita (
+        name: Débitos Favorita
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  --
+                  v_sql varchar2(4000);
+                  --
+                begin
+                  --
+                  v_sql := 'select b.dataemissao "Dt Emissão"
+                     , b.datavencimento "Dt Vencimento"
+                     , b.numero "Numero"
+                     , (select s.descricao
+                        from catal.situacoes s
+                        where s.idsituacao = b.situacao) "Situação"
+                     , b.valororiginal "Valor"
+                     , roman.pck_romance.fnc_nomerepresentante(b.idrepresentante) "Representante"
+                     , roman.pck_romance.fnc_nomefilial(roman.pck_romance.fnc_filialrepresentante(b.IDREPRESENTANTE)) "Empresa Cliente R."
+                     , ( select nrpedido from catal.pedidos where idpedido = b.idpedido ) "Nr Pedido"
+                     , pck_util.fnc_calculajuros_v2( p_valor_debito  => b.valororiginal,
+                                                      p_data_venc     => b.datavencimento,
+                                                      p_data_calc     => sysdate,
+                                                      p_idpais        => 1) valoratualizado
+                     , null urlpedido
+                     , null situacaopagamento
+                from catal.boletos b
+                where b.situacao in (''V'',''G'',''S'',''M'',''K'',''E'')
+                  and b.idvendedora = (select idvendedora 
+                                       from vendedoras 
+                                       where idpessoa = :P700_IDPESSOA )
+                union
+                select p.dataemissao
+                     , p.datavencimentomenor
+                     , p.numeropedido
+                     , p.situacaoentrega
+                     , p.valorapagar - p.valorpago
+                     , p.representante
+                     , roman.pck_romance.fnc_nomefilial(roman.pck_romance.fnc_filialrepresentante(p.IDREPRESENTANTE))
+                     , p.numeropedido
+                     , favorita.pck_util_fav.fnc_calculajurosporvencimento( pidpedido => p.idpedido, ppercmulta  => 2, ppercjuros  => 1) valoratualizado, '||
+                       '''<a href="javascript:window.open('|| '''''''||APEX_UTIL.PREPARE_URL('||''||''''||'f?p='||''''|| ' || 2000 || '||''''||':68:'||''''||'||' ||
+                             'v(''APP_SESSION'')||''::NO::P68_IDPEDIDO:''||p.idpedido ,''SESSION'')||' || ''''''',' || ''''''||'_blank' || '''''); ' || 
+                             'void(0)"><img src="#IMAGE_PREFIX#magnifying_glass_white_bg.gif" class="apex-edit-pencil" alt=""></a>'' urlpedido  
+                     , p.situacaopagamento
+                from vw_pedidos_fav_venc p
+                where p.idvendedora = (select idvendedora 
+                                       from vendedoras 
+                                       where idpessoa = :P700_IDPESSOA )
+                  and exists ( select 1
+                               from favorita.vencimentospedidos v
+                               where v.idpedido = p.idpedido
+                                 and v.datavencimento < sysdate
+                                 and v.valorpago < v.valorpagar
+                                 and v.situacaovencimento = ''V'')
+                  and p.datacancelamento is null -- Cancelado
+                  and not exists ( select 1 
+                                   from classificacoespedidos c
+                                   where c.idpedido = p.idpedido
+                                     and c.idcaracteristicapedido = 46 ) 
+                  and trunc(p.valorapagar - p.valorpago,2) > 0 ';
+                 
+                
+                return v_sql;
+                
+                end;
+                ```
+            pageItemsToSubmit: [
+                P700_CPF
+                P700_DOC
+                P700_IDPESSOA
+            ]
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P700_CPF is not null
+                   or :P700_DOC is not null
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        messages {
+            whenNoDataFound: Nenhum Débito da Favorita Encontrado
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 1661273554201759372
+        }
+
+        column "Dt Emissão" (
+            type: plainText
+            heading {
+                heading: Dt Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Dt Vencimento" (
+            type: plainText
+            heading {
+                heading: Dt Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Empresa Cliente R." (
+            type: plainText
+            heading {
+                heading: Empresa Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column "Nr Pedido" (
+            type: plainText
+            heading {
+                heading: Nr pedido
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column Numero (
+            type: plainText
+            heading {
+                heading: Número
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column SITUACAOPAGAMENTO (
+            type: plainText
+            heading {
+                heading: Situação Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column Situação (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column URLPEDIDO (
+            type: plainText
+            heading {
+                heading: Ir P/ Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column VALORATUALIZADO (
+            type: plainText
+            heading {
+                heading: Valor Atualizado
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column Valor (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        savedReport 3396598 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Dt Emissão" (
+                sequence: 1
+            )
+
+            displayColumn "Dt Vencimento" (
+                sequence: 2
+            )
+
+            displayColumn "Empresa Cliente R." (
+                sequence: 7
+            )
+
+            displayColumn "Nr Pedido" (
+                sequence: 8
+            )
+
+            displayColumn "Numero" (
+                sequence: 3
+            )
+
+            displayColumn "Representante" (
+                sequence: 6
+            )
+
+            displayColumn SITUACAOPAGAMENTO (
+                sequence: 11
+            )
+
+            displayColumn "Situação" (
+                sequence: 4
+            )
+
+            displayColumn URLPEDIDO (
+                sequence: 10
+            )
+
+            displayColumn VALORATUALIZADO (
+                sequence: 9
+            )
+
+            displayColumn "Valor" (
+                sequence: 5
+            )
+
+        )
+
+    )
+
+    region débitos-notas-em-papéis (
+        name: Débitos Notas Em Papéis
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                return q'~
+                select pr.nrpedido "Nr Nota"
+                  , pr.valor "Valor"
+                  , pr.semana "Semana"
+                  , decode(pr.situacao,'N','Novo','P','Pago','C','Cobrança','D','Devolução Representante','S','SPC') "Situação"
+                  , pr.semanapago "Semana Pago"
+                  , pr.observacao "Observação"
+                  , roman.pck_romance.fnc_nomerepresentante(pr.idrepresentante) "Representante"
+                  , pr.dataenviocobranca "Data Envio Cob"
+                  , (select valor - nvl(( select sum(valor)
+                         from roman.pepinosrepresentantes
+                                 where nrpedido = PR.NRPEDIDO
+                                   and idrepresentante = PR.IDREPRESENTANTE
+                                   and situacao = 'P' ),0)
+                       from roman.pepinosrepresentantes P
+                       where idpepinosrepresentante = pr.idpepinosrepresentante) "Saldo"
+                  , nvl(cpf,'PAGAMENTO SEM VÍNCULO DE CPF') "Cpf"
+                  , decode(pr.situacao,'P',roman.pck_romance.fnc_retornacodigoliberacao(pr.idpepinosrepresentante++10000000)) "Cód Liberação"
+                from roman.pepinosrepresentantes pr
+                where ( pr.cpf = replace(replace(:P700_CPF,'-',''),'.','')
+                       or lower(pr.nomevendedora) = :P700_CLIENTE_NOME   )
+                
+                ~';
+                ```
+        }
+        layout {
+            sequence: 80
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        headerAndFooter {
+            headerText: <br><font size="3" color="green"> Observar cuidadosamente o CPF que está informado no débito, caso seja diferente do CPF PESQUISADO, pertence a outra consultora com o MESMO nome, caso não possua CPF, há necessidade de verificar com o setor de COBRANÇA.</font></b>
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P700_CPF is not null
+                   or :P700_DOC is not null
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        messages {
+            whenNoDataFound: Nenhum Débito de Papel encontrado
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 1661271305419759349
+        }
+
+        column Cpf (
+            type: plainText
+            heading {
+                heading: Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "Cód Liberação" (
+            type: plainText
+            heading {
+                heading: Cód liberação
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "Data Envio Cob" (
+            type: plainText
+            heading {
+                heading: Data envio cob
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Nr Nota" (
+            type: plainText
+            heading {
+                heading: Nr Nota
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column Observação (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column Saldo (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column Semana (
+            type: plainText
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Semana Pago" (
+            type: plainText
+            heading {
+                heading: Semana pago
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column Situação (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column Valor (
+            type: plainText
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        savedReport 3396449 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Cpf" (
+                sequence: 10
+            )
+
+            displayColumn "Cód Liberação" (
+                sequence: 11
+            )
+
+            displayColumn "Data Envio Cob" (
+                sequence: 8
+            )
+
+            displayColumn "Nr Nota" (
+                sequence: 1
+            )
+
+            displayColumn "Observação" (
+                sequence: 6
+            )
+
+            displayColumn "Representante" (
+                sequence: 7
+            )
+
+            displayColumn "Saldo" (
+                sequence: 9
+            )
+
+            displayColumn "Semana" (
+                sequence: 3
+            )
+
+            displayColumn "Semana Pago" (
+                sequence: 5
+            )
+
+            displayColumn "Situação" (
+                sequence: 4
+            )
+
+            displayColumn "Valor" (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    region débitos-notas-romance (
+        name: Débitos Notas Romance
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                return q'~
+                select nv.numeronota
+                  , nv.semanadistribuicao "Distribuição"
+                  , nv.semanacobranca "Cobrança"
+                  , roman.pck_romance.fnc_nomerepresentante(nv.idrepresentante) "Representante"
+                  , nv.valortotalnota "Total da Nota"
+                  , nv.perccomissao "Comissão"
+                  , nv.valortotalvendalqd "Total Venda Liquida"
+                  , nvl((select SUM(p.valor)
+                          from roman.pepinosrepresentantes p
+                          where p.idnotavenda = nv.idnotavenda
+                            and p.situacao    = 'P'
+                            and p.idfechamentoreprespago is null ),0) +
+                          nvl((select sum(pnv.valorpago)
+                               from roman.pagamentosnotasvendas pnv
+                               where pnv.idnotavenda = nv.idnotavenda
+                                 and trim(pnv.semanacobranca) is null
+                                 and not exists ( select 1 
+                                                  from roman.pepinosrepresentantes p
+                                                  where p.idnotavenda = pnv.idnotavenda 
+                                                    and p.valor       = pnv.valorpago
+                                                    and p.idfechamentoreprespago is null
+                                                    and p.situacao = 'P') ),0) SETORCOBRANCA
+                  , nv.valorpago "Pago"
+                  , nv.saldo "Saldo"
+                  , roman.pck_romance.fnc_nomefilial(roman.pck_romance.fnc_filialrepresentante(NV.IDREPRESENTANTE)) "Empresa Cliente R"
+                  , decode(nv.enviadocobranca,'S','Sim','Não') enviadocobranca
+                  , decode(nv.enviadocobranca,'S',pck_util.fnc_calculajuros_v2( p_valor_debito => nv.saldo,
+                                                                                   p_data_venc    => nv.dataretornoorig,
+                                                                                   p_data_calc    => sysdate,
+                                                                                   p_idpais       => catal.pck_util.fnc_paisvendedora(pidvendedora => nv.idvendedora)),null) "Saldo Atualizado"
+                from roman.notasvendas nv
+                where nv.saldo > 0
+                  and nv.idsituacaonotavenda in (4,5)
+                  and nv.idvendedora = ( select idvendedora 
+                                         from vendedoras 
+                                         where idpessoa = :P700_IDPESSOA )
+                order by 3 desc
+                
+                ~';
+                ```
+        }
+        layout {
+            sequence: 60
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P700_CPF is not null
+                   or :P700_DOC is not null
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        messages {
+            whenNoDataFound: Nenhum Débito Romance Encontrado
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 1660838850360454381
+        }
+
+        column Cobrança (
+            type: plainText
+            heading {
+                heading: Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column Comissão (
+            type: plainText
+            heading {
+                heading: Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column Distribuição (
+            type: plainText
+            heading {
+                heading: Distribuição
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column ENVIADOCOBRANCA (
+            type: plainText
+            heading {
+                heading: Enviado para Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column "Empresa Cliente R" (
+            type: plainText
+            heading {
+                heading: Empresa cliente r
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column NUMERONOTA (
+            type: plainText
+            heading {
+                heading: Nr Nota
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column Pago (
+            type: plainText
+            heading {
+                heading: Pago
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column SETORCOBRANCA (
+            type: plainText
+            heading {
+                heading: Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column Saldo (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "Saldo Atualizado" (
+            type: plainText
+            heading {
+                heading: Saldo Atualizado
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column "Total Venda Liquida" (
+            type: plainText
+            heading {
+                heading: Total Venda Líquida
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column "Total da Nota" (
+            type: plainText
+            heading {
+                heading: Total da nota
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        savedReport 3396444 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Cobrança" (
+                sequence: 3
+            )
+
+            displayColumn "Comissão" (
+                sequence: 6
+            )
+
+            displayColumn "Distribuição" (
+                sequence: 2
+            )
+
+            displayColumn ENVIADOCOBRANCA (
+                sequence: 13
+            )
+
+            displayColumn "Empresa Cliente R" (
+                sequence: 11
+            )
+
+            displayColumn NUMERONOTA (
+                sequence: 1
+            )
+
+            displayColumn "Pago" (
+                sequence: 9
+            )
+
+            displayColumn "Representante" (
+                sequence: 4
+            )
+
+            displayColumn SETORCOBRANCA (
+                sequence: 8
+            )
+
+            displayColumn "Saldo" (
+                sequence: 10
+            )
+
+            displayColumn "Saldo Atualizado" (
+                sequence: 12
+            )
+
+            displayColumn "Total Venda Liquida" (
+                sequence: 7
+            )
+
+            displayColumn "Total da Nota" (
+                sequence: 5
+            )
+
+        )
+
+    )
+
+    region histórico-cliente (
+        name: Histórico Cliente
+        type: staticContent
+        layout {
+            sequence: 20
+            parentRegion: @cliente-2
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P700_CPF is not null
+                   or :P700_DOC is not null
+                ```
+        }
+    )
+
+    region histórico-de-pontuação-programa-estrela (
+        name: Histórico de Pontuação Programa Estrela
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                return q'~
+                select t.pontos         as "Pontos"
+                     , t.tipodocumento  as "Tipo Documento"
+                     , t.documento      as "Documento"
+                     , case
+                         when t.idregistrologinminhasacola is not null then
+                           ( select r.datalogin
+                               from roman.registrosloginminhasacola r
+                              where r.idregistrologinminhasacola = t.idregistrologinminhasacola )
+                         when t.idpagamentonotavenda is not null then
+                           (select datapagamento 
+                              from roman.pagamentosnotasvendas 
+                             where idpagtonotavenda = t.idpagamentonotavenda ) 
+                         when t.idpedido is not null and exists ( select 1
+                                                                    from roman.vw_filiais fl
+                                                                   where fl.idfilial = t.idfilial
+                                                                     and fl.ididioma = 1) then --brasil
+                           (select datapagamento 
+                              from favorita.pagamentospedidos
+                             where idpagamentopedido = t.idpagamentopedido)
+                         when t.idpedido is not null and exists ( select 1
+                                                                    from roman.vw_filiais fl
+                                                                   where fl.idfilial = t.idfilial
+                                                                     and fl.ididioma != 1) then --exterior
+                           (select databaixa 
+                              from favorita.pagamentospedidos
+                             where idpagamentopedido = t.idpagamentopedido)
+                       end as "Data Pagamento"
+                    , roman.pck_util.fnc_semanaid(t.idsemana)  as "Semana Cobrança Pagamento"
+                    , dataexpiracao                            as "Data Expiração"
+                  from roman.vw_detalhamento_pontos t
+                 where t.idpessoa = :P700_IDPESSOA;
+                ~';
+                ```
+        }
+        layout {
+            sequence: 100
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent12
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P700_CPF is not null
+                   or :P700_DOC is not null
+                ```
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 2642525030664014548
+        }
+
+        column "Data Expiração" (
+            type: plainText
+            heading {
+                heading: Data Expiração
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column "Data Pagamento" (
+            type: plainText
+            heading {
+                heading: Data Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column Documento (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column Pontos (
+            type: plainText
+            heading {
+                heading: Pontos
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Semana Cobrança Pagamento" (
+            type: plainText
+            heading {
+                heading: Semana Cobrança Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column "Tipo Documento" (
+            type: plainText
+            heading {
+                heading: Tipo Documento
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 13208885 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Data Expiração" (
+                sequence: 6
+            )
+
+            displayColumn "Data Pagamento" (
+                sequence: 4
+            )
+
+            displayColumn "Documento" (
+                sequence: 3
+            )
+
+            displayColumn "Pontos" (
+                sequence: 1
+            )
+
+            displayColumn "Semana Cobrança Pagamento" (
+                sequence: 5
+            )
+
+            displayColumn "Tipo Documento" (
+                sequence: 2
+            )
+
+            aggregate (
+                column: "Pontos"
+            )
+
+        )
+
+    )
+
+    region informações-da-consulta-ao-spc (
+        name: Informações da Consulta ao SPC
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                return q'~
+                select c.dataconsulta
+                     , c.protocolo
+                     , c.regiaocpf
+                     , c.situacaocpf
+                     , c.nome
+                     , c.nomemae
+                     , c.spc_quantidade
+                     , c.spc_valortotal
+                     , decode(c.restricao,'S','Possui Restrição','Sem Restrição') restricao
+                     , idconsultaspc
+                     , datanascimento
+                     , ccf
+                from roman.consultaspc c
+                where c.cpf = replace(replace(:P700_CPF,'.',''),'-','')
+                order by 1
+                ~';
+                ```
+            pageItemsToSubmit: [
+                P700_CPF
+                P700_DOC
+            ]
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from roman.consultaspc c
+                where c.cpf = replace(replace(:P700_CPF,'.',''),'-','')
+                  and :P700_CPF is not null
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        advanced {
+            savedReportMappingIdentifier: 2811360147640255881
+        }
+
+        column CCF (
+            type: link
+            heading {
+                heading: Cheque S/ Fundo
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 347
+                    items: {
+                        P347_IDCONSULTASPC: #CCF#
+                    }
+                    action: resetPagination
+                }
+                linkText: #CCF#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column DATACONSULTA (
+            type: plainText
+            heading {
+                heading: Data da Consulta
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column DATANASCIMENTO (
+            type: plainText
+            heading {
+                heading: Data de Nascimento
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column IDCONSULTASPC (
+            type: hidden
+            heading {
+                heading: Idconsultaspc
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NOME (
+            type: plainText
+            heading {
+                heading: Nome
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column NOMEMAE (
+            type: plainText
+            heading {
+                heading: Nome Mãe
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column PROTOCOLO (
+            type: plainText
+            heading {
+                heading: Nr Protocolo
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column REGIAOCPF (
+            type: plainText
+            heading {
+                heading: Região CPF
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column RESTRICAO (
+            type: plainText
+            heading {
+                heading: Restrição
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column SITUACAOCPF (
+            type: plainText
+            heading {
+                heading: Situação CPF
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column SPC_QUANTIDADE (
+            type: link
+            heading {
+                heading: Qtd Registros
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 356
+                    items: {
+                        P356_IDCONSULTASPC: #IDCONSULTASPC#
+                    }
+                    action: resetPagination
+                }
+                linkText: #SPC_QUANTIDADE#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column SPC_VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 14899325 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CCF (
+                sequence: 12
+            )
+
+            displayColumn DATACONSULTA (
+                sequence: 1
+            )
+
+            displayColumn DATANASCIMENTO (
+                sequence: 11
+            )
+
+            displayColumn IDCONSULTASPC (
+                sequence: 10
+            )
+
+            displayColumn NOME (
+                sequence: 5
+            )
+
+            displayColumn NOMEMAE (
+                sequence: 6
+            )
+
+            displayColumn PROTOCOLO (
+                sequence: 2
+            )
+
+            displayColumn REGIAOCPF (
+                sequence: 3
+            )
+
+            displayColumn RESTRICAO (
+                sequence: 9
+            )
+
+            displayColumn SITUACAOCPF (
+                sequence: 4
+            )
+
+            displayColumn SPC_QUANTIDADE (
+                sequence: 7
+            )
+
+            displayColumn SPC_VALORTOTAL (
+                sequence: 8
+            )
+
+        )
+
+    )
+
+    region notas-romance (
+        name: Notas Romance
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                return q'~
+                select nv.numeronota "Numero"
+                 , nv.semanacobranca "Sem. Cobrança"
+                 , (select ss.descricao 
+                    from roman.situacoesnotavenda ss 
+                    where ss.idsituacaonotavenda = nv.idsituacaonotavenda) "Situação"
+                 , nv.valortotalnota "Valor Total"
+                 , nv.valortotalvenda "Valor da Venda"
+                 , nv.saldo "Saldo"
+                 , roman.pck_romance.fnc_nomerepresentante(nv.idrepresentante) "Representante"
+                 , idnotavenda
+                 , roman.pck_romance.fnc_nomefilial(roman.pck_romance.fnc_filialrepresentante(NV.IDREPRESENTANTE)) "Empresa Cliente R"
+                 , dataretorno
+                from roman.notasvendas nv
+                where nv.idvendedora = ( select idvendedora 
+                                         from vendedoras 
+                                         where idpessoa = :P700_IDPESSOA)
+                order by pck_util.fnc_idsemana(nv.semanacobranca) desc
+                ~';
+                ```
+        }
+        layout {
+            sequence: 70
+            slot: body
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P700_CPF is not null
+                   or :P700_DOC is not null
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        messages {
+            whenNoDataFound: Nenhuma Nota encontrada!
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 1661276012069759396
+        }
+
+        column DATARETORNO (
+            type: plainText
+            heading {
+                heading: Data de Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "Empresa Cliente R" (
+            type: plainText
+            heading {
+                heading: Empresa Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column IDNOTAVENDA (
+            type: hidden
+            heading {
+                heading: Idnotavenda
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Numero (
+            type: plainText
+            heading {
+                heading: Número
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column Saldo (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column "Sem. Cobrança" (
+            type: plainText
+            heading {
+                heading: Sem. cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column Situação (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Valor Total" (
+            type: plainText
+            heading {
+                heading: Valor total
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "Valor da Venda" (
+            type: plainText
+            heading {
+                heading: Valor da venda
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        savedReport 3397118 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATARETORNO (
+                sequence: 10
+            )
+
+            displayColumn "Empresa Cliente R" (
+                sequence: 9
+            )
+
+            displayColumn IDNOTAVENDA (
+                sequence: 8
+            )
+
+            displayColumn "Numero" (
+                sequence: 1
+            )
+
+            displayColumn "Representante" (
+                sequence: 7
+            )
+
+            displayColumn "Saldo" (
+                sequence: 6
+            )
+
+            displayColumn "Sem. Cobrança" (
+                sequence: 2
+            )
+
+            displayColumn "Situação" (
+                sequence: 3
+            )
+
+            displayColumn "Valor Total" (
+                sequence: 4
+            )
+
+            displayColumn "Valor da Venda" (
+                sequence: 5
+            )
+
+        )
+
+    )
+
+    region pedidos-favorita (
+        name: Pedidos Favorita
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                return q'~
+                select p.numeropedido
+                     , p.dataemissao
+                     , p.dataentrega
+                     , ( select listagg(to_char(v.datavencimento,'dd/mm/rrrr')||chr(10)) within group (order by 1)
+                           from vencimentospedidos v
+                          where v.situacaovencimento = 'V' -- <-- valido
+                            and v.idpedido           = p.idpedido ) datavencimento
+                     , case
+                         when p.idsituacaoentrega not in (50) then
+                           pck_util_fav.fnc_situacaoentrega( p.idsituacaoentrega
+                                                           , 'I'
+                                                           , 1 )
+                         when ( select count(1)
+                                from itenspedidos ip
+                                   , classificacoespedidos cp
+                                where ip.idpedido = cp.idpedido
+                                and cp.idcaracteristicapedido in (8, 13)
+                                and ip.idpedido = p.idpedido ) > 0 then pck_util_fav.fnc_situacaoentrega( p.idsituacaoentrega
+                                                                                                          , 'I'
+                                                                                                          , 1)||' não finalizado.'
+                         when ( select count(1)
+                                from itenspedidos ip
+                                where ip.idpedido = p.idpedido ) > 0 then pck_util_fav.fnc_situacaoentrega( p.idsituacaoentrega
+                                                                                                          , 'I'
+                                                                                                          , 1)||' com itens.'
+                         when ( select count(1)
+                                from itenspedidos ip
+                                where ip.idpedido = p.idpedido ) = 0 then pck_util_fav.fnc_situacaoentrega( p.idsituacaoentrega
+                                                                                                          , 'I'
+                                                                                                          , 1)||' sem itens.'
+                       end  situacaoentregainterno
+                     , pck_util_fav.fnc_situacaofinanceiro( p.idsituacaofinanceiro
+                                                          , 'I'
+                                                          , 1)            situacaofinanceirointerno
+                     , p.valortotal
+                     , p.valorapagar
+                     , pck_util_fav.fnc_nomerepresentante( p.idrepresentante ) distribuidor
+                     , pck_util_fav.fnc_nomefilialromance( p.idfilialromance ) filialromance
+                     , case
+                        when p.datacancelamento is null then
+                          'Não'
+                        else
+                          'Sim'
+                       end pedidocancelado
+                     , pck_pedidos_fav.fnc_situacaopagamentoped(p.idpedido) situacaopagamento
+                       /*, case 
+                         when p.tipo = 'new' then
+                           '<a href="javascript:window.open('''||APEX_UTIL.PREPARE_URL('f?p=' || 2000 || ':68:'||v('APP_SESSION')||'::NO::P68_IDPEDIDO:'||p.idpedido ,'SESSION')||''',''_blank''); void(0)"><img src="#IMAGE_PREFIX#magnifying_glass_white_bg.gif" alt=""/></a>' 
+                       end urlpedido */
+                     , p.idpedido urlpedido
+                from favorita.pedidos p
+                 , vendedoras v
+                where p.idvendedora = v.idvendedora
+                  and p.idsituacaoentrega >= 20000
+                  and v.idpessoa = :P700_IDPESSOA
+                order by idpedido desc
+                ~';
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where :P700_CPF is not null
+                   or :P700_DOC is not null
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        messages {
+            whenNoDataFound: Nenhum Pedido Encontrado
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 1661274660731759383
+        }
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Emissão
+            }
+            layout {
+                sequence: 20
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column DATAENTREGA (
+            type: plainText
+            heading {
+                heading: Entrega
+            }
+            layout {
+                sequence: 30
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DATAVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Vencimento
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column FILIALROMANCE (
+            type: plainText
+            heading {
+                heading: Filial Romance
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column NUMEROPEDIDO (
+            type: plainText
+            heading {
+                heading: Numeropedido
+                alignment: end
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column PEDIDOCANCELADO (
+            type: plainText
+            heading {
+                heading: Pedido Cancelado?
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column SITUACAOENTREGAINTERNO (
+            type: plainText
+            heading {
+                heading: Sit. Entrega
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column SITUACAOFINANCEIROINTERNO (
+            type: plainText
+            heading {
+                heading: Sit. Financeiro
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column SITUACAOPAGAMENTO (
+            type: plainText
+            heading {
+                heading: Situação Pgto
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column URLPEDIDO (
+            type: link
+            heading {
+                heading: Ver Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 68
+                    items: {
+                        P68_IDPEDIDO: #URLPEDIDO#
+                    }
+                    clearCache: 68
+                }
+                linkText: <img src="#APEX_FILES#app_ui/img/icons/apex-edit-view.png" class="apex-edit-view" alt="">
+                linkAttributes: target="_blank"
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        savedReport 3396683 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATAEMISSAO (
+                sequence: 2
+            )
+
+            displayColumn DATAENTREGA (
+                sequence: 3
+            )
+
+            displayColumn DATAVENCIMENTO (
+                sequence: 4
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 9
+            )
+
+            displayColumn FILIALROMANCE (
+                sequence: 10
+            )
+
+            displayColumn PEDIDOCANCELADO (
+                sequence: 11
+            )
+
+            displayColumn SITUACAOENTREGAINTERNO (
+                sequence: 5
+            )
+
+            displayColumn SITUACAOFINANCEIROINTERNO (
+                sequence: 6
+            )
+
+            displayColumn SITUACAOPAGAMENTO (
+                sequence: 12
+            )
+
+            displayColumn URLPEDIDO (
+                sequence: 1
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 8
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 7
+            )
+
+        )
+
+    )
+
+    region protocolos-de-atendimento (
+        name: Protocolos de Atendimento
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                return q'~
+                select pd.idprotocoloatendimento
+                     , pd.usuariosolicitou
+                     , pd.dataprotocolo
+                     , pd.tipoprotocolo
+                     , pd.descsituacao
+                     , pd.numeropedido
+                     , pd.dataatendimento
+                     , pd.motivoprotocolo
+                     , pd.observacaointerna
+                     , pd.usuarioatendeu
+                from vw_protocolosatendimentos_fav pd
+                   , pessoas p
+                where p.idpessoa = :P700_IDPESSOA
+                  and pd.cpf     = p.cpf
+                ~';
+                ```
+        }
+        layout {
+            sequence: 90
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where exists ( select 1
+                               from vw_protocolosatendimentos_fav pd
+                                  , pessoas p
+                               where p.idpessoa = :P700_IDPESSOA
+                                 and pd.cpf     = p.cpf )
+                  and ( :P700_CPF is not null
+                     or :P700_DOC is not null )
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        advanced {
+            savedReportMappingIdentifier: 2733858984313201063
+        }
+
+        column DATAATENDIMENTO (
+            type: plainText
+            heading {
+                heading: Data Atendimento
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column DATAPROTOCOLO (
+            type: plainText
+            heading {
+                heading: Data Protocolo
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DESCSITUACAO (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column IDPROTOCOLOATENDIMENTO (
+            type: plainText
+            heading {
+                heading: Nr Protocolo
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column MOTIVOPROTOCOLO (
+            type: plainText
+            heading {
+                heading: Motivo
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column NUMEROPEDIDO (
+            type: plainText
+            heading {
+                heading: Nr Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column OBSERVACAOINTERNA (
+            type: plainText
+            heading {
+                heading: Observação Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column TIPOPROTOCOLO (
+            type: plainText
+            heading {
+                heading: Tipo
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column USUARIOATENDEU (
+            type: plainText
+            heading {
+                heading: Atendido Por
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column USUARIOSOLICITOU (
+            type: plainText
+            heading {
+                heading: Solicitado Por
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 14123012 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATAATENDIMENTO (
+                sequence: 7
+            )
+
+            displayColumn DATAPROTOCOLO (
+                sequence: 3
+            )
+
+            displayColumn DESCSITUACAO (
+                sequence: 5
+            )
+
+            displayColumn IDPROTOCOLOATENDIMENTO (
+                sequence: 1
+            )
+
+            displayColumn MOTIVOPROTOCOLO (
+                sequence: 8
+            )
+
+            displayColumn NUMEROPEDIDO (
+                sequence: 6
+            )
+
+            displayColumn OBSERVACAOINTERNA (
+                sequence: 9
+            )
+
+            displayColumn TIPOPROTOCOLO (
+                sequence: 4
+            )
+
+            displayColumn USUARIOATENDEU (
+                sequence: 10
+            )
+
+            displayColumn USUARIOSOLICITOU (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    pageItem P700_AVISOSPC (
+        type: textField
+        label {
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        advanced {
+            preText: <font color="red"><b><h1>Cliente foi enviada para o SPC!</h1></b></font>
+        }
+        source {
+            used: always
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from pessoas p
+                   , vendedoras v
+                where cpf = replace(replace(:P700_CPF,'-',''),'.','')
+                  and p.idpessoa = v.idpessoa
+                  and v.spc = 'S'
+                ```
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_CATEGORIA_CLUBE (
+        type: displayOnly
+        label {
+            label: Categoria Clube
+            alignment: left
+        }
+        layout {
+            sequence: 90
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                    -- Variáveis de controle da rotina
+                    v_nome_categoria varchar2(500);
+                    v_pontos              number;
+                    v_proximo_nivel       number;
+                    v_idfilial            number;
+                    v_proximo_nivel_texto varchar2(1500);
+                    
+                begin
+                
+                    -- busca a categoria clube das estrelas da vendedora
+                    begin
+                        select nomecategoria, pt.pontos, v.idfilial
+                          into v_nome_categoria, v_pontos, v_idfilial
+                          from roman.categoriasclubes ct
+                             , roman.pontuacoesclubedesucesso pt
+                             , catal.vendedoras v
+                         where pt.idcategoriaclube = ct.idcategoriaclube
+                           and pt.idvendedora = v.idvendedora
+                           and v.idpessoa = (select p.idpessoa
+                                              from catal.pessoas p
+                                             where (   (:P700_TIPO = 'C' and p.cpf = :P700_CPF)
+                                                    or (:P700_TIPO = 'D' and p.documentoestrangeiro = :P700_DOC)));
+                    exception
+                        when others then
+                            return 'Não participa de campanha.';
+                    end;
+                
+                    -- calcula quantos pontos faltam para o próximo nível e monta a msg.
+                    begin
+                        select pontuacaoinicial - v_pontos
+                          into v_proximo_nivel
+                          from roman.configuracoescategorias c
+                         where ':' || c.franquias || ':' like '%:'||v_idfilial||':%'
+                           and c.pontuacaoinicial > v_pontos
+                         order by c.pontuacaoinicial
+                         fetch first 1 rows only;
+                        
+                        v_proximo_nivel_texto := ' - (Faltam '|| v_proximo_nivel || ' Pontos Para o Próximo nível.)';
+                    exception
+                        when others then
+                            v_proximo_nivel_texto := '.';
+                    end;
+                
+                    -- retorno da rotina com o nome da categoria clube atual da vendedora, pontuação atual e pontos restantes para o próximo nível
+                    return v_nome_categoria || '  -  Pontuação Atual: ' || v_pontos || v_proximo_nivel_texto;
+                    
+                -- Tratamento genérico para possiveis erros.
+                exception
+                    when others then
+                        return 'Dados Não encontrados.';
+                end;
+                ```
+            used: always
+        }
+    )
+
+    pageItem P700_CLIENTE (
+        type: textField
+        label {
+            label: Cliente
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select p.nomepessoa||' - '||roman.pck_romance.fnc_nomefilial(roman.pck_romance.fnc_filialvendedora(v.idvendedora)) nomepessoa 
+                from pessoas p
+                   , vendedoras v
+                where p.idpessoa = v.idpessoa
+                  and ( :P700_TIPO is null or ( :P700_TIPO = 'C' and cpf = replace(replace(:P700_CPF,'-',''),'.','') )
+                                           or ( :P700_TIPO = 'D' and p.documentoestrangeiro = :P700_DOC ) )
+                ```
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_CLIENTE_NOME (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 110
+            region: @cliente
+            slot: regionBody
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select lower(p.nomepessoa)
+                from pessoas p
+                   , vendedoras v
+                where ( :P700_TIPO = 'C' and cpf = pck_util.fcn_retornasonumeros(:P700_CPF) )
+                  and p.idpessoa = v.idpessoa
+                ```
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_CPF (
+        type: textField
+        label {
+            label: Cpf
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @consulta-documento
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--xlarge
+            ]
+            width: 15
+            valuePlaceholder: Informe o CPF
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_CPF_MD5 (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 120
+            region: @cliente
+            slot: regionBody
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  v_input VARCHAR2(2000) := replace(replace(:P700_CPF,'.',''),'-','');
+                  hexkey VARCHAR2(32) := NULL;
+                  vmd5 varchar2(300);
+                BEGIN
+                  --
+                  hexkey := roman.md5(v_input);
+                  --
+                  select lower(hexkey) md5
+                  into vmd5
+                  from dual;
+                  --
+                  return vmd5;
+                  --
+                exception
+                  when others then
+                    return null;
+                END;
+                ```
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_DOC (
+        type: textField
+        label {
+            label: Doc. Estrangeiro
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @consulta-documento
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--xlarge
+            ]
+            width: 30
+            valuePlaceholder: Informe o CI
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_EMPRESA_CRISDU (
+        type: displayOnly
+        label {
+            label: Funcionário de
+            alignment: left
+        }
+        layout {
+            sequence: 100
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                SELECT DISTINCT fc.cnpj ||' - '||    ( SELECT nomepessoa
+                                                         FROM pessoas p
+                                                         WHERE cnpj = REPLACE(REPLACE(REPLACE(fc.CNPJ,'.','' ),'/','' ),'-','' )   ) return_value
+                FROM roman.FUNCIONARIOS_CRISDU fc 
+                WHERE fc.CPF  = :P700_CPF
+                ```
+            used: always
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                SELECT 1
+                FROM roman.FUNCIONARIOS_CRISDU fc 
+                WHERE fc.CPF  = :P700_CPF
+                ```
+        }
+    )
+
+    pageItem P700_FRAUDE (
+        type: textField
+        label {
+            label: Fraude
+            alignment: left
+        }
+        layout {
+            sequence: 80
+            region: @cliente
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select decode(v.fraude,'S','Sim','Não') fraude
+                  from catal.vendedoras v
+                 where v.idpessoa = (select p.idpessoa
+                                        from catal.pessoas p
+                                       where ((    :P700_TIPO = 'D' and p.documentoestrangeiro = :P700_DOC)
+                                              or ( :P700_TIPO = 'C' and p.cpf = replace(replace(:P700_CPF,'-',''),'.',''))))
+                ```
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_IDPESSOA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 130
+            region: @cliente
+            slot: regionBody
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                 v_id number;
+                begin
+                  if :P700_TIPO = 'D' then
+                    select idpessoa
+                      into v_id
+                      from pessoas p
+                     where p.documentoestrangeiro = :P700_DOC ;
+                  else
+                    select idpessoa
+                      into v_id
+                      from pessoas p
+                     where cpf = pck_util.fcn_retornasonumeros(:P700_CPF) ;
+                  end if;
+                  return v_id;
+                end;
+                ```
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_IDREPRESENTANTE (
+        type: textField
+        label {
+            label: Distribuidor Atende
+            alignment: left
+        }
+        layout {
+            sequence: 70
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                /*select roman.pck_romance.fnc_nomerepresentante(idrepresentante) distribuidor
+                from vendedoras 
+                where idpessoa = :P700_IDPESSOA*/
+                
+                select roman.pck_romance.fnc_nomerepresentante(idrepresentante) distribuidor
+                  from catal.vendedoras v
+                 where v.idpessoa = (select p.idpessoa
+                                        from catal.pessoas p
+                                       where ((    :P700_TIPO = 'D' and p.documentoestrangeiro = :P700_DOC)
+                                              or ( :P700_TIPO = 'C' and p.cpf = replace(replace(:P700_CPF,'-',''),'.',''))))
+                ```
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_MEDIADEATRASOPAGAMENTOS (
+        type: textField
+        label {
+            label: Media de Atraso de Pagamento em dias
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @histórico-cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_mediaatrasoconsultora(pidpessoa => :P700_IDPESSOA) dia
+                from dual
+                ```
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_POSSUIFOTOS (
+        type: displayOnly
+        label {
+            label: Possui Fotos no Sistema?
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare 
+                  vexiste varchar2(20);
+                begin
+                  --
+                  select 'Sim'
+                  into vexiste
+                  from dual
+                  where exists ( select 1
+                                 from roman.fotosdocumentos f
+                                  where f.idpessoa = :P700_IDPESSOA
+                                    and f.recebida = 'S' );
+                  --
+                  return vexiste;
+                  --
+                exception
+                  when others then
+                    return 'Não';
+                end;
+                ```
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_SITUACAOCLIENTE (
+        type: textField
+        label {
+            label: Situação
+            alignment: left
+        }
+        layout {
+            sequence: 60
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                /*select decode(ativo,'S','Ativo','N','Inativo') ativo
+                from vendedoras v
+                where v.idpessoa = :P700_IDPESSOA*/
+                
+                select decode(ativo,'S','Ativo','N','Inativo') ativo
+                  from catal.vendedoras v
+                 where v.idpessoa = (select p.idpessoa
+                                        from catal.pessoas p
+                                       where ((    :P700_TIPO = 'D' and p.documentoestrangeiro = :P700_DOC)
+                                              or ( :P700_TIPO = 'C' and p.cpf = replace(replace(:P700_CPF,'-',''),'.',''))))
+                ```
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_SITUACAO_JURIDICA (
+        type: displayOnly
+        label {
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            preText:
+                ```html
+                <font color="RED">
+                    <h2>
+                    Atenção! Possui Situação Jurídica!
+                    </h2>
+                </font>
+                
+                ```
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from catal.vendedoras v
+                 where v.fraude = 'S'
+                   and v.idpessoa = (select p.idpessoa
+                                        from catal.pessoas p
+                                       where ((    :P700_TIPO = 'D' and p.documentoestrangeiro = :P700_DOC)
+                                              or ( :P700_TIPO = 'C' and p.cpf = replace(replace(:P700_CPF,'-',''),'.',''))))
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_TEMPODEFAVORITA (
+        type: textField
+        label {
+            label: Cliente Favorita
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @histórico-cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare 
+                 --
+                 vidvendedora number;
+                 vtexto       varchar2(1000);
+                 vexiste      varchar2(1);
+                 --
+                begin
+                  --
+                  select idvendedora
+                  into vidvendedora
+                  from vendedoras v
+                  where v.idpessoa = :P700_IDPESSOA;
+                  --
+                  begin
+                    --
+                    select 'S'
+                    into vexiste
+                    from dual
+                    where exists ( select 1
+                                   from catal.pedidos p
+                                   where p.idvendedora = vidvendedora );
+                    --
+                  exception
+                    when NO_DATA_FOUND then
+                      vexiste := 'N';
+                  end;
+                  --
+                  if vexiste = 'S' then
+                    --
+                    select 'desde '||trunc(p.dtemissao)||' ( '||(trunc(sysdate)-trunc(p.dtemissao))||' dias )' texto
+                    into vtexto
+                    from catal.pedidos p
+                    where idpedido = ( select min(idpedido)
+                                       from catal.pedidos pp
+                                       where pp.idvendedora = vidvendedora
+                                         and pp.situacao <> 'Z');
+                    --
+                  else
+                    --
+                    select 'desde '||trunc(p.dataemissao)||' ( '||(trunc(sysdate)-trunc(p.dataemissao))||' dias )' texto
+                    into vtexto
+                    from favorita.pedidos p
+                    where idpedido = ( select min(idpedido)
+                                       from favorita.pedidos pp
+                                       where pp.idvendedora = vidvendedora
+                                         and pp.datacancelamento is null
+                                         and pp.idsituacaoentrega >= 20000 );
+                    --
+                  end if;
+                  --
+                  return vtexto;
+                  --
+                exception
+                  when others then
+                    --
+                    return 'Ainda não é cliente Favorita.';
+                    --
+                end;
+                ```
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_TEMPODEROMANCE (
+        type: textField
+        label {
+            label: Cliente Romance
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @histórico-cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  vtexto varchar2(100);
+                  vexiste varchar2(1);
+                begin
+                  -- 
+                  select 'desde '||trunc(n.datanota)||' ( '||(trunc(sysdate)-trunc(n.datanota))||' dias )' desde
+                  into vtexto
+                  from roman.notasvendas n
+                  where n.idnotavenda = ( select min(idnotavenda)
+                                          from roman.notasvendas nn
+                                             , vendedoras v
+                                          where v.idvendedora         = nn.idvendedora
+                                            and v.idpessoa            = :P700_IDPESSOA
+                                            and nn.idsituacaonotavenda in (3,4) );
+                  --
+                  return vtexto;
+                  --
+                exception
+                  when others then
+                    return 'Ainda não é Cliente Romance.';
+                end;
+                ```
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_TICKETMEDIO (
+        type: textField
+        label {
+            label: Ticket Médio
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @histórico-cliente
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select to_char(nvl((sum(n.valorpago) / count(n.idnotavenda)),0),'999G999G999G999G999G999G990D00') ticket
+                from roman.notasvendas n
+                   , vendedoras v
+                where v.idvendedora         = n.idvendedora
+                  and v.idpessoa            = :P700_IDPESSOA
+                  and n.idsituacaonotavenda = 4
+                ```
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P700_TIPO (
+        type: radioGroup
+        label {
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:CPF;C,Doc. Estrangeiro;D
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @consulta-documento
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: C
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button consulta-spc (
+        buttonName: CONSULTA_SPC
+        label: Consulta ao SPC
+        layout {
+            sequence: 10
+            region: @ações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--success
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: "javascript: ConsultarSPC(document.getElementById('P700_CPF').value,document.getElementById('P700_CPF_MD5').value,200,document.getElementById('P0_USUARIO').value,function(dados){window.location.reload()});"
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button consultar (
+        buttonName: CONSULTAR
+        label: Consultar
+        layout {
+            sequence: 40
+            region: @consulta-documento
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button fraude (
+        buttonName: FRAUDE
+        label: Marca/Desmarca Fraude
+        layout {
+            sequence: 20
+            region: @ações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--success
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: openModal('MODAL_ESTRELAS');
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction tipo-documento (
+        name: Tipo Documento
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P700_TIPO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P700_TIPO
+            value: C
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P700_CPF
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P700_DOC
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P700_CPF
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P700_DOC
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    process marca-desmarca-fraude (
+        name: MARCA DESMARCA FRAUDE
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                    update catal.vendedoras v
+                       set fraude = (case 
+                                        when v.fraude = 'S' then null
+                                        else 'S' 
+                                     end)
+                     where v.idpessoa = (select p.idpessoa
+                                           from catal.pessoas p
+                                          where ((    :P700_TIPO = 'D' and p.documentoestrangeiro = :P700_DOC)
+                                                 or ( :P700_TIPO = 'C' and p.cpf = :P700_CPF)));
+                    commit;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 1321685882693100842
+        }
+        serverSideCondition {
+            whenButtonPressed: @fraude
+        }
+    )
+
+    branch (
+        name: Go To Page 700
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 700
+                items: {
+                    P700_CPF: &P700_CPF.
+                    P700_TIPO: &P700_TIPO.
+                    P700_DOC: &P700_DOC.
+                }
+                clearCache: 700
+                action: clearRegions
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @consultar
+        }
+    )
+
+)
+

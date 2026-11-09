@@ -1,0 +1,1109 @@
+page 632 (
+    name: Ticket Médio Loja
+    title: Relatório Ticket Médio Loja
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtrar (
+        name: Filtrar
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region ticket-médio (
+        name: Ticket Médio
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select "Loja"
+                     , sum("Valor a Pagar") "Valor a Pagar"
+                     , sum("Qtd. Pedidos") "Qtd. Pedidos"
+                     , sum("Ticket Médio") "Ticket Médio"
+                from (
+                    select favorita.pck_util_fav.fnc_nomefilialfavorita(p.idfilialfavorita) as "Loja",
+                           sum(sd.valorapagar * p.fatorconversao) as "Valor a Pagar",
+                           count(p.idpedido) as "Qtd. Pedidos",
+                           (sum(sd.valorapagar * p.fatorconversao) / count(p.idpedido)) as "Ticket Médio"
+                      from ( select sum(v.valorpagar) valorapagar
+                                  , v.idpedido
+                             from vencimentospedidos v
+                             where v.situacaovencimento = 'V'
+                             group by idpedido ) sd,
+                           favorita.pedidos p,
+                           favorita.filiaisfavorita f
+                     where p.idfilialfavorita = f.idfilialfavorita
+                       and sd.idpedido (+) = p.idpedido
+                       and f.tipofilial = 'L'
+                       and p.tipopedido <> 'R' --pedidos da Romance Casa são feitos na loja (antigamente não)
+                       and trunc(p.dataemissao) between :P632_DATA_INICIAL and :P632_DATA_FINAL
+                       and p.datacancelamento is null
+                       and (:P632_ID_FILIAL is null or f.idfilialfavorita = :P632_ID_FILIAL)
+                       -- 9867188 - Maicon Aimi - 24/03/2025 -- Adicionado a coluna para filtrar pedidos CANCELADO
+                       and (   (:P632_CANCELADOS is null)
+                            or (:P632_CANCELADOS = 'N' and p.datacancelamento is null)
+                            or (:P632_CANCELADOS = 'S' and not p.datacancelamento is null))
+                       and (:P632_ID_REGIONAL is null or exists (select 1
+                                                                   from favorita.filiaisfavorita f2
+                                                                  where f2.idfilialfavorita = p.idfilialfavorita
+                                                                    and f2.idregionalfavorita = :P632_ID_REGIONAL))
+                
+                       and p.valortotal > 0             
+                     group by p.idfilialfavorita
+                     union
+                     select favorita.pck_util_fav.fnc_nomefilialfavorita(nvl(p.idfilialfavoritaorig, p.idfilialfavorita)) as "Loja",
+                           sum(sd.valorapagar * p.fatorconversao) as "Valor a Pagar",
+                           count(p.idpedido) as "Qtd. Pedidos",
+                           (sum(sd.valorapagar * p.fatorconversao) / count(p.idpedido)) as "Ticket Médio"
+                      from ( select sum(v.valorpagar) valorapagar
+                                  , v.idpedido
+                             from vencimentospedidos v
+                             where v.situacaovencimento = 'V'
+                             group by idpedido ) sd,
+                           favorita.pedidos p,
+                           favorita.filiaisfavorita f
+                     where p.idfilialfavorita = f.idfilialfavorita
+                       and sd.idpedido(+) = p.idpedido
+                       and nvl(p.idfilialfavoritaorig, 9999) != p.idfilialfavorita
+                       and p.tipopedido = 'R' --pedidos da Romance Casa são feitos na loja (antigamente não)
+                       and trunc(p.dataemissao) between :P632_DATA_INICIAL and :P632_DATA_FINAL
+                       and p.datacancelamento is null
+                       and (:P632_ID_FILIAL is null or nvl(p.idfilialfavoritaorig, p.idfilialfavorita) = :P632_ID_FILIAL)
+                       -- 9867188 - Maicon Aimi - 24/03/2025 -- Adicionado a coluna para filtrar pedidos CANCELADO
+                       and (   (:P632_CANCELADOS is null)
+                            or (:P632_CANCELADOS = 'N' and p.datacancelamento is null)
+                            or (:P632_CANCELADOS = 'S' and not p.datacancelamento is null))
+                       and (:P632_ID_REGIONAL is null or exists (select 1
+                                                                   from favorita.filiaisfavorita f2
+                                                                  where f2.idfilialfavorita = p.idfilialfavorita
+                                                                    and f2.idregionalfavorita = :P632_ID_REGIONAL))
+                       and p.valortotal > 0             
+                     group by nvl(p.idfilialfavoritaorig, p.idfilialfavorita)
+                )
+                group by "Loja"
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 1795047943914855304
+        }
+
+        column Loja (
+            type: plainText
+            heading {
+                heading: Loja Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Qtd. Pedidos" (
+            type: plainText
+            heading {
+                heading: Qtd. Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Ticket Médio" (
+            type: plainText
+            heading {
+                heading: Ticket Médio
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "Valor a Pagar" (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 17950784 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Loja" (
+                sequence: 1
+            )
+
+            displayColumn "Qtd. Pedidos" (
+                sequence: 3
+            )
+
+            displayColumn "Ticket Médio" (
+                sequence: 4
+            )
+
+            displayColumn "Valor a Pagar" (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    region ticket-médio-loja (
+        name: Ticket Médio Loja
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select favorita.pck_util_fav.fnc_nomefilialfavorita(p.idfilialfavorita) as "Loja",
+                       sum(sd.valorapagar * p.fatorconversao) as "Valor a Pagar",
+                       count(p.idpedido) as "Qtd. Pedidos",
+                       (sum(sd.valorapagar * p.fatorconversao) / count(p.idpedido)) as "Ticket Médio"
+                  from ( select sum(v.valorpagar) valorapagar
+                              , v.idpedido
+                         from vencimentospedidos v
+                         where v.situacaovencimento = 'V'
+                         group by idpedido ) sd,
+                       favorita.pedidos p,
+                       favorita.filiaisfavorita f
+                 where p.idfilialfavorita = f.idfilialfavorita
+                   and sd.idpedido (+) = p.idpedido
+                   and f.tipofilial = 'L'
+                   and p.tipopedido <> 'R' --pedidos da Romance Casa são feitos na loja (antigamente não)
+                   and trunc(p.dataemissao) between :P632_DATA_INICIAL and :P632_DATA_FINAL
+                   and p.datacancelamento is null
+                   and (:P632_ID_FILIAL is null or f.idfilialfavorita = :P632_ID_FILIAL)
+                   -- 9867188 - Maicon Aimi - 24/03/2025 -- Adicionado a coluna para filtrar pedidos CANCELADO
+                   and (   (:P632_CANCELADOS is null)
+                        or (:P632_CANCELADOS = 'N' and p.datacancelamento is null)
+                        or (:P632_CANCELADOS = 'S' and not p.datacancelamento is null))
+                   and (:P632_ID_REGIONAL is null or exists (select 1
+                                                               from favorita.filiaisfavorita f2
+                                                              where f2.idfilialfavorita = p.idfilialfavorita
+                                                                and f2.idregionalfavorita = :P632_ID_REGIONAL))
+                
+                   and p.valortotal > 0             
+                 group by p.idfilialfavorita;
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 2435411130988462320
+        }
+
+        column Loja (
+            type: plainText
+            heading {
+                heading: Loja Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Qtd. Pedidos" (
+            type: plainText
+            heading {
+                heading: Qtd. Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Ticket Médio" (
+            type: plainText
+            heading {
+                heading: Ticket Médio
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "Valor a Pagar" (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 24354528 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Loja" (
+                sequence: 1
+            )
+
+            displayColumn "Qtd. Pedidos" (
+                sequence: 3
+            )
+
+            displayColumn "Ticket Médio" (
+                sequence: 4
+            )
+
+            displayColumn "Valor a Pagar" (
+                sequence: 2
+            )
+
+            aggregate (
+                column: "Ticket Médio"
+            )
+
+            aggregate (
+                column: "Qtd. Pedidos"
+            )
+
+            aggregate (
+                column: "Valor a Pagar"
+            )
+
+        )
+
+    )
+
+    region ticket-médio-loja-romance-casa (
+        name: Ticket Médio Loja / Romance Casa
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select favorita.pck_util_fav.fnc_nomefilialfavorita(p.idfilialfavorita) as "Loja",
+                       sum(sd.valorapagar * p.fatorconversao) as "Valor a Pagar",
+                       count(p.idpedido) as "Qtd. Pedidos",
+                       (sum(sd.valorapagar * p.fatorconversao) / count(p.idpedido)) as "Ticket Médio",
+                       'Pedidos' tipopedido
+                  from ( select sum(v.valorpagar) valorapagar
+                              , v.idpedido
+                         from vencimentospedidos v
+                         where v.situacaovencimento = 'V'
+                         group by idpedido ) sd,
+                       favorita.pedidos p,
+                       favorita.filiaisfavorita f
+                 where p.idfilialfavorita = f.idfilialfavorita
+                   and sd.idpedido (+) = p.idpedido
+                   and f.tipofilial = 'L'
+                   and p.tipopedido <> 'R' --pedidos da Romance Casa são feitos na loja (antigamente não)
+                   and trunc(p.dataemissao) between :P632_DATA_INICIAL and :P632_DATA_FINAL
+                   and p.datacancelamento is null
+                   and (:P632_ID_FILIAL is null or f.idfilialfavorita = :P632_ID_FILIAL)
+                   -- 9867188 - Maicon Aimi - 24/03/2025 -- Adicionado a coluna para filtrar pedidos CANCELADO
+                   and (   (:P632_CANCELADOS is null)
+                        or (:P632_CANCELADOS = 'N' and p.datacancelamento is null)
+                        or (:P632_CANCELADOS = 'S' and not p.datacancelamento is null))
+                   and (:P632_ID_REGIONAL is null or exists (select 1
+                                                               from favorita.filiaisfavorita f2
+                                                              where f2.idfilialfavorita = p.idfilialfavorita
+                                                                and f2.idregionalfavorita = :P632_ID_REGIONAL))
+                
+                   and p.valortotal > 0             
+                 group by p.idfilialfavorita
+                 
+                 union
+                
+                 select favorita.pck_util_fav.fnc_nomefilialfavorita(nvl(p.idfilialfavoritaorig, p.idfilialfavorita)) as "Loja",
+                       sum(sd.valorapagar * p.fatorconversao) as "Valor a Pagar",
+                       count(p.idpedido) as "Qtd. Pedidos",
+                       (sum(sd.valorapagar * p.fatorconversao) / count(p.idpedido)) as "Ticket Médio",
+                       'Romance Casa' tipopedido
+                  from ( select sum(v.valorpagar) valorapagar
+                              , v.idpedido
+                         from vencimentospedidos v
+                         where v.situacaovencimento = 'V'
+                         group by idpedido ) sd,
+                       favorita.pedidos p,
+                       favorita.filiaisfavorita f
+                 where p.idfilialfavorita = f.idfilialfavorita
+                   and sd.idpedido(+) = p.idpedido
+                   and nvl(p.idfilialfavoritaorig, 9999) != p.idfilialfavorita
+                   --and f.tipofilial = 'E'
+                   and p.tipopedido = 'R' --pedidos da Romance Casa são feitos na loja (antigamente não)
+                   and trunc(p.dataemissao) between :P632_DATA_INICIAL and :P632_DATA_FINAL
+                   and p.datacancelamento is null
+                   and (:P632_ID_FILIAL is null or nvl(p.idfilialfavoritaorig, p.idfilialfavorita) = :P632_ID_FILIAL)
+                   -- 9867188 - Maicon Aimi - 24/03/2025 -- Adicionado a coluna para filtrar pedidos CANCELADO
+                   and (   (:P632_CANCELADOS is null)
+                        or (:P632_CANCELADOS = 'N' and p.datacancelamento is null)
+                        or (:P632_CANCELADOS = 'S' and not p.datacancelamento is null))
+                   and (:P632_ID_REGIONAL is null or exists (select 1
+                                                               from favorita.filiaisfavorita f2
+                                                              where f2.idfilialfavorita = p.idfilialfavorita
+                                                                and f2.idregionalfavorita = :P632_ID_REGIONAL))
+                
+                   and p.valortotal > 0             
+                 group by nvl(p.idfilialfavoritaorig, p.idfilialfavorita);
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 1793092293384583247
+        }
+
+        column Loja (
+            type: plainText
+            heading {
+                heading: Loja Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Qtd. Pedidos" (
+            type: plainText
+            heading {
+                heading: Qtd. Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column TIPOPEDIDO (
+            type: plainText
+            heading {
+                heading: Tipo Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "Ticket Médio" (
+            type: plainText
+            heading {
+                heading: Ticket Médio
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "Valor a Pagar" (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 17950552 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Loja" (
+                sequence: 1
+            )
+
+            displayColumn "Qtd. Pedidos" (
+                sequence: 4
+            )
+
+            displayColumn TIPOPEDIDO (
+                sequence: 2
+            )
+
+            displayColumn "Ticket Médio" (
+                sequence: 5
+            )
+
+            displayColumn "Valor a Pagar" (
+                sequence: 3
+            )
+
+            aggregate (
+                column: "Valor a Pagar"
+            )
+
+            aggregate (
+                column: "Qtd. Pedidos"
+            )
+
+            aggregate (
+                column: "Ticket Médio"
+            )
+
+        )
+
+    )
+
+    region ticket-médio-romance-loja (
+        name: Ticket Médio Romance Loja
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select favorita.pck_util_fav.fnc_nomefilialfavorita(nvl(p.idfilialfavoritaorig, p.idfilialfavorita)) as "Loja",
+                       sum(sd.valorapagar * p.fatorconversao) as "Valor a Pagar",
+                       count(p.idpedido) as "Qtd. Pedidos",
+                       (sum(sd.valorapagar * p.fatorconversao) / count(p.idpedido)) as "Ticket Médio"
+                  from ( select sum(v.valorpagar) valorapagar
+                              , v.idpedido
+                         from vencimentospedidos v
+                         where v.situacaovencimento = 'V'
+                         group by idpedido ) sd,
+                       favorita.pedidos p,
+                       favorita.filiaisfavorita f
+                 where p.idfilialfavorita = f.idfilialfavorita
+                   and sd.idpedido(+) = p.idpedido
+                   and nvl(p.idfilialfavoritaorig, 9999) != p.idfilialfavorita
+                   --and f.tipofilial = 'E'
+                   and p.tipopedido = 'R' --pedidos da Romance Casa são feitos na loja (antigamente não)
+                   and trunc(p.dataemissao) between :P632_DATA_INICIAL and :P632_DATA_FINAL
+                   and p.datacancelamento is null
+                   and (:P632_ID_FILIAL is null or nvl(p.idfilialfavoritaorig, p.idfilialfavorita) = :P632_ID_FILIAL)
+                   -- 9867188 - Maicon Aimi - 24/03/2025 -- Adicionado a coluna para filtrar pedidos CANCELADO
+                   and (   (:P632_CANCELADOS is null)
+                        or (:P632_CANCELADOS = 'N' and p.datacancelamento is null)
+                        or (:P632_CANCELADOS = 'S' and not p.datacancelamento is null))
+                   and (:P632_ID_REGIONAL is null or exists (select 1
+                                                               from favorita.filiaisfavorita f2
+                                                              where f2.idfilialfavorita = p.idfilialfavorita
+                                                                and f2.idregionalfavorita = :P632_ID_REGIONAL))
+                
+                   and p.valortotal > 0             
+                 group by nvl(p.idfilialfavoritaorig, p.idfilialfavorita);
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 1793091602598583241
+        }
+
+        column Loja (
+            type: plainText
+            heading {
+                heading: Loja Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Qtd. Pedidos" (
+            type: plainText
+            heading {
+                heading: Qtd. Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Ticket Médio" (
+            type: plainText
+            heading {
+                heading: Ticket Médio
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "Valor a Pagar" (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 17947641 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Loja" (
+                sequence: 1
+            )
+
+            displayColumn "Qtd. Pedidos" (
+                sequence: 3
+            )
+
+            displayColumn "Ticket Médio" (
+                sequence: 4
+            )
+
+            displayColumn "Valor a Pagar" (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    pageItem P632_CANCELADOS (
+        type: selectList
+        label {
+            label: Cancelados
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 50
+            region: @filtrar
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+    )
+
+    pageItem P632_DATA_FINAL (
+        type: datePickerJquery
+        label {
+            label: Data Final
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtrar
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/YYYY
+            width: 30
+        }
+        default {
+            type: expression
+            plsqlExpression: sysdate
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P632_DATA_INICIAL (
+        type: datePickerJquery
+        label {
+            label: Data Inicial
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtrar
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/YYYY
+            width: 30
+        }
+        default {
+            type: expression
+            plsqlExpression: sysdate
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P632_ID_FILIAL (
+        type: selectList
+        label {
+            label: Loja Favorita
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select favorita.pck_util_fav.fnc_nomefilialfavorita(f.idfilialfavorita) || ' - ' || nvl(r.descricaoregionalfavorita,'(Regional Não Cadastrada)') display_item,
+                       f.idfilialfavorita return_item
+                  from favorita.filiaisfavorita f,
+                       favorita.regionaislojasfavorita r
+                 where r.idregionalfavorita(+) = f.idregionalfavorita
+                   and f.tipofilial = 'L';
+                ```
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 40
+            region: @filtrar
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P632_ID_REGIONAL (
+        type: selectList
+        label {
+            label: Regional
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.descricaoregionalfavorita display_value,
+                       f.idregionalfavorita return_value
+                  from favorita.regionaislojasfavorita f
+                 order by f.descricaoregionalfavorita;
+                ```
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 30
+            region: @filtrar
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 60
+            region: @filtrar
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+)
+

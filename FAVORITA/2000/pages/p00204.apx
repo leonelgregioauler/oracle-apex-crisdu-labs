@@ -1,0 +1,1217 @@
+page 204 (
+    name: Promissórias Recebidas
+    title: Promissórias Recebidas
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region ações (
+        name: Ações
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText: <br><b>Confirmar recebimento da Promissória na Empresa.</b>
+        }
+    )
+
+    region cobrança (
+        name: Cobrança
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText: <b><br>Confirmar o envio da promissória para o Setor da Cobrança.
+        }
+    )
+
+    region filtros (
+        name: FIltros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region promissórias-recebidas (
+        name: Promissórias Recebidas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.numeropedido
+                     , p.representante
+                     , p.vendedora
+                     , p.dataemissao
+                     , p.dataentrega
+                     , ( select trunc(cp.dataclassificado)
+                         from classificacoespedidos cp
+                         where cp.idpedido = p.idpedido
+                         and cp.idcaracteristicapedido = 15 ) datarecebimentopromissoria
+                     , ( select ct.numero||'- NF: '||ct.notafiscal remessa
+                         from pedidosremessasct pr
+                            , comprastransferencias ct
+                         where pr.idcompratransferencia = ct.idcompratransferencia 
+                         and pr.idpedido = p.idpedido ) remessa
+                     , p.valortotal
+                     , nvl(p.valorapagar,0) valorapagar
+                     , case 
+                         when ( select 1
+                                from classificacoespedidos cp
+                                where cp.idpedido = p.idpedido 
+                                and cp.idcaracteristicapedido = 15) = 1 then
+                           ( select c.dataclassificado||' por '||c.usuario
+                             from vw_classificacoespedidos_fav c
+                             where c.ididioma = :P0_IDIDIOMA
+                               and c.idpedido = p.idpedido
+                               and c.idcaracteristicapedido = 15 )
+                         else
+                           ' Promissória não recebida! '
+                       end recebimento
+                     , case
+                         when ( select 1
+                                from classificacoespedidos cp
+                                where cp.idpedido = p.idpedido 
+                                and cp.idcaracteristicapedido = 70) = 1 then
+                           ( select c.dataclassificado||' por '||c.usuario
+                             from vw_classificacoespedidos_fav c
+                             where c.ididioma = :P0_IDIDIOMA
+                               and c.idpedido = p.idpedido
+                               and c.idcaracteristicapedido = 70 )
+                         else
+                           ' Não '
+                       end promissoriacobranca
+                     , case
+                         when ( select 1
+                                from classificacoespedidos cp
+                                where cp.idpedido = p.idpedido 
+                                and cp.idcaracteristicapedido = 71 ) = 1 then
+                           ( select c.dataclassificado||' por '||c.usuario
+                             from vw_classificacoespedidos_fav c
+                             where c.ididioma = :P0_IDIDIOMA
+                               and c.idpedido = p.idpedido
+                               and c.idcaracteristicapedido = 71 )
+                         else
+                           ' Não '
+                       end recebimentocobranca
+                from vw_pedidos_fav p
+                where p.ididioma        = :P0_IDIDIOMA
+                  and p.idsituacaoentrega > 40000
+                  and p.idfilialromance = roman.pck_romance.fnc_filialusuario(v('APP_USER'))
+                  and :P204_RECEBIDA is not null
+                  and not exists ( select 1
+                                   from favorita.classificacoespedidos cp
+                                   where cp.idpedido = p.idpedido
+                                     and cp.idcaracteristicapedido = 25)
+                  and ( ( :P204_RECEBIDA = 'S' 
+                         and p.datarecebimentopromissoria is not null
+                         and trunc(p.datarecebimentopromissoria) between to_date(:P204_DATARECEBIMENTOINICIAL,'DD/MM/RRRR') and to_date(:P204_DATARECEBIMENTOFINAL,'DD/MM/RRRR') )
+                    or ( :P204_RECEBIDA = 'N' 
+                         and p.datarecebimentopromissoria is null
+                         and trunc(p.dataentrega) between to_date(:P204_DATAENTREGAINICIAL,'DD/MM/RRRR') and to_date(:P204_DATAENTREGAFINAL,'DD/MM/RRRR') ) ) 
+                  and ( ( :P204_ENVIADOCOBRANCA = 'A' )
+                        or ( :P204_ENVIADOCOBRANCA = 'N' and not exists ( select 1
+                                                                          from classificacoespedidos c
+                                                                          where c.idcaracteristicapedido = 70
+                                                                            and c.idpedido               = p.idpedido ) )
+                        or ( :P204_ENVIADOCOBRANCA = 'S' and exists ( select 1
+                                                                      from classificacoespedidos c
+                                                                      where c.idcaracteristicapedido = 70
+                                                                        and c.idpedido               = p.idpedido ) ) )
+                  and ( :P204_IDREPRESENTANTE is null or p.idrepresentante = :P204_IDREPRESENTANTE )
+                  and ( :P204_IDVENDEDORA is null or p.idvendedora = :P204_IDVENDEDORA )
+                  and ( :P204_IDPEDIDO is null or p.idpedido = :P204_IDPEDIDO )
+                  and ( :P204_REMESSA  is null or exists ( select 1
+                                                           from pedidosremessasct pr
+                                                              , comprastransferencias ct
+                                                           where pr.idcompratransferencia = ct.idcompratransferencia 
+                                                             and pr.idpedido = p.idpedido
+                                                             and ct.idcompratransferencia = :P204_REMESSA ))
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        messages {
+            whenNoDataFound: Nenhuma Promissória Encontrada!
+        }
+        actionsMenu {
+            filter: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 252552791167091907
+        }
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+            enableUsersTo {
+                filter: false
+            }
+        )
+
+        column DATAENTREGA (
+            type: plainText
+            heading {
+                heading: Entrega
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: E
+            }
+            enableUsersTo {
+                filter: false
+            }
+        )
+
+        column DATARECEBIMENTOPROMISSORIA (
+            type: plainText
+            heading {
+                heading: Data Recebimento Promissória
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: K
+            }
+            enableUsersTo {
+                filter: false
+            }
+        )
+
+        column NUMEROPEDIDO (
+            type: plainText
+            heading {
+                heading: Nr Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+            enableUsersTo {
+                filter: false
+            }
+        )
+
+        column PROMISSORIACOBRANCA (
+            type: plainText
+            heading {
+                heading: Prom. Enviada para Cobrança?
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column RECEBIMENTO (
+            type: plainText
+            heading {
+                heading: Recebimento
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+            enableUsersTo {
+                filter: false
+            }
+        )
+
+        column RECEBIMENTOCOBRANCA (
+            type: plainText
+            heading {
+                heading: Prom. Recebida na Cobrança?
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column REMESSA (
+            type: plainText
+            heading {
+                heading: Remessa
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+            enableUsersTo {
+                filter: false
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+            enableUsersTo {
+                filter: false
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Valor à Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+            enableUsersTo {
+                filter: false
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+            enableUsersTo {
+                filter: false
+            }
+        )
+
+        column VENDEDORA (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+            enableUsersTo {
+                filter: false
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 2525852 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATAEMISSAO (
+                sequence: 5
+            )
+
+            displayColumn DATAENTREGA (
+                sequence: 6
+            )
+
+            displayColumn DATARECEBIMENTOPROMISSORIA (
+                sequence: 7
+            )
+
+            displayColumn NUMEROPEDIDO (
+                sequence: 2
+            )
+
+            displayColumn PROMISSORIACOBRANCA (
+                sequence: 11
+            )
+
+            displayColumn RECEBIMENTO (
+                sequence: 10
+            )
+
+            displayColumn RECEBIMENTOCOBRANCA (
+                sequence: 12
+            )
+
+            displayColumn REMESSA (
+                sequence: 1
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 3
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 9
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 8
+            )
+
+            displayColumn VENDEDORA (
+                sequence: 4
+            )
+
+            sort (
+                column: VENDEDORA
+                sort {
+                    sequence: 1
+                }
+            )
+
+            controlBreak (
+                column: REPRESENTANTE
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P204_DATAENTREGAFINAL (
+        type: datePickerJquery
+        label {
+            label: Entrega Final
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 20
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P204_DATAENTREGAINICIAL (
+        type: datePickerJquery
+        label {
+            label: Entrega Inicial
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 20
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P204_DATARECEBIMENTOFINAL (
+        type: datePickerJquery
+        label {
+            label: Recebimento Final
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 20
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P204_DATARECEBIMENTOINICIAL (
+        type: datePickerJquery
+        label {
+            label: Recebimento Inicial
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 20
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P204_ENVIADOCOBRANCA (
+        type: radioGroup
+        label {
+            label: Enviada P/ Cobrança
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N,Ambos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P204_IDPEDIDO (
+        type: textField
+        label {
+            label: Pedido
+            alignment: left
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P204_IDREPRESENTANTE (
+        type: popupLov
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomerepresentante(idrepresentante) display_value
+                     , idrepresentante return_value
+                from representantes r
+                where r.idgerente = ( select idgerente
+                                      from usuarios u
+                                      where u.idusuario = :P0_IDUSUARIO )
+                order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todos -
+        }
+        cascadingLov {
+            parentItems: P0_IDUSUARIO
+            itemsToSubmit: P0_IDUSUARIO
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P204_IDVENDEDORA (
+        type: popupLov
+        label {
+            label: Vendedora
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(p.nomepessoa) ||' - '||
+                         case
+                            when p.cpf is not null then
+                                'CPF: '||p.cpf
+                            else
+                              'Doc. Estr.'||p.documentoestrangeiro
+                            end
+                                ||' - '||p.documentoestrangeiro||'  ID: '||v.idvendedora      display_value
+                     , v.idvendedora return_value
+                from catal.vendedoras v
+                   , catal.pessoas    p
+                where v.idpessoa = p.idpessoa
+                  and ( :P204_IDREPRESENTANTE is null or v.idrepresentante = :P204_IDREPRESENTANTE )
+                order by 1
+                
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todos -
+        }
+        cascadingLov {
+            parentItems: P204_IDREPRESENTANTE
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P204_RECEBIDA (
+        type: radioGroup
+        label {
+            label: Promissória Recebida?
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P204_REMESSA (
+        type: popupLov
+        label {
+            label: Remessa
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select c.desctipo||' '||c.numero||' - NF: '||c.notafiscal||' - Situação: '||c.situacao display_value
+                     , c.idcompratransferencia return_value
+                from vw_comprastransferencias_fav c
+                where c.ididioma = 1
+                  and ( c.idtipocomptransrem in (0,1) and c.idsituacao in ( 20,30 )
+                     or c.idtipocomptransrem in (2,3) and c.idsituacao in ( 20,30,40 ) )
+                  and ( c.idfilialfavoritadestino = pck_util_fav.fnc_retornaidfilialfavusuario(:P0_IDUSUARIO)
+                       or c.idfilialromancedestino = ( select idfilial
+                                                       from gerentes
+                                                       where idgerente = ( select idgerente
+                                                                           from usuarios
+                                                                           where idusuario = :P0_IDUSUARIO ) )
+                  and exists ( select 1
+                               from pedidosremessasct pr
+                                  , pedidos p
+                               where pr.idpedido = p.idpedido
+                               and pr.idcompratransferencia = c.idcompratransferencia
+                               and p.idrepresentante = :P204_IDREPRESENTANTE )
+                       or v('APP_USER') = 'GUILHERME'
+                       or v('APP_USER') = 'LEONELG'
+                       or v('APP_USER') = 'LUIZV'
+                       or v('APP_USER') = 'EVERTON'
+                       or v('APP_USER') = 'RICIERYS' )
+                order by c.idcompratransferencia desc
+                ```
+        }
+        cascadingLov {
+            parentItems: [
+                P204_IDREPRESENTANTE
+                P0_IDUSUARIO
+            ]
+            itemsToSubmit: [
+                P204_IDREPRESENTANTE
+                P0_IDUSUARIO
+            ]
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button enviar-promissoria (
+        buttonName: ENVIAR_PROMISSORIA
+        label: Enviar P/ Cobrança
+        layout {
+            sequence: 10
+            region: @cobrança
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--warning
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 378
+                items: {
+                    P378_NUMEROPEDIDO:
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button filtrar-promissorias (
+        buttonName: FILTRAR_PROMISSORIAS
+        label: Filtrar
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button receber-promissoria (
+        buttonName: RECEBER_PROMISSORIA
+        label: Receber Promissória
+        layout {
+            sequence: 10
+            region: @ações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--primary
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 205
+                items: {
+                    P205_NUMEROPEDIDO:
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction exibir-filtro-de-datas-para-promissórias-recebidas (
+        name: Exibir Filtro de Datas para Promissórias Recebidas
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P204_RECEBIDA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P204_RECEBIDA
+            value: S
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P204_DATAENTREGAINICIAL
+                    P204_DATAENTREGAFINAL
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P204_DATARECEBIMENTOINICIAL
+                    P204_DATARECEBIMENTOFINAL
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction ocultar-filtro-datas-promissória-não-recebidas (
+        name: Ocultar Filtro Datas Promissória não Recebidas
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P204_RECEBIDA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P204_RECEBIDA
+            value: N
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P204_DATARECEBIMENTOINICIAL
+                    P204_DATARECEBIMENTOFINAL
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P204_DATAENTREGAINICIAL
+                    P204_DATAENTREGAFINAL
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+    )
+
+    validation data-entrega-final (
+        name: Data Entrega Final
+        execution {
+            sequence: 60
+        }
+        validation {
+            type: itemIsNotNull
+            item: P204_DATAENTREGAFINAL
+        }
+        error {
+            errorMessage: Filtro de Data Obrigatório!
+            associatedItem: @P204_DATAENTREGAFINAL
+        }
+        serverSideCondition {
+            type: item=value
+            item: P204_RECEBIDA
+            value: N
+        }
+    )
+
+    validation data-entrega-inicial (
+        name: Data Entrega Inicial
+        execution {
+            sequence: 50
+        }
+        validation {
+            type: itemIsNotNull
+            item: P204_DATAENTREGAINICIAL
+        }
+        error {
+            errorMessage: Filtro de Data Obrigatório!
+            associatedItem: @P204_DATAENTREGAINICIAL
+        }
+        serverSideCondition {
+            type: item=value
+            item: P204_RECEBIDA
+            value: N
+        }
+    )
+
+    validation data-recebimento-final (
+        name: Data Recebimento Final
+        execution {
+            sequence: 30
+        }
+        validation {
+            type: itemIsNotNull
+            item: P204_DATARECEBIMENTOFINAL
+        }
+        error {
+            errorMessage: Filtro de Data Obrigatório!
+            associatedItem: @P204_DATARECEBIMENTOFINAL
+        }
+        serverSideCondition {
+            type: item=value
+            item: P204_RECEBIDA
+            value: S
+        }
+    )
+
+    validation data-recebimento-inicial (
+        name: Data Recebimento Inicial
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: itemIsNotNull
+            item: P204_DATARECEBIMENTOINICIAL
+        }
+        error {
+            errorMessage: Filtro de Data Obrigatório!
+            associatedItem: @P204_DATARECEBIMENTOINICIAL
+        }
+        serverSideCondition {
+            type: item=value
+            item: P204_RECEBIDA
+            value: S
+        }
+    )
+
+    validation filtro-obrigatorio-de-nao-recebidas (
+        name: Filtro Obrigatorio de Nao recebidas
+        execution {
+            sequence: 40
+        }
+        validation {
+            type: itemIsNotNull
+            item: P204_IDREPRESENTANTE
+        }
+        error {
+            errorMessage: Filtro obrigatório para buscar promissórias que não foram recebidas!
+            associatedItem: @P204_IDREPRESENTANTE
+        }
+        serverSideCondition {
+            type: item=value
+            item: P204_RECEBIDA
+            value: N
+        }
+    )
+
+    branch (
+        name: Go To Page 204
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 204
+                items: {
+                    P204_IDREPRESENTANTE: &P204_IDREPRESENTANTE.
+                    P204_IDVENDEDORA: &P204_IDVENDEDORA.
+                    P204_IDPEDIDO: &P204_IDPEDIDO.
+                    P204_RECEBIDA: &P204_RECEBIDA.
+                    P204_REMESSA: &P204_REMESSA.
+                    P204_DATARECEBIMENTOINICIAL: &P204_DATARECEBIMENTOINICIAL.
+                    P204_DATARECEBIMENTOFINAL: &P204_DATARECEBIMENTOFINAL.
+                    P204_DATAENTREGAINICIAL: &P204_DATAENTREGAINICIAL.
+                    P204_DATAENTREGAFINAL: &P204_DATAENTREGAFINAL.
+                    P204_ENVIADOCOBRANCA: &P204_ENVIADOCOBRANCA.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar-promissorias
+        }
+    )
+
+)
+

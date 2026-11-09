@@ -1,0 +1,1693 @@
+page 477 (
+    name: Metas de Vendas
+    title: Metas de Vendas
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function fnc_remove_meta(pid_meta) {
+              apex.confirm("Deseja deletar essa meta?", {
+                request:"DELETAR_META",
+                set:{"P477_ID_META_DELETAR":pid_meta},
+                showWait:true
+                });  
+            }
+            ```
+    }
+    css {
+        inline:
+            ```css
+            a.vermelho:link, a.vermelho:visited, a.vermelho:hover, a.vermelho:active {
+              text-decoration: none;
+              color: #f00
+              }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region acompanhamento-de-metas (
+        name: Acompanhamento de Metas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select g.idgrupometa as "Cod Grupo"
+                     , mg.idmetagrupofilial
+                     , g.nome as "Grupo"
+                     , m.datainicial as "Dt Inicial"
+                     , m.datafinal as "Dt Final"
+                     , m.valor as "Vlr Geral"
+                     , mg.percentualmeta as "Perc Meta"
+                     , (m.valor * nvl(mg.percentualmeta,1)) /100 as "Vlr Meta"
+                       --
+                     , (((m.valor * nvl(mg.percentualmeta,1)) /100) + nvl(mg.vlrcomplemento,0)) as "Vlr Total Meta"
+                     --
+                     , sum(vi.valorapagar) as "vlr Realizado"
+                     --
+                     , round( sum(vi.valorapagar) / 
+                              (((m.valor * nvl(mg.percentualmeta,1)) /100) + nvl(mg.vlrcomplemento,0)) * 100 ) ||'%' as "Perc Realizado" 
+                     --
+                     , nvl(mg.vlrcomplemento,0) as vlr_complemento
+                     -- , '<a href="javascript:fnc_remove_meta('||mg.idmetagrupofilial||');" class="vermelho"><span class="fa fa-remove fa-2x" aria-hidden="true"></span></a>' as del
+                     
+                  from metasvendas m
+                     , gruposmeta g
+                     , metasgruposfiliais mg
+                --     , vw_itenspedidos_mv vi
+                     , (
+                       select p.idpedido,
+                              p.dataemissao as dt_emissao,
+                              p.idfilialfavorita as id_filial_fav,
+                              p.tipopedido as tp_pedido,
+                              pck_util_fav.fnc_nomevendedora(p.idvendedora) as vendedora,
+                              pck_util_fav.fnc_nomefilialfavorita(p.idfilialfavorita) as filial_fav,
+                              pck_util_fav.fnc_nomeprodutodetalhado(i.idprodutodetalhado,1) as prod_detalhado,
+                              case 
+                                when p.idpais = 1 then i.valorvenda
+                                else i.valorvenda * p.fatorconversao
+                              end valorvenda,
+                              --
+                              case 
+                                when p.idpais = 1 then i.valordesconto
+                                else i.valordesconto * p.fatorconversao
+                              end valordesconto,
+                              --
+                              case 
+                                when p.idpais = 1 then i.valorapagar
+                                else i.valorapagar * p.fatorconversao
+                              end valorapagar,
+                              p.datacancelamento as dt_cancelamento,
+                              p.idvendedora,
+                              p.idrepresentante
+                         from itenspedidos i,
+                              pedidos p
+                        where i.idpedido = p.idpedido
+                          and p.valorapagar > 0
+                          and p.idsituacaoentrega >= 20000
+                          and p.datacancelamento is null
+                          and extract(year from p.dataemissao) >= 2020
+                       ) vi
+                
+                 where mg.idgrupometa = g.idgrupometa
+                   and mg.idmetavenda = m.idmetavenda
+                   and vi.dt_emissao between to_date(m.datainicial||' 00:00:01','dd/mm/rrrr hh24:mi:ss') 
+                                         and to_date(m.datafinal  ||' 23:59:59','dd/mm/rrrr hh24:mi:ss') 
+                   and vi.dt_cancelamento is null
+                   and vi.tp_pedido = 'P'
+                   and vi.id_filial_fav in ( select f.column_value
+                                                           from gruposmeta g
+                                                              , table(pck_util_fav.fnc_array_to_table(g.filiais)) f
+                                                           where g.idgrupometa = mg.idgrupometa
+                                            ) 
+                   --
+                   --and m.datainicial >= add_months(m.datainicial,-3) -- Bruno informou que utilizam no máximo 2 meses de dados
+                   and m.datainicial >= add_months(TRUNC(SYSDATE),-5) -- Bruno informou que utilizam no máximo 2 meses de dados
+                   --
+                   and not exists (select 1
+                                     from classificacoespedidos c
+                                    where c.idpedido = vi.idpedido
+                                      and c.idcaracteristicapedido = 5 ) -- Pedidos de Pontos
+                   --
+                   and not exists (select 1
+                                     from classificacoespedidos c
+                                    where c.idpedido = vi.idpedido
+                                      and c.idcaracteristicapedido = 49
+                                      and c.idvalorcaracteristica in (2010,2144,2610,2696,2724,2730,2754,2824,2826,2958) )
+                   group by g.idgrupometa
+                          , mg.idmetagrupofilial
+                          , g.nome
+                          , m.datainicial 
+                          , m.datafinal 
+                          , m.valor
+                          , mg.percentualmeta 
+                          , mg.vlrcomplemento
+                          
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        advanced {
+            savedReportMappingIdentifier: 82035640243427525
+        }
+
+        column "Cod Grupo" (
+            type: plainText
+            heading {
+                heading: Cod grupo
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column "Dt Final" (
+            type: plainText
+            heading {
+                heading: Dt final
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column "Dt Inicial" (
+            type: plainText
+            heading {
+                heading: Dt inicial
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column Grupo (
+            type: plainText
+            heading {
+                heading: Grupo
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column IDMETAGRUPOFILIAL (
+            type: hidden
+            heading {
+                heading: Idmetagrupofilial
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Perc Meta" (
+            type: plainText
+            heading {
+                heading: Perc meta
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column "Perc Realizado" (
+            type: plainText
+            heading {
+                heading: Perc realizado
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column VLR_COMPLEMENTO (
+            type: link
+            heading {
+                heading: Vlr Complemento
+            }
+            layout {
+                sequence: 80
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            link {
+                target: {
+                    type: url
+                    url: javascript:openModal('complemento');$("#P477_ID_META_GRUPO").val(#IDMETAGRUPOFILIAL#);
+                }
+                linkText: #VLR_COMPLEMENTO#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column "Vlr Geral" (
+            type: plainText
+            heading {
+                heading: Vlr geral
+            }
+            layout {
+                sequence: 100
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column "Vlr Meta" (
+            type: plainText
+            heading {
+                heading: Vlr meta
+            }
+            layout {
+                sequence: 70
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "Vlr Total Meta" (
+            type: plainText
+            heading {
+                heading: Vlr total meta
+            }
+            layout {
+                sequence: 90
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column "vlr Realizado" (
+            type: plainText
+            heading {
+                heading: Vlr Realizado
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 849530 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Cod Grupo" (
+                sequence: 1
+            )
+
+            displayColumn "Dt Final" (
+                sequence: 4
+            )
+
+            displayColumn "Dt Inicial" (
+                sequence: 3
+            )
+
+            displayColumn "Grupo" (
+                sequence: 2
+            )
+
+            displayColumn "Perc Meta" (
+                sequence: 6
+            )
+
+            displayColumn "Perc Realizado" (
+                sequence: 10
+            )
+
+            displayColumn VLR_COMPLEMENTO (
+                sequence: 8
+            )
+
+            displayColumn "Vlr Geral" (
+                sequence: 5
+            )
+
+            displayColumn "Vlr Meta" (
+                sequence: 7
+            )
+
+            displayColumn "Vlr Total Meta" (
+                sequence: 9
+            )
+
+            displayColumn "vlr Realizado" (
+                sequence: 11
+            )
+
+            sort (
+                column: "Cod Grupo"
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: "Total De Venda"
+            )
+
+            aggregate (
+                column: "Vlr Meta"
+            )
+
+        )
+
+    )
+
+    region cadastro-de-grupo (
+        name: Cadastro de Grupo
+        type: staticContent
+        layout {
+            sequence: 10
+            parentRegion: @cadastro-de-grupo-de-meta
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--hideHeader js-addHiddenHeadingRoleDesc
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P477_ID_GRUPO is not null
+        }
+    )
+
+    region cadastro-de-grupo-de-meta (
+        name: Cadastro de Grupo de Meta
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region complemento (
+        name: Complemento
+        type: staticContent
+        layout {
+            sequence: 50
+            slot: dialogsDrawersAndPopups
+        }
+        appearance {
+            template: @/inline-dialog
+            templateOptions: [
+                #DEFAULT#
+                js-dialog-size600x400
+            ]
+        }
+        advanced {
+            htmlDomId: complemento
+        }
+    )
+
+    region criar-meta (
+        name: Criar Meta
+        type: staticContent
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from gruposmeta g
+                ```
+        }
+    )
+
+    region lista-de-grupos (
+        name: Lista de Grupos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select g.idgrupometa,
+                       g.nome as "Nome",
+                       (select listagg(pck_util_fav.fnc_nomefilialfavorita(fi.column_value), '; ')
+                        within group (order by pck_util_fav.fnc_nomefilialfavorita(fi.column_value))
+                        from table(pck_util_fav.fnc_array_to_table(g.filiais))fi) as "Filiais"
+                from gruposmeta g
+                ```
+        }
+        layout {
+            sequence: 20
+            parentRegion: @cadastro-de-grupo-de-meta
+            slot: subRegions
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P477_ID_GRUPO is null
+        }
+        link {
+            linkColumn: customTarget
+            target: {
+                page: 477
+                items: {
+                    P477_ID_GRUPO: #IDGRUPOMETA#
+                }
+                clearCache: 477
+                action: resetPagination
+            }
+            linkIcon: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil.png" class="apex-edit-pencil" alt="">
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        advanced {
+            savedReportMappingIdentifier: 62683164459100939
+        }
+
+        column Filiais (
+            type: plainText
+            heading {
+                heading: Filiais
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column IDGRUPOMETA (
+            type: hidden
+            heading {
+                heading: Idgrupometa
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Nome (
+            type: plainText
+            heading {
+                heading: Nome
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 850041 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Filiais" (
+                sequence: 3
+            )
+
+            displayColumn IDGRUPOMETA (
+                sequence: 1
+            )
+
+            displayColumn "Nome" (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    region region-display-selector (
+        name: Region display selector
+        type: regionDisplaySelector
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/blank-with-attributes
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            includeShowAll: false
+            rememberSelection: bySession
+        }
+    )
+
+    pageItem P477_DT_BASE_FIM (
+        type: datePickerJquery
+        label {
+            label: Dt Base Final
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @criar-meta
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P477_DT_BASE_INI (
+        type: datePickerJquery
+        label {
+            label: Dt Base Inicial
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @criar-meta
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P477_DT_FINAL (
+        type: datePickerJquery
+        label {
+            label: Data Final
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @criar-meta
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P477_DT_INICIAL (
+        type: datePickerJquery
+        label {
+            label: Data Inicial
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @criar-meta
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P477_FILIAIS (
+        type: plugin/select
+        label {
+            label: Filiais
+            alignment: left
+        }
+        settings {
+            selectListType: multiValueSelectList
+            width: 600
+            rapidSelection: attributeValue
+            dragAndDropSorting: attributeValue
+            selectOnBlur: attributeValue
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nomefilialfavorita d,
+                       f.idfilialfavorita
+                from filiaisfavorita f
+                where (not exists (select ff.column_value
+                                  from gruposmeta g,
+                                       table(pck_util_fav.fnc_array_to_table(g.filiais)) ff
+                                  where ff.column_value = f.idfilialfavorita) and :P477_ID_GRUPO is null)
+                or not exists (select ff.column_value
+                                from gruposmeta g,
+                                      table(pck_util_fav.fnc_array_to_table(g.filiais)) ff
+                                where g.idgrupometa != :P477_ID_GRUPO
+                                and ff.column_value = f.idfilialfavorita)
+                ```
+        }
+        layout {
+            sequence: 20
+            region: @cadastro-de-grupo
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P477_ID_GRUPO (
+        type: hidden
+        layout {
+            sequence: 30
+            region: @cadastro-de-grupo
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P477_ID_META_DELETAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @acompanhamento-de-metas
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P477_ID_META_GRUPO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 20
+            region: @complemento
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P477_NOME (
+        type: textField
+        label {
+            label: Nome
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @cadastro-de-grupo
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P477_VLR_COMPLEMENTO (
+        type: numberField
+        label {
+            label: Vlr complemento
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 10
+            region: @complemento
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P477_VLR_META (
+        type: textField
+        label {
+            label: Valor de Meta
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @criar-meta
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button cancel (
+        buttonName: CANCEL
+        label: Cancelar
+        layout {
+            sequence: 10
+            region: @cadastro-de-grupo
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 477
+                items: {
+                    P477_ID_GRUPO:
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button cancel-vlr-cpl (
+        buttonName: CANCEL_VLR_CPL
+        label: Cancelar
+        layout {
+            sequence: 10
+            region: @complemento
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    button delete (
+        buttonName: DELETE
+        label: Deletar
+        layout {
+            sequence: 20
+            region: @cadastro-de-grupo
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--danger
+            ]
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:apex.confirm('Deseja excluir este grupo?','DELETE_GRUPO');
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression:
+                ```sql
+                :P477_ID_GRUPO != 0
+                and :P477_ID_GRUPO is not null
+                ```
+        }
+    )
+
+    button gerar-metas (
+        buttonName: GERAR_METAS
+        label: Gerar Metas
+        layout {
+            sequence: 10
+            region: @criar-meta
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconRight
+            ]
+            icon: fa-cogs
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button novo-grupo (
+        buttonName: NOVO_GRUPO
+        label: Novo Grupo
+        layout {
+            sequence: 10
+            region: @lista-de-grupos
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconRight
+            ]
+            icon: fa-plus
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 477
+                items: {
+                    P477_ID_GRUPO: 0
+                }
+                clearCache: 477
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button salvar (
+        buttonName: SALVAR
+        label: Salvar
+        layout {
+            sequence: 30
+            region: @cadastro-de-grupo
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button salvar-vlr-cpl (
+        buttonName: SALVAR_VLR_CPL
+        label: Salvar
+        layout {
+            sequence: 20
+            region: @complemento
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction atualiza-vlr-cpl (
+        name: Atualiza vlr cpl
+        execution {
+            sequence: 20
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @salvar-vlr-cpl
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: UPDATE_VLR_COMPLEMENTO
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction cancel-dialog (
+        name: Cancel dialog
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @cancel-vlr-cpl
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode: closeModal('complemento');
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    validation valida-campo-de-data-final (
+        name: Valida campo de data final
+        execution {
+            sequence: 20
+        }
+        validation {
+            type: itemIsNotNull
+            item: P477_DT_FINAL
+        }
+        error {
+            errorMessage: Data final deve ter algum valor!
+            associatedItem: @P477_DT_FINAL
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERAR_METAS
+        }
+    )
+
+    validation valida-campo-de-data-inicial (
+        name: Valida campo de data inicial
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: itemIsNotNull
+            item: P477_DT_INICIAL
+        }
+        error {
+            errorMessage: Data inicial deve ter algum valor!
+            associatedItem: @P477_DT_INICIAL
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERAR_METAS
+        }
+    )
+
+    validation valida-campo-de-filiais (
+        name: Valida campo de filiais
+        execution {
+            sequence: 50
+        }
+        validation {
+            type: itemIsNotNull
+            item: P477_FILIAIS
+        }
+        error {
+            errorMessage: Campo de filiais deve ter algum valor!
+            associatedItem: @P477_FILIAIS
+        }
+        serverSideCondition {
+            type: request=Value
+            value: SALVAR
+        }
+    )
+
+    validation valida-campo-de-nome (
+        name: Valida campo de nome
+        execution {
+            sequence: 40
+        }
+        validation {
+            type: itemIsNotNull
+            item: P477_NOME
+        }
+        error {
+            errorMessage: Campo de nome deve ter algum valor!
+            associatedItem: @P477_NOME
+        }
+        serverSideCondition {
+            type: request=Value
+            value: SALVAR
+        }
+    )
+
+    validation valida-campo-de-valor-de-meta (
+        name: Valida campo de valor de meta
+        execution {
+            sequence: 30
+        }
+        validation {
+            type: itemIsNotNull
+            item: P477_VLR_META
+        }
+        error {
+            errorMessage: Valor de meta deve ter algum valor!
+            associatedItem: @P477_VLR_META
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERAR_METAS
+        }
+    )
+
+    validation valor-meta (
+        name: Valor meta > 0
+        execution {
+            sequence: 60
+        }
+        validation {
+            language: sql
+            sqlExpression: :P477_VLR_META > 0
+        }
+        error {
+            errorMessage: Valor de meta precisa ser maior que 0!
+            associatedItem: @P477_VLR_META
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERAR_METAS
+        }
+    )
+
+    process atualiza-vlr-complemento (
+        name: Atualiza vlr complemento
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                -- Created on 26/10/2020 by MAX.BERKEUER 
+                declare 
+                  --
+                  vvlr_cpl number := :P477_VLR_COMPLEMENTO;
+                  vid_meta_grupo number := :P477_ID_META_GRUPO;
+                  vvalor_meta number;
+                  --
+                begin
+                  --
+                  select (m.valor * mg.percentualmeta) /100
+                  into vvalor_meta
+                  from metasgruposfiliais mg,
+                       gruposmeta g,
+                       metasvendas m
+                  where mg.idgrupometa = g.idgrupometa
+                  and mg.idmetavenda = m.idmetavenda
+                  and mg.idmetagrupofilial = vid_meta_grupo;
+                  --
+                  if vvlr_cpl < 0  then
+                    --
+                    if (vvlr_cpl * -1) >= vvalor_meta then
+                      --
+                      apex_error.add_error(p_message          => 'Desconto de meta não pode ser igual ou maior ao valor da meta!',
+                                           p_display_location => apex_error.c_on_error_page);
+                      --
+                    else
+                      --
+                      update metasgruposfiliais m
+                      set m.vlrcomplemento = vvlr_cpl
+                      where m.idmetagrupofilial = vid_meta_grupo;    
+                      --
+                    end if;
+                    --
+                  else
+                    --
+                    update metasgruposfiliais m
+                    set m.vlrcomplemento = vvlr_cpl
+                    where m.idmetagrupofilial = vid_meta_grupo;    
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 40
+        }
+        successMessage {
+            successMessage: Ação Processada!
+        }
+        advanced {
+            executionMappingIdentifier: 85013756171168627
+        }
+        serverSideCondition {
+            type: request=Value
+            value: UPDATE_VLR_COMPLEMENTO
+        }
+    )
+
+    process clear-cache (
+        name: Clear cache
+        type: clearSessionState
+        execution {
+            sequence: 50
+        }
+        advanced {
+            executionMappingIdentifier: 85013544220168625
+        }
+    )
+
+    process criar-meta (
+        name: Criar Meta
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                -- Created on 22/10/2020 by MAX.BERKEUER 
+                declare 
+                  --
+                  vid_meta number;
+                  vexist_dados number;
+                  /*
+                  dt_base_ini date := to_date('01/04/2021','DD/MM/RRRR');
+                  dt_base_fim date := to_date('30/04/2021','DD/MM/RRRR');
+                  vmeta_geral number := 4260000;
+                  dt_inicial date := to_date('01/05/2021','DD/MM/RRRR');
+                  dt_final date := to_date('31/05/2021','DD/MM/RRRR');
+                  */
+                  dt_base_ini date := to_date(:P477_DT_BASE_INI,'DD/MM/RRRR');
+                  dt_base_fim date := to_date(:P477_DT_BASE_FIM,'DD/MM/RRRR');
+                  vmeta_geral number := :P477_VLR_META;
+                  dt_inicial date := to_date(:P477_DT_INICIAL,'DD/MM/RRRR');
+                  dt_final date := to_date(:P477_DT_FINAL,'DD/MM/RRRR');
+                  
+                  --
+                begin
+                  --
+                  /*Verifica se existe dados no filtro informado*/
+                  select count(1)
+                  into vexist_dados
+                  from vw_itenspedidos_mv i
+                  where i.dt_cancelamento is null
+                  and i.tp_pedido = 'P'
+                  and i.dt_emissao between to_date(dt_base_ini||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(dt_base_fim||' 23:59:59','DD/MM/RRRR HH24:MI:SS');
+                  --
+                  if vexist_dados > 0 then
+                    --
+                    insert into metasvendas(idmetavenda,
+                                            datainicial,
+                                            datafinal,
+                                            valor)
+                    values(seq_idmetavenda.nextval,
+                                            dt_inicial,
+                                            dt_final,
+                                            vmeta_geral)
+                    returning idmetavenda into vid_meta;
+                    --
+                    for c in (select round(sum(d2.valor_tot_filial)) as tot_venda
+                                   , nvl(round(sum(d2.perc)),1) as percentual
+                                   , sum((vmeta_geral * d2.perc)/100) as vlr_meta
+                                   , d2.id_grupo
+                              from (select d1.id_filial_fav
+                                         , d1.valor_tot_filial
+                                         , d1.total_geral
+                                         , nvl(d1.perc,1) perc
+                                         , ( select g.idgrupometa as grupo
+                                             from gruposmeta g,
+                                             table(pck_util_fav.fnc_array_to_table(g.filiais))  f
+                                             where f.column_value = d1.id_filial_fav ) as id_grupo                           
+                                         , sum(d1.perc) over(order by d1.perc desc) as perc_acumulado
+                                    from (select d.id_filial_fav
+                                               , nvl(d.valor_tot_filial,1) valor_tot_filial
+                                               , sum(d.valor_tot_filial) over() as total_geral
+                                               , case
+                                                   when valor_tot_filial > 0 then
+                                                     round((valor_tot_filial / sum(d.valor_tot_filial) over()) *100,3)
+                                                   else
+                                                     1
+                                                  end as perc
+                                          from ( select i.id_filial_fav
+                                                      , sum(i.valorapagar) as valor_tot_filial
+                                                 from vw_itenspedidos_mv i
+                                                 where i.dt_cancelamento is null
+                                                   and i.tp_pedido = 'P'
+                                                   and i.dt_emissao between to_date(dt_base_ini||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(dt_base_fim||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                                                 group by id_filial_fav
+                                                 order by 2 desc ) d ) d1 ) d2
+                              where d2.id_grupo is not null
+                              group by d2.id_grupo
+                              order by d2.id_grupo desc)
+                    loop
+                      --
+                      insert into metasgruposfiliais( idmetagrupofilial
+                                                    , idgrupometa
+                                                    , idfilialfav
+                                                    , idmetavenda
+                                                    , percentualmeta )
+                      values( seq_idmetagrupofilial.nextval
+                            , c.id_grupo
+                            , null
+                            , vid_meta
+                            , c.percentual );
+                      --
+                      update metasgruposfiliais m
+                      set m.percentualmeta = 1
+                      where m.percentualmeta = 0
+                        and m.idmetavenda = vid_meta;
+                      --
+                      commit;
+                      --
+                    end loop;
+                    --
+                  else
+                    --
+                    apex_error.add_error(p_message          => 'Não foi encontrado dados para o período base informado!',
+                                         p_display_location => apex_error.c_inline_with_field_and_notif);
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: Ação Processada!
+        }
+        advanced {
+            executionMappingIdentifier: 84990123118575007
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERAR_METAS
+        }
+    )
+
+    process deletar-meta (
+        name: Deletar Meta
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                -- Created on 23/10/2020 by MAX.BERKEUER 
+                declare 
+                  --
+                  vexists number;
+                  vid_meta_venda number;
+                  --
+                begin
+                  --
+                  delete metasgruposfiliais m
+                  where m.idmetagrupofilial = :P477_ID_META_DELETAR
+                  returning m.idmetavenda into vid_meta_venda;
+                  --
+                  select count(1)
+                  into vexists
+                  from metasgruposfiliais m
+                  where m.idmetavenda = vid_meta_venda;
+                  --
+                  if vexists = 0 then
+                    --
+                    delete metasvendas m
+                    where m.idmetavenda = vid_meta_venda;
+                    --
+                  end if;       
+                  --
+                  apex_util.set_session_state(p_name => 'P477_ID_META_DELETAR',p_value => null);  
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        successMessage {
+            successMessage: Ação Processada!
+        }
+        advanced {
+            executionMappingIdentifier: 84991911294575025
+        }
+        serverSideCondition {
+            type: request=Value
+            value: DELETAR_META
+        }
+    )
+
+    process dml-grupo (
+        name: Dml grupo
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                -- Created on 22/10/2020 by MAX.BERKEUER 
+                declare 
+                  --
+                  vid_grupo number := :P477_ID_GRUPO;
+                  vnome varchar2(40) := :P477_NOME;
+                  vfiliais varchar2(200) := :P477_FILIAIS;
+                  vexist number;
+                  --
+                begin
+                  --
+                  if :REQUEST = 'SALVAR' then
+                    --
+                    if vid_grupo = 0 then
+                      --
+                      insert into gruposmeta(idgrupometa,
+                                             nome,
+                                             filiais)
+                      values(seq_idgrupometa.nextval,
+                                             vnome,
+                                             vfiliais);
+                      --
+                    else
+                      --
+                      update gruposmeta g
+                      set g.nome = vnome,
+                          g.filiais = vfiliais
+                      where g.idgrupometa = vid_grupo;
+                      --
+                    end if;
+                    --
+                    apex_util.set_session_state(p_name => 'P477_NOME',p_value => null);  
+                    apex_util.set_session_state(p_name => 'P477_FILIAIS',p_value => null);  
+                    apex_util.set_session_state(p_name => 'P477_ID_GRUPO',p_value => null);
+                    --
+                  elsif :REQUEST = 'DELETE_GRUPO' then
+                    --
+                    select count(1)
+                    into vexist
+                    from metasgruposfiliais m
+                    where m.idgrupometa = vid_grupo;
+                    --
+                    if vexist = 0 then
+                      --
+                      delete gruposmeta g
+                      where g.idgrupometa = vid_grupo;  
+                      --
+                    else
+                      --
+                      apex_error.add_error(p_message          => 'Grupo não pode ser removido, já foi incluído em uma meta.',
+                                           p_display_location => apex_error.c_inline_with_field_and_notif);
+                      --
+                    end if;  
+                    --
+                    apex_util.set_session_state(p_name => 'P477_NOME',p_value => null);  
+                    apex_util.set_session_state(p_name => 'P477_FILIAIS',p_value => null);  
+                    apex_util.set_session_state(p_name => 'P477_ID_GRUPO',p_value => null);    
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Ação Processada!
+        }
+        advanced {
+            executionMappingIdentifier: 82037637741427545
+        }
+    )
+
+    process popular-form (
+        name: Popular form
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                -- Created on 22/10/2020 by MAX.BERKEUER 
+                declare 
+                  --
+                  vid_grupo number := :P477_ID_GRUPO;
+                  vnome varchar2(40);
+                  vfiliais varchar2(200);
+                  --
+                begin
+                  --
+                  select gg.nome,
+                         gg.filiais
+                  into vnome,
+                       vfiliais
+                  from gruposmeta gg
+                  where gg.idgrupometa = vid_grupo;
+                  --
+                  apex_util.set_session_state(p_name => 'P477_NOME',p_value => vnome);  
+                  apex_util.set_session_state(p_name => 'P477_FILIAIS',p_value => vfiliais); 
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 84989922676575005
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression:
+                ```sql
+                :P477_ID_GRUPO is not null
+                and :P477_ID_GRUPO  != 0
+                ```
+        }
+    )
+
+)
+

@@ -1,0 +1,550 @@
+page 756 (
+    name: Inadimplência Detalhada
+    title: Inadimplência Detalhada
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region inadimplência-detalhada (
+        name: Inadimplência Detalhada
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select romance.total total_romance
+                     , romance.debitosnovos debitos_romance
+                     , favorita.total total_favorita
+                     , favorita.debitos debitos_favorita
+                     , round(pck_romance.FNC_DIVISOR_ZERO((romance.debitosnovos+favorita.debitos),(romance.total+favorita.total))*100,2) inadimplencia
+                from ( 
+                      select sum(totaldebitosnovos) debitosnovos
+                           , sum(totalgeral+totaldebitosnovos) total
+                      from fechamentossemanais ff 
+                         , fechamentorepresentantes fr
+                         , campanhasfiliais cf
+                      where fr.idrepresentante = :P756_IDREPRESENTANTE
+                        and fr.idfechamentopontuacao = ff.idfechamento
+                        and cf.idcampanhafilial = :P756_IDCAMPANHAFILIAL
+                        and 1 = 2
+                        and ff.idsemana between cf.idsemanainicio and cf.idsemanafim 
+                     ) romance
+                   , ( 
+                      select ((t.total_pagar) - (valor_pago_emdia) - (pago_30dias) - (pago_42dias) - (pago_90dias)) debitos
+                           , (t.total_pagar) total
+                      from (
+                            select p.idrepresentante 
+                                 , roman.pck_romance.fnc_nomerepresentante(p.idrepresentante) distribuidor
+                                 , count(1) Qtd_Vencimentos 
+                                 , sum(nvl(v.valorpagar,0) * nvl(p.fatorconversao,1)) total_pagar 
+                                 , sum( nvl(pg.valorpago,0) * nvl(p.fatorconversao,1)) total_pago
+                                 , sum( case  
+                                          when nvl(pg.datapagamento,pg.databaixa) <= v.datavencimento 
+                                            then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                          else 
+                                            0 
+                                        end )  valor_pago_emdia
+                                 , sum( case 
+                                          when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 1 and v.datavencimento + 30 
+                                            then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                          else 
+                                            0 
+                                        end ) pago_30dias
+                                 , sum( case  
+                                          when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 31 and v.datavencimento + 42 
+                                            then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                          else 
+                                            0 
+                                        end ) pago_42dias
+                                 , sum( case 
+                                          when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 43 and v.datavencimento + 90 
+                                            then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                          else 
+                                            0 
+                                        end ) pago_90dias
+                             from favorita.vencimentospedidos v                 
+                                , favorita.pedidos p                            
+                                , favorita.filiaisfavorita f      
+                                , semana_dias s
+                                , campanhasfiliais cf                       
+                                , (select sum(valorpago) valorpago             
+                                        , min(trunc(datapagamento)) datapagamento
+                                        , min(trunc(databaixa)) databaixa   
+                                        , idvencimentopedido                    
+                                     from favorita.pagamentospedidos                     
+                                    where idsituacao = 20                       
+                                    group by idvencimentopedido ) pg
+                            where v.idpedido = p.idpedido 
+                              and p.idfilialromance is not null  
+                              and cf.idcampanhafilial = :P756_IDCAMPANHAFILIAL
+                              and s.idsemana = cf.idsemanainicio                             
+                              and p.datacancelamento is null                            
+                              and v.situacaovencimento = 'V'         
+                              and p.idrepresentante = :P756_IDREPRESENTANTE 
+                              and p.idfilialfavorita = f.idfilialfavorita                   
+                              and v.idvencimentopedido = pg.idvencimentopedido(+)    
+                              and trunc(p.dataemissao) >= s.dt_ini
+                              and v.valorpagar > 0                      
+                              and 1 = 2
+                              and trunc(v.datavencimento) between s.dt_ini and trunc(sysdate)-1
+                            group by p.idrepresentante ) t 
+                     ) favorita
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 3076124191773249810
+        }
+
+        column DEBITOS_FAVORITA (
+            type: plainText
+            heading {
+                heading: Debitos Novos Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column DEBITOS_ROMANCE (
+            type: plainText
+            heading {
+                heading: Debitos Novos Romance
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column INADIMPLENCIA (
+            type: plainText
+            heading {
+                heading: Inadimplencia
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column TOTAL_FAVORITA (
+            type: plainText
+            heading {
+                heading: Total Vendido Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column TOTAL_ROMANCE (
+            type: plainText
+            heading {
+                heading: Total Vendido Romance
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        savedReport 35829833 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DEBITOS_FAVORITA (
+                sequence: 4
+            )
+
+            displayColumn DEBITOS_ROMANCE (
+                sequence: 2
+            )
+
+            displayColumn INADIMPLENCIA (
+                sequence: 5
+            )
+
+            displayColumn TOTAL_FAVORITA (
+                sequence: 3
+            )
+
+            displayColumn TOTAL_ROMANCE (
+                sequence: 1
+            )
+
+        )
+
+    )
+
+    region inadimplência-detalhada-2 (
+        name: Inadimplência Detalhada
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select i.faturamento_rmc total_romance
+                     , i.debitos_rmc debitos_romance
+                     , i.faturamento_fav total_favorita
+                     , i.debitos_fav debitos_favorita
+                     , round(pck_romance.FNC_DIVISOR_ZERO((debitos_rmc+debitos_fav),(faturamento_rmc+faturamento_fav))*100,2) inadimplencia
+                     , round(i.inad_rmc,2) inad_rmc
+                     , round(i.inad_fav,2) inad_fav
+                from inadimplenciacampanhas i
+                where i.idinadimplenciacampanha = ( select max(ii.idinadimplenciacampanha)
+                                                    from inadimplenciacampanhas ii
+                                                    where ii.idrepresentante = :P756_IDREPRESENTANTE )
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 3599761723956033605
+        }
+
+        column DEBITOS_FAVORITA (
+            type: plainText
+            heading {
+                heading: Debitos Novos Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DEBITOS_ROMANCE (
+            type: plainText
+            heading {
+                heading: Debitos Novos Romance
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column INADIMPLENCIA (
+            type: plainText
+            heading {
+                heading: Inadimplência Geral
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column INAD_FAV (
+            type: plainText
+            heading {
+                heading: Inad Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column INAD_RMC (
+            type: plainText
+            heading {
+                heading: Inad Romance
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column TOTAL_FAVORITA (
+            type: plainText
+            heading {
+                heading: Total Vendido Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    -- Validacao adicionada no T10389382
+                    select 1
+                      from catal.usuarios u
+                         , catal.gerentes g
+                         , catal.filiais f
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial = f.idfilial
+                       and f.tipofilial = 'D' -- Distribuidora (Franquia)
+                       and u.usuario = v('APP_USER')
+                    ```
+            }
+        )
+
+        column TOTAL_ROMANCE (
+            type: plainText
+            heading {
+                heading: Total Vendido Romance
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    -- Validacao adicionada no T10389382
+                    select 1
+                      from catal.usuarios u
+                         , catal.gerentes g
+                         , catal.filiais f
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial = f.idfilial
+                       and f.tipofilial = 'D' -- Distribuidora (Franquia)
+                       and u.usuario = v('APP_USER')
+                    ```
+            }
+        )
+
+        savedReport 36652578 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DEBITOS_FAVORITA (
+                sequence: 5
+            )
+
+            displayColumn DEBITOS_ROMANCE (
+                sequence: 2
+            )
+
+            displayColumn INADIMPLENCIA (
+                sequence: 7
+            )
+
+            displayColumn INAD_FAV (
+                sequence: 6
+            )
+
+            displayColumn INAD_RMC (
+                sequence: 3
+            )
+
+            displayColumn TOTAL_FAVORITA (
+                sequence: 4
+            )
+
+            displayColumn TOTAL_ROMANCE (
+                sequence: 1
+            )
+
+        )
+
+    )
+
+    pageItem P756_IDCAMPANHAFILIAL (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 20
+            region: @inadimplência-detalhada
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P756_IDREPRESENTANTE (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @inadimplência-detalhada
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+)
+

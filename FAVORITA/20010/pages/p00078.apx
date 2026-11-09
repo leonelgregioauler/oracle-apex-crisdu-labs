@@ -1,0 +1,1272 @@
+page 78 (
+    name: Faturamento
+    title: Faturamento
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region acumulativo-por-distribuidor (
+        name: Acumulativo por Distribuidor
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomerepresentante(r.idrepresentante) distribuidor
+                     , nvl(v1.qtdpedidos,0) qtd_2023
+                     , nvl(v2.qtdpedidos,0) qtd_2024
+                     , case 
+                         when v1.qtdpedidos > 0 then
+                           round( (v2.qtdpedidos/v1.qtdpedidos)*100,2)-100
+                         when v2.qtdpedidos = 0 then
+                           0
+                         else
+                           0
+                       end qtd_comparativo
+                     , '|' s1
+                     , nvl(v1.valorpagar,0) vlrtotal_2023
+                     , nvl(v2.valorpagar,0) vlrtotal_2024
+                     , case 
+                         when v1.valorpagar > 0 then
+                           round( (v2.valorpagar/v1.valorpagar)*100,2)-100
+                         when v2.valorpagar = 0 then
+                           0
+                         else
+                           0
+                       end vlr_comparativo
+                     , '|' s2
+                     , nvl(round( (v1.valorpagar/v1.qtdpedidos),2),0) tm_2023
+                     , nvl(round( (v2.valorpagar/v2.qtdpedidos),2),0) tm_2024
+                     , case 
+                         when round( (v1.valorpagar/v1.qtdpedidos),2) > 0 then
+                           round( (round( (v2.valorpagar/v2.qtdpedidos),2)/round( (v1.valorpagar/v1.qtdpedidos),2))*100,2)-100
+                         else
+                           0
+                       end tm_comparativo
+                     , '|' s3
+                     , tipo.call call_center
+                     , tipo.site site
+                     , (tipo.loja+tipo.delivery) loja
+                     , tipo.vendadireta venda_direta
+                from representantes r
+                   , ( select rd.idrepresentante
+                            , sum(rd.qtdfavorita) qtdpedidos
+                            , round(sum(rd.valorapagar*rd.fatorconversao),2) valorpagar
+                       from vw_rank_pedidos_dist_m rd
+                       where extract(year from rd.dataemissao) = extract(year from sysdate)-1
+                         and trunc(rd.dataemissao) < add_months(trunc(sysdate),-12)
+                         and :P78_IDFILIAL is not null
+                       group by rd.idrepresentante ) v1
+                   , ( select rd.idrepresentante
+                            , sum(rd.qtdfavorita) qtdpedidos
+                            , round(sum(rd.valorapagar*rd.fatorconversao),2) valorpagar
+                       from vw_rank_pedidos_dist_m rd
+                       where extract(year from rd.dataemissao) = extract(year from sysdate)
+                         and :P78_IDFILIAL is not null
+                       group by rd.idrepresentante ) v2
+                   , ( select t.idrepresentante
+                            , sum(loja) loja
+                            , sum(vendadireta) vendadireta
+                            , sum(site) site
+                            , sum(call) call
+                            , sum(delivery) delivery
+                       from ( select rd.idrepresentante
+                                   , decode(ff.tipofilial,'L',round(rd.valorapagar*rd.fatorconversao,2),0) loja
+                                   , decode(ff.tipofilial,'V',round(rd.valorapagar*rd.fatorconversao,2),0) vendadireta
+                                   , decode(ff.tipofilial,'S',round(rd.valorapagar*rd.fatorconversao,2),0) site
+                                   , decode(ff.tipofilial,'C',round(rd.valorapagar*rd.fatorconversao,2),0) call
+                                   , decode(ff.tipofilial,'E',round(rd.valorapagar*rd.fatorconversao,2),0) delivery
+                              from filiaisfavorita ff
+                                 , vw_rank_pedidos_dist_m rd
+                              where rd.idfilialfavorita = ff.idfilialfavorita
+                                and :P78_IDFILIAL is not null
+                                and extract(year from rd.dataemissao) = extract(year from sysdate) ) t
+                       group by t.idrepresentante ) tipo
+                where roman.pck_romance.fnc_filialrepresentante(r.idrepresentante) = :P78_IDFILIAL
+                  and :P78_IDFILIAL is not null
+                  --and r.ativo = 'S'
+                  and r.idrepresentante = v2.idrepresentante(+)
+                  and r.idrepresentante = v1.idrepresentante(+)
+                  and r.idrepresentante = tipo.idrepresentante(+)
+                ------------------------------------------------------
+                union
+                ------------------------------------------------------
+                select 'Z- Total -Z'
+                     , nvl(sum(v1.qtdpedidos),0) qtd_2023
+                     , nvl(sum(v2.qtdpedidos),0) qtd_2024
+                     , case 
+                         when sum(v1.qtdpedidos) > 0 then
+                           round( (sum(v2.qtdpedidos)/sum(v1.qtdpedidos))*100,2)-100
+                         else
+                           100
+                       end qtd_comparativo
+                     , '|' s1
+                     , nvl(sum(v1.valorpagar),0) vlrtotal_2023
+                     , nvl(sum(v2.valorpagar),0) vlrtotal_2024
+                     , case 
+                         when sum(v1.valorpagar) > 0 then
+                           round( (sum(v2.valorpagar)/sum(v1.valorpagar))*100,2)-100
+                         else
+                           100
+                       end vlr_comparativo
+                     , '|' s2
+                     , nvl(round( (sum(v1.valorpagar/v1.qtdpedidos)),2),0) tm_2023
+                     , nvl(round( (sum(v2.valorpagar/v2.qtdpedidos)),2),0) tm_2024
+                     , case 
+                         when round( (sum(v1.valorpagar)/sum(v1.qtdpedidos)),2) > 0 then
+                           round( (round( (sum(v2.valorpagar)/sum(v2.qtdpedidos)),2)/round( (sum(v1.valorpagar)/sum(v1.qtdpedidos)),2))*100,2)-100
+                         else
+                           100
+                       end tm_comparativo
+                     , '|' s3
+                     , sum(tipo.call) call_center
+                     , sum(tipo.site) site
+                     , (sum(tipo.loja)+sum(tipo.delivery)) loja
+                     , sum(tipo.vendadireta) venda_direta
+                from representantes r
+                   , ( select rd.idrepresentante
+                            , sum(rd.qtdfavorita) qtdpedidos
+                            , round(sum(rd.valorapagar*rd.fatorconversao),2) valorpagar
+                       from vw_rank_pedidos_dist_m rd
+                       where extract(year from rd.dataemissao) = extract(year from sysdate)-1
+                         and trunc(rd.dataemissao) < add_months(trunc(sysdate),-12)
+                         and :P78_IDFILIAL is not null
+                       group by rd.idrepresentante ) v1
+                   , ( select rd.idrepresentante
+                            , sum(rd.qtdfavorita) qtdpedidos
+                            , round(sum(rd.valorapagar*rd.fatorconversao),2) valorpagar
+                       from vw_rank_pedidos_dist_m rd
+                       where extract(year from rd.dataemissao) = extract(year from sysdate)
+                         and :P78_IDFILIAL is not null
+                       group by rd.idrepresentante ) v2
+                   , ( select t.idrepresentante
+                            , sum(loja) loja
+                            , sum(vendadireta) vendadireta
+                            , sum(site) site
+                            , sum(call) call
+                            , sum(delivery) delivery
+                       from ( select rd.idrepresentante
+                                   , decode(ff.tipofilial,'L',round(rd.valorapagar*rd.fatorconversao,2),0) loja
+                                   , decode(ff.tipofilial,'V',round(rd.valorapagar*rd.fatorconversao,2),0) vendadireta
+                                   , decode(ff.tipofilial,'S',round(rd.valorapagar*rd.fatorconversao,2),0) site
+                                   , decode(ff.tipofilial,'C',round(rd.valorapagar*rd.fatorconversao,2),0) call
+                                   , decode(ff.tipofilial,'E',round(rd.valorapagar*rd.fatorconversao,2),0) delivery
+                              from filiaisfavorita ff
+                                 , vw_rank_pedidos_dist_m rd
+                              where rd.idfilialfavorita = ff.idfilialfavorita
+                                and :P78_IDFILIAL is not null
+                                and extract(year from rd.dataemissao) = extract(year from sysdate) ) t
+                       group by t.idrepresentante ) tipo
+                where roman.pck_romance.fnc_filialrepresentante(r.idrepresentante) = :P78_IDFILIAL
+                  and :P78_IDFILIAL is not null
+                  --and r.ativo = 'S'
+                  and r.idrepresentante = v2.idrepresentante(+)
+                  and r.idrepresentante = v1.idrepresentante(+)
+                  and r.idrepresentante = tipo.idrepresentante(+)
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado, verifique a Franquia escolhida.
+        }
+        advanced {
+            savedReportMappingIdentifier: 6107769832217437907
+        }
+
+        column CALL_CENTER (
+            type: plainText
+            heading {
+                heading: Call Center
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column LOJA (
+            type: plainText
+            heading {
+                heading: Loja
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column QTD_2023 (
+            type: plainText
+            heading {
+                heading: QTD de Pedidos 2023
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column QTD_2024 (
+            type: plainText
+            heading {
+                heading: QTD de Pedidos 2024
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column QTD_COMPARATIVO (
+            type: plainText
+            heading {
+                heading: COMPARATIVO %
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column S1 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column S2 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column S3 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column SITE (
+            type: plainText
+            heading {
+                heading: Site
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column TM_2023 (
+            type: plainText
+            heading {
+                heading: Ticket Médio 2023
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column TM_2024 (
+            type: plainText
+            heading {
+                heading: Ticket Médio 2024
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column TM_COMPARATIVO (
+            type: plainText
+            heading {
+                heading: COMPARATIVO %
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column VENDA_DIRETA (
+            type: plainText
+            heading {
+                heading: Venda Direta
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column VLRTOTAL_2023 (
+            type: plainText
+            heading {
+                heading: Faturado 2023
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column VLRTOTAL_2024 (
+            type: plainText
+            heading {
+                heading: Faturado 2024
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column VLR_COMPARATIVO (
+            type: plainText
+            heading {
+                heading: COMPARATIVO %
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 30546827 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn CALL_CENTER (
+                sequence: 14
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 1
+            )
+
+            displayColumn LOJA (
+                sequence: 16
+            )
+
+            displayColumn QTD_2023 (
+                sequence: 6
+            )
+
+            displayColumn QTD_2024 (
+                sequence: 7
+            )
+
+            displayColumn QTD_COMPARATIVO (
+                sequence: 8
+            )
+
+            displayColumn S1 (
+                sequence: 9
+            )
+
+            displayColumn S2 (
+                sequence: 5
+            )
+
+            displayColumn S3 (
+                sequence: 13
+            )
+
+            displayColumn SITE (
+                sequence: 15
+            )
+
+            displayColumn TM_2023 (
+                sequence: 10
+            )
+
+            displayColumn TM_2024 (
+                sequence: 11
+            )
+
+            displayColumn TM_COMPARATIVO (
+                sequence: 12
+            )
+
+            displayColumn VLRTOTAL_2023 (
+                sequence: 2
+            )
+
+            displayColumn VLRTOTAL_2024 (
+                sequence: 3
+            )
+
+            displayColumn VLR_COMPARATIVO (
+                sequence: 4
+            )
+
+            sort (
+                column: DISTRIBUIDOR
+                sort {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region acumulativo-por-franquia (
+        name: Acumulativo por Franquia
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome franquia
+                     , v1.qtdpedidos qtd_2023
+                     , '<b>'||v2.qtdpedidos||'</b>' as qtd_2024
+                     , case 
+                         when v1.qtdpedidos > 0 then
+                           round( (v2.qtdpedidos/v1.qtdpedidos)*100,2)-100
+                         else
+                           0
+                       end qtd_comparativo
+                     , '|' s1
+                     , nvl(v1.faturado,0) faturado_2023
+                     , '<b>'||trim(to_char(nvl(v2.faturado,0),'999G999G999G999G990D00'))||'</b>' faturado_2024
+                     , case 
+                         when v1.faturado > 0 then
+                           round( (v2.faturado/v1.faturado)*100,2)-100
+                         else
+                           0
+                       end faturado_comparativo
+                     , '|' s2
+                     , nvl(v1.ticke_medio,0) tm_2023
+                     , '<b>'||trim(to_char(nvl(v2.ticke_medio,0),'999G999G999G999G990D00'))||'</b>' tm_2024
+                     , case 
+                         when v1.ticke_medio > 0 then
+                           round( (v2.ticke_medio/v1.ticke_medio)*100,2)-100
+                         else
+                           0
+                       end tm_comparativo
+                     , f.idfilial
+                from roman.vw_filiais f
+                   , ( select w.idfilialromance
+                            , sum(w.qtdfavorita) qtdpedidos
+                            , round(sum(nvl(w.valorapagarfavorita, 0) * w.fatorconversao),2)  faturado
+                            , round(sum(nvl(w.valorapagarfavorita, 0) * w.fatorconversao) / sum(qtdfavorita),2) ticke_medio
+                       from vw_rank_pedidos_agrp_m w
+                       where extract(year from w.dataemissao) = extract(year from sysdate)-1
+                         and trunc(w.dataemissao) < add_months(trunc(sysdate),-12)
+                       group by w.idfilialromance ) v1
+                   , ( select w.idfilialromance
+                            , sum(w.qtdfavorita) qtdpedidos
+                            , round(sum(nvl(w.valorapagarfavorita, 0) * w.fatorconversao),2)  faturado
+                            , round(sum(nvl(w.valorapagarfavorita, 0) * w.fatorconversao) / sum(qtdfavorita),2) ticke_medio
+                       from vw_rank_pedidos_agrp_m w
+                       where extract(year from w.dataemissao) = extract(year from sysdate)
+                       group by w.idfilialromance ) v2
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and f.idgrupo is not null
+                  and f.ididioma in (1,2,4)
+                  and f.idfilial = v1.idfilialromance(+)
+                  and f.idfilial = v2.idfilialromance(+)
+                ------------------------------------------------------
+                union
+                ------------------------------------------------------
+                select 'Z- Total -Z'     
+                     , sum(v1.qtdpedidos) qtd_2023
+                     , '<b>'||sum(v2.qtdpedidos)||'</b>' as qtd_2024
+                     , case 
+                         when sum(v1.qtdpedidos) > 0 then
+                           round( (sum(v2.qtdpedidos)/sum(v1.qtdpedidos))*100,2)-100
+                         else
+                           100
+                       end qtd_comparativo
+                     , '|' s1
+                     , nvl(sum(v1.faturado),0) faturado_2023
+                     , '<b>'||trim(to_char(nvl(sum(v2.faturado),0),'999G999G999G999G990D00'))||'</b>' faturado_2024
+                     , case 
+                         when sum(v1.faturado) > 0 then
+                           round( (sum(v2.faturado)/sum(v1.faturado))*100,2)-100
+                         else
+                           100
+                       end faturado_comparativo
+                     , '|' s2
+                     , round(sum(v1.faturado)/sum(v1.qtdpedidos),2) tm_2023
+                     , '<b>'||trim(to_char(round(sum(v2.faturado)/sum(v2.qtdpedidos),2), '999G999G999G999G990D00'))||'</b>' tm_2024
+                     , round((sum(v2.faturado)/sum(v2.qtdpedidos)/sum(v1.faturado)/sum(v1.qtdpedidos))*100,2)-100 tm_comparativo
+                     , -1
+                from roman.vw_filiais f
+                   , ( select w.idfilialromance
+                            , sum(w.qtdfavorita) qtdpedidos
+                            , round(sum(nvl(w.valorapagarfavorita, 0) * w.fatorconversao),2)  faturado
+                       from vw_rank_pedidos_agrp_m w
+                       where extract(year from w.dataemissao) = extract(year from sysdate)-1
+                         and trunc(w.dataemissao) < add_months(trunc(sysdate),-12)
+                       group by w.idfilialromance ) v1
+                   , ( select w.idfilialromance
+                            , sum(w.qtdfavorita) qtdpedidos
+                            , round(sum(nvl(w.valorapagarfavorita, 0) * w.fatorconversao),2)  faturado
+                       from vw_rank_pedidos_agrp_m w
+                       where extract(year from w.dataemissao) = extract(year from sysdate)
+                       group by w.idfilialromance ) v2
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and f.idgrupo is not null
+                  and f.ididioma in (1,2,4)
+                  and f.idfilial = v1.idfilialromance(+)
+                  and f.idfilial = v2.idfilialromance(+)
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 4640618178548791746
+        }
+
+        column FATURADO_2023 (
+            type: plainText
+            heading {
+                heading: Faturado 2023
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column FATURADO_2024 (
+            type: plainText
+            heading {
+                heading: Faturado 2024
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column FATURADO_COMPARATIVO (
+            type: plainText
+            heading {
+                heading: COMPARATIVO %
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column FRANQUIA (
+            type: link
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            link {
+                target: {
+                    page: 78
+                    items: {
+                        P78_IDFILIAL: #IDFILIAL#
+                    }
+                    action: resetPagination
+                }
+                linkText: #FRANQUIA#
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column IDFILIAL (
+            type: hidden
+            heading {
+                heading: Idfilial
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column QTD_2023 (
+            type: plainText
+            heading {
+                heading: QTD de Pedidos 2023
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column QTD_2024 (
+            type: plainText
+            heading {
+                heading: QTD de Pedidos 2024
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column QTD_COMPARATIVO (
+            type: plainText
+            heading {
+                heading: COMPARATIVO %
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column S1 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column S2 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column TM_2023 (
+            type: plainText
+            heading {
+                heading: Ticket Médio 2023
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column TM_2024 (
+            type: plainText
+            heading {
+                heading: Ticket Médio 2024
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TM_COMPARATIVO (
+            type: plainText
+            heading {
+                heading: COMPARATIVO %
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 30546749 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn FATURADO_2023 (
+                sequence: 2
+            )
+
+            displayColumn FATURADO_2024 (
+                sequence: 3
+            )
+
+            displayColumn FATURADO_COMPARATIVO (
+                sequence: 4
+            )
+
+            displayColumn FRANQUIA (
+                sequence: 1
+            )
+
+            displayColumn QTD_2023 (
+                sequence: 6
+            )
+
+            displayColumn QTD_2024 (
+                sequence: 7
+            )
+
+            displayColumn QTD_COMPARATIVO (
+                sequence: 8
+            )
+
+            displayColumn S1 (
+                sequence: 9
+            )
+
+            displayColumn S2 (
+                sequence: 5
+            )
+
+            displayColumn TM_2023 (
+                sequence: 10
+            )
+
+            displayColumn TM_2024 (
+                sequence: 11
+            )
+
+            displayColumn TM_COMPARATIVO (
+                sequence: 12
+            )
+
+            highlight ir-condition (
+                name: Faturado Comp. -
+                condition {
+                    column: FATURADO_COMPARATIVO
+                    operator: <
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #FF7755
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Faturado Comp. +
+                condition {
+                    column: FATURADO_COMPARATIVO
+                    operator: >
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #99FF99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-3 (
+                name: "Comparativo QTD - "
+                condition {
+                    column: QTD_COMPARATIVO
+                    operator: <
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #FF7755
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-4 (
+                name: Comparativo QTD
+                condition {
+                    column: QTD_COMPARATIVO
+                    operator: >
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #99FF99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-5 (
+                name: TM Comparativo -
+                condition {
+                    column: TM_COMPARATIVO
+                    operator: <
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #FF7755
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-6 (
+                name: TM Comparativo +
+                condition {
+                    column: TM_COMPARATIVO
+                    operator: >
+                    value: 0
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #99FF99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    region legendas (
+        name: Legendas
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <font color="Blue"><h3>Acumulativo por Franquia</h3></font>
+                <br> <b> - Dados do ano anterior são sempre do dia 01/01 até D-1 do ano anterior</b>
+                <br> <b> - Dados do ano atual são sempre do dia 01/01 até D-1</b>
+                <br> <b> - Dados de Faturamento usa valores a pagar (valor com desconto da empreendedora) valores de acordo com tela 257</b>
+                <br> <b> - Dados de Faturamento por Canal de Venda são apenas do ano atual</b>
+                <br> <b> - Ao clicar no nome da Franquia, irá abrir o Acumulativo dos distribuidores da Franquia</b>
+                
+                <br><br><font color="green"><h3>Acumulativo por Distribuidor</h3></font>
+                <br> <b> - Mostra apenas Distribuidores ATIVOS, desde que o mesmo for inativado no sistema</b>
+                <br> <b> - Dados do ano anterior são sempre do dia 01/01 até D-1 do ano anterior</b>
+                <br> <b> - Dados do ano atual são sempre do dia 01/01 até D-1</b>
+                <br> <b> - Dados de Faturamento usa valores a pagar (valor com desconto da empreendedora) valores de acordo com tela 257</b>
+                <br> <b> - Dados de Faturamento por Canal de Venda são apenas do ano atual</b>
+                
+                <br><br><b>IDENTIFICAÇÃO DAS CORES:</b>
+                <br><font color="green">Verde = Representa um percentual POSITIVO</font>
+                <br><font color="red">Vermelho = Representa um percentual NEGATIVO</font>
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P78_IDFILIAL (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @acumulativo-por-distribuidor
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+)
+

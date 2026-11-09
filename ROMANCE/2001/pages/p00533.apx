@@ -1,0 +1,3205 @@
+page 533 (
+    name: Lucratividade de Distribuidores
+    title: Lucratividade de Distribuidores
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region lucratividade (
+        name: Lucratividade
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select luc.idrepresentante
+                     , luc.idsemana
+                     , luc.idfilial
+                     , pck_util.fnc_semanaid(luc.idsemana) "Semana"
+                     , pck_romance.fnc_nomerepresentante(luc.idrepresentante)||' ('||decode(luc.ativo,'S','Ativo','N','Inativo')||')' "Distribuidor"
+                     , '|' s0
+                     , luc.vendabruto "Valor Vendido"
+                     , '-' s1
+                     , round((luc.custovendido/luc.fatorconversao),2) "Custo Vendido"
+                     , '-' s2
+                     , luc.debitos "Inadimplencia"
+                     , luc.perc_inad "Perc Inad"
+                     , '-' s3      
+                     , luc.comissaovend "Com. Consultora"
+                     , '-' s4
+                     , luc.comissaorepres "Com. Distribuidor"
+                     , '=' s5
+                     , ( luc.vendabruto
+                       - round((luc.custovendido/luc.fatorconversao),2)
+                       - luc.debitos
+                       - luc.comissaovend
+                       - luc.comissaorepres ) "Contribuição"
+                     , case
+                         when luc.vendabruto > 0 then
+                           round(( ( luc.vendabruto
+                                   - round((luc.custovendido/luc.fatorconversao),2)
+                                   - luc.debitos
+                                   - luc.comissaovend
+                                   - luc.comissaorepres ) / luc.vendabruto ) * 100,2)
+                         else
+                           0
+                       end "% Contribuição"
+                     , '|' s6
+                     , round((luc.custodevolvido/luc.fatorconversao),2) "Custo Devolvido"
+                     , '=' s7
+                     , case
+                         when luc.vendabruto > 0 and luc.custodevolvido != 0 then
+                           round( ((luc.custovendido / (luc.custovendido+luc.custodevolvido))/luc.fatorconversao)*100,2)
+                         else 
+                           0
+                       end "% Energia Usada"
+                     , luc.totalcobrado "Total Cobrado"
+                     , luc.totalgeral
+                from ( select s.idsemana
+                            , r.idrepresentante
+                            , r.ativo
+                            , g.idfilial
+                            , ( select f.fatorconversao
+                                from filiais f
+                                where f.idfilial = g.idfilial ) fatorconversao
+                            , nvl( ( select sum(nv.valortotalvenda)
+                                     from notasvendas nv
+                                     where nv.idrepresentante     = r.idrepresentante
+                                       and nv.idsemanacobranca    = s.idsemana
+                                       and nv.idsituacaonotavenda = 4
+                                       and nv.idfilial            = g.idfilial ), 0 ) vendabruto
+                            , nvl( ( select sum((it.quantidade - it.qtddevolvida)*pck_estoque.fnc_retornaprecocusto(it.idestoquefil))
+                                     from itensnotavenda it
+                                     where it.idnotavenda in ( select nv.idnotavenda
+                                                               from notasvendas nv
+                                                               where nv.idrepresentante     = r.idrepresentante
+                                                                 and nv.idsemanacobranca    = s.idsemana
+                                                                 and nv.idfilial            = g.idfilial
+                                                                 and nv.idsituacaonotavenda = 4 )
+                                       and it.quantidade - it.qtddevolvida > 0 ), 0 ) custovendido
+                            , nvl( ( select sum(nv.saldo)
+                                     from notasvendas nv
+                                     where nv.idrepresentante     = r.idrepresentante
+                                       and nv.idsemanacobranca    = s.idsemana
+                                       and nv.idsituacaonotavenda = 4
+                                       and nv.idfilial            = g.idfilial ), 0 ) debitos
+                            , nvl( ( select sum(nv.valorcomissao)
+                                     from notasvendas nv
+                                     where nv.idrepresentante     = r.idrepresentante
+                                       and nv.idsemanacobranca    = s.idsemana
+                                       and nv.idsituacaonotavenda = 4
+                                       and nv.idfilial            = g.idfilial ), 0 ) comissaovend
+                            , nvl( ( select sum(f.totalcobranca * c.percpromotor / 100)
+                                     from fechamentorepresentantes f
+                                        , comissoesfiliais c
+                                     where f.idrepresentante  = r.idrepresentante
+                                       and c.idcomissaofilial = f.idcomissao
+                                       and exists ( select 1
+                                                    from fechamentossemanais ff
+                                                    where ff.idfechamento = f.idfechamentopontuacao
+                                                      and ff.idfilial     = g.idfilial
+                                                      and ff.idsemana     = s.idsemana ) ), 0 ) comissaorepres
+                            , nvl( ( select sum( it.qtddevolvida*pck_estoque.fnc_retornaprecocusto(it.idestoquefil))
+                                     from itensnotavenda it
+                                     where it.idnotavenda in ( select nv.idnotavenda
+                                                               from notasvendas nv
+                                                               where nv.idrepresentante     = r.idrepresentante
+                                                                 and nv.idsemanacobranca    = s.idsemana
+                                                                 and nv.idfilial            = g.idfilial
+                                                                 and nv.idsituacaonotavenda = 4 )
+                                       and it.qtddevolvida > 0 ), 0 ) custodevolvido
+                            , nvl( ( select sum(f.totalcobranca)
+                                     from fechamentorepresentantes f
+                                        , comissoesfiliais c
+                                     where f.idrepresentante  = r.idrepresentante
+                                       and c.idcomissaofilial = f.idcomissao
+                                       and exists ( select 1
+                                                    from fechamentossemanais ff
+                                                    where ff.idfechamento = f.idfechamentopontuacao
+                                                      and ff.idfilial     = g.idfilial
+                                                      and ff.idsemana     = s.idsemana ) ), 0 ) totalcobrado
+                            , nvl( ( select sum(f.totalgeral)
+                                     from fechamentorepresentantes f
+                                        , comissoesfiliais c
+                                     where f.idrepresentante  = r.idrepresentante
+                                       and c.idcomissaofilial = f.idcomissao
+                                       and exists ( select 1
+                                                    from fechamentossemanais ff
+                                                    where ff.idfechamento = f.idfechamentopontuacao
+                                                      and ff.idfilial     = g.idfilial
+                                                      and ff.idsemana     = s.idsemana ) ), 0 ) totalgeral
+                            ,(select sum(case
+                                         when totaldebitosnovos > 0 then
+                                           round( ( totaldebitosnovos / ( totalgeral + totaldebitosnovos ) ) * 100, 2)
+                                         else
+                                           0
+                                         end )
+                             from fechamentorepresentantes fr
+                                , fechamentossemanais   ff
+                             where ff.idfechamento    = fr.idfechamento
+                               and fr.idrepresentante = r.idrepresentante
+                               and trim(ff.semana)    = trim(s.semanacompleta)) perc_inad
+                        from semana_dias s
+                           , representantes r
+                           , gerentes g
+                        where r.idgerente = g.idgerente 
+                          and r.ativo     = 'S'
+                         -- and g.idfilial = :P0_IDFILIAL 
+                      and (   ( :P0_IDFILIAL is null)
+                               or ( :P0_IDFILIAL != 1135 and g.idfilial  = :P0_IDFILIAL ) 
+                               or ( :P0_IDFILIAL  = 1135 and exists (select pc.idfilial
+                                                                           from catal.filiais pc --pc->Pertence Comercial
+                                                                          where pc.pertencecomercialromance = 'S'
+                                                                            and pc.idfilial = g.idfilial )))
+                              
+                          and :P533_TIPO_RELATORIO = 'D'
+                          and ( :P533_IDREPRESENTANTE is null or r.idrepresentante = :P533_IDREPRESENTANTE )
+                          and ( :P533_TIPOPERIODO is null
+                              or ( :P533_TIPOPERIODO = 'S' and s.idsemana = :P533_IDSEMANA )
+                              or ( :P533_TIPOPERIODO = 'P' and s.idsemana between :P533_IDSEMANAINI and :P533_IDSEMANAFIM ) ) ) luc
+                order by 2,5
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P533_TIPO_RELATORIO
+            value: D
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhuma informação encontrada, verifique os filtros utilizados.
+        }
+        advanced {
+            savedReportMappingIdentifier: 1603198429111180242
+        }
+
+        column "% Contribuição" (
+            type: plainText
+            heading {
+                heading: % Contribuição
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column "% Energia Usada" (
+            type: plainText
+            heading {
+                heading: % Energia Usada
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Com. Consultora" (
+            type: plainText
+            heading {
+                heading: Comissão Cons.
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Com. Distribuidor" (
+            type: plainText
+            heading {
+                heading: Comissão Dist.
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column Contribuição (
+            type: plainText
+            heading {
+                heading: Contribuição
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Custo Devolvido" (
+            type: plainText
+            heading {
+                heading: Custo Devolvido
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Custo Vendido" (
+            type: plainText
+            heading {
+                heading: Custo Vendido
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column IDFILIAL (
+            type: hidden
+            heading {
+                heading: Idfilial
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDREPRESENTANTE (
+            type: hidden
+            heading {
+                heading: Idrepresentante
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDSEMANA (
+            type: hidden
+            heading {
+                heading: Idsemana
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Inadimplencia (
+            type: plainText
+            heading {
+                heading: Inadimplência
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column "Perc Inad" (
+            type: plainText
+            heading {
+                heading: Perc Inad
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column S0 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S1 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S2 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S3 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S4 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S5 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S6 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S7 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column Semana (
+            type: plainText
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column TOTALGERAL (
+            type: plainText
+            heading {
+                heading: Total Geral Cobrado
+                alignment: center
+            }
+            layout {
+                sequence: 250
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column "Total Cobrado" (
+            type: plainText
+            heading {
+                heading: Total Cobrado
+                alignment: center
+            }
+            layout {
+                sequence: 240
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Valor Vendido" (
+            type: plainText
+            heading {
+                heading: Valor Vendido
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 57786 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "% Contribuição" (
+                sequence: 18
+            )
+
+            displayColumn "% Energia Usada" (
+                sequence: 22
+            )
+
+            displayColumn "Com. Consultora" (
+                sequence: 13
+            )
+
+            displayColumn "Com. Distribuidor" (
+                sequence: 15
+            )
+
+            displayColumn "Contribuição" (
+                sequence: 17
+            )
+
+            displayColumn "Custo Devolvido" (
+                sequence: 20
+            )
+
+            displayColumn "Custo Vendido" (
+                sequence: 8
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 2
+            )
+
+            displayColumn "Inadimplencia" (
+                sequence: 10
+            )
+
+            displayColumn "Perc Inad" (
+                sequence: 11
+            )
+
+            displayColumn S0 (
+                sequence: 5
+            )
+
+            displayColumn S1 (
+                sequence: 7
+            )
+
+            displayColumn S2 (
+                sequence: 9
+            )
+
+            displayColumn S3 (
+                sequence: 12
+            )
+
+            displayColumn S4 (
+                sequence: 14
+            )
+
+            displayColumn S5 (
+                sequence: 16
+            )
+
+            displayColumn S6 (
+                sequence: 19
+            )
+
+            displayColumn S7 (
+                sequence: 21
+            )
+
+            displayColumn "Semana" (
+                sequence: 1
+            )
+
+            displayColumn TOTALGERAL (
+                sequence: 3
+            )
+
+            displayColumn "Total Cobrado" (
+                sequence: 4
+            )
+
+            displayColumn "Valor Vendido" (
+                sequence: 6
+            )
+
+            sort (
+                column: "Distribuidor"
+                sort {
+                    sequence: 1
+                }
+            )
+
+            filter ir-condition (
+                column: "Distribuidor"
+                operator: contains
+                value: (Ativo)
+            )
+
+            controlBreak (
+                column: "Semana"
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region lucratividade-geral (
+        name: Lucratividade Geral
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select luc.idsemana
+                     , pck_util.fnc_semanaid(luc.idsemana) "Semana"
+                     , '|' s0
+                     , sum(luc.vendabruto) "Valor Vendido"
+                     , '-' s1
+                     , sum(luc.custovendido/luc.fatorconversao) "Custo Vendido"
+                     , '-' s2
+                     , sum(luc.debitos) "Inadimplencia"
+                     , round(sum(luc.totdebnovos)/sum(luc.totdebnovosger) *100,2) "Perc Inad"
+                     , '-' s3      
+                     , sum(luc.comissaovend) "Com. Consultora"
+                     , '-' s4
+                     , sum(luc.comissaorepres) "Com. Distribuidor"
+                     , '|' s5
+                     , sum(luc.custodevolvido/luc.fatorconversao) "Custo Devolvido"
+                     , '=' s6
+                     , ( sum(luc.vendabruto)
+                       - sum(luc.custovendido/luc.fatorconversao)
+                       - sum(luc.debitos)
+                       - sum(luc.comissaovend)
+                       - sum(luc.comissaorepres) ) "Contribuição"
+                     , round(( ( sum(luc.vendabruto)
+                               - sum(luc.custovendido/luc.fatorconversao)
+                               - sum(luc.debitos)
+                               - sum(luc.comissaovend)
+                               - sum(luc.comissaorepres) ) / sum(luc.vendabruto) ) * 100,2) "% Contribuição"
+                     , '=' s7
+                     , round(( ( sum(luc.vendabruto)
+                               - sum(luc.custovendido/luc.fatorconversao)
+                               - sum(luc.debitos)
+                               - sum(luc.comissaovend)
+                               - sum(luc.comissaorepres) ) / sum(luc.custodevolvido/luc.fatorconversao) ) * 100,2) "% Energia Usada"
+                     , sum(luc.totalcobrado) "Total Cobrado"
+                     , sum(luc.totalgeral) "Total Geral Cobrado"
+                from ( select s.idsemana
+                            , r.idrepresentante
+                            , r.ativo
+                            , g.idfilial
+                            , ( select f.fatorconversao
+                                from filiais f
+                                where f.idfilial = g.idfilial ) fatorconversao
+                            , nvl( ( select sum(nv.valortotalvenda)
+                                     from notasvendas nv
+                                     where nv.idrepresentante     = r.idrepresentante
+                                       and nv.idsemanacobranca    = s.idsemana
+                                       and nv.idsituacaonotavenda = 4
+                                       and nv.idfilial            = g.idfilial ), 0 ) vendabruto
+                            , nvl( ( select sum((it.quantidade - it.qtddevolvida)*pck_estoque.fnc_retornaprecocusto(it.idestoquefil))
+                                     from itensnotavenda it
+                                     where it.idnotavenda in ( select nv.idnotavenda
+                                                               from notasvendas nv
+                                                               where nv.idrepresentante     = r.idrepresentante
+                                                                 and nv.idsemanacobranca    = s.idsemana
+                                                                 and nv.idfilial            = g.idfilial
+                                                                 and nv.idsituacaonotavenda = 4 )
+                                       and it.quantidade - it.qtddevolvida > 0 ), 0 ) custovendido
+                            , nvl( ( select sum(nv.saldo)
+                                     from notasvendas nv
+                                     where nv.idrepresentante     = r.idrepresentante
+                                       and nv.idsemanacobranca    = s.idsemana
+                                       and nv.idsituacaonotavenda = 4
+                                       and nv.idfilial            = g.idfilial ), 0 ) debitos
+                            , nvl( ( select sum(nv.valorcomissao)
+                                     from notasvendas nv
+                                     where nv.idrepresentante     = r.idrepresentante
+                                       and nv.idsemanacobranca    = s.idsemana
+                                       and nv.idsituacaonotavenda = 4
+                                       and nv.idfilial            = g.idfilial ), 0 ) comissaovend
+                            , nvl( ( select sum(f.totalcobranca * c.percpromotor / 100)
+                                     from fechamentorepresentantes f
+                                        , comissoesfiliais c
+                                     where f.idrepresentante  = r.idrepresentante
+                                       and c.idcomissaofilial = f.idcomissao
+                                       and exists ( select 1
+                                                    from fechamentossemanais ff
+                                                    where ff.idfechamento = f.idfechamentopontuacao
+                                                      and ff.idfilial     = g.idfilial
+                                                      and ff.idsemana     = s.idsemana ) ), 0 ) comissaorepres
+                            , nvl( ( select sum(it.qtddevolvida*pck_estoque.fnc_retornaprecocusto(it.idestoquefil))
+                                     from itensnotavenda it
+                                     where it.idnotavenda in ( select nv.idnotavenda
+                                                               from notasvendas nv
+                                                               where nv.idrepresentante     = r.idrepresentante
+                                                                 and nv.idsemanacobranca    = s.idsemana
+                                                                 and nv.idfilial            = g.idfilial
+                                                                 and nv.idsituacaonotavenda = 4 )
+                                       and it.qtddevolvida > 0 ), 0 ) custodevolvido
+                            , nvl( ( select sum(nv.valorpago)
+                                     from notasvendas nv
+                                     where nv.idrepresentante     = r.idrepresentante
+                                       and nv.idsemanacobranca    = s.idsemana
+                                       and nv.idsituacaonotavenda = 4
+                                       and nv.idfilial            = g.idfilial ), 0 ) totalcobrado
+                            , nvl( ( select sum(f.totalgeral)
+                                     from fechamentorepresentantes f
+                                     where f.idrepresentante  = r.idrepresentante
+                                       and exists ( select 1
+                                                    from fechamentossemanais ff
+                                                    where ff.idfechamento = f.idfechamentopontuacao
+                                                      and ff.idfilial     = g.idfilial
+                                                      and ff.idsemana     = s.idsemana ) ), 0 ) totalgeral
+                            ,(select sum(case
+                                         when totaldebitosnovos > 0 then
+                                           totaldebitosnovos
+                                         else
+                                           0
+                                         end )
+                             from fechamentorepresentantes fr
+                                , fechamentossemanais   ff
+                             where ff.idfechamento    = fr.idfechamento
+                               and fr.idrepresentante = r.idrepresentante
+                               and trim(ff.semana)    = trim(s.semanacompleta)) totdebnovos
+                            ,(select sum(case
+                                         when totaldebitosnovos > 0 then
+                                           ( totalgeral + totaldebitosnovos  ) 
+                                         else
+                                           0
+                                         end )
+                             from fechamentorepresentantes fr
+                                , fechamentossemanais   ff
+                             where ff.idfechamento    = fr.idfechamento
+                               and fr.idrepresentante = r.idrepresentante
+                               and trim(ff.semana)    = trim(s.semanacompleta)) totdebnovosger
+                        from semana_dias s
+                           , representantes r
+                           , gerentes g
+                        where r.idgerente = g.idgerente 
+                          and r.ativo     = 'S'
+                      and ( ( :P0_IDFILIAL is null)
+                             or ( :P0_IDFILIAL != 1135 and g.idfilial  = :P0_IDFILIAL ) 
+                             or ( :P0_IDFILIAL  = 1135 and exists (select pc.idfilial
+                                                                     from catal.filiais pc --pc->Pertence Comercial
+                                                                    where pc.pertencecomercialromance = 'S'
+                                                                      and pc.idfilial = g.idfilial )))
+                          and :P533_TIPO_RELATORIO = 'R'
+                          and ( :P533_IDREPRESENTANTE is null or r.idrepresentante = :P533_IDREPRESENTANTE )
+                          and ( :P533_TIPOPERIODO is null
+                              or ( :P533_TIPOPERIODO = 'S' and s.idsemana = :P533_IDSEMANA )
+                              or ( :P533_TIPOPERIODO = 'P' and s.idsemana between :P533_IDSEMANAINI and :P533_IDSEMANAFIM ) ) ) luc
+                group by idsemana
+                order by 2
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P533_TIPO_RELATORIO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhuma informação encontrada, verifique os filtros utilizados.
+        }
+        advanced {
+            savedReportMappingIdentifier: 3845547508460332307
+        }
+
+        column "% Contribuição" (
+            type: plainText
+            heading {
+                heading: % Contribuição
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "% Energia Usada" (
+            type: plainText
+            heading {
+                heading: % Energia Usada
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Com. Consultora" (
+            type: plainText
+            heading {
+                heading: Comissão Cons.
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Com. Distribuidor" (
+            type: plainText
+            heading {
+                heading: Comissão Dist.
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column Contribuição (
+            type: plainText
+            heading {
+                heading: Contribuição
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Custo Devolvido" (
+            type: plainText
+            heading {
+                heading: Custo Devolvido
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Custo Vendido" (
+            type: plainText
+            heading {
+                heading: Custo Vendido
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column IDSEMANA (
+            type: hidden
+            heading {
+                heading: Idsemana
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Inadimplencia (
+            type: plainText
+            heading {
+                heading: Inadimplência
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "Perc Inad" (
+            type: plainText
+            heading {
+                heading: Perc Inad
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column S0 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S1 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S2 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S3 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S4 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S5 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S6 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S7 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column Semana (
+            type: plainText
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Total Cobrado" (
+            type: plainText
+            heading {
+                heading: Total Cobrado
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Total Geral Cobrado" (
+            type: plainText
+            heading {
+                heading: Total Geral Cobrado
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column "Valor Vendido" (
+            type: plainText
+            heading {
+                heading: Valor Vendido
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 38636698 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "% Contribuição" (
+                sequence: 17
+            )
+
+            displayColumn "% Energia Usada" (
+                sequence: 21
+            )
+
+            displayColumn "Com. Consultora" (
+                sequence: 12
+            )
+
+            displayColumn "Com. Distribuidor" (
+                sequence: 14
+            )
+
+            displayColumn "Contribuição" (
+                sequence: 16
+            )
+
+            displayColumn "Custo Devolvido" (
+                sequence: 19
+            )
+
+            displayColumn "Custo Vendido" (
+                sequence: 7
+            )
+
+            displayColumn "Inadimplencia" (
+                sequence: 9
+            )
+
+            displayColumn "Perc Inad" (
+                sequence: 10
+            )
+
+            displayColumn S0 (
+                sequence: 4
+            )
+
+            displayColumn S1 (
+                sequence: 6
+            )
+
+            displayColumn S2 (
+                sequence: 8
+            )
+
+            displayColumn S3 (
+                sequence: 11
+            )
+
+            displayColumn S4 (
+                sequence: 13
+            )
+
+            displayColumn S5 (
+                sequence: 18
+            )
+
+            displayColumn S6 (
+                sequence: 15
+            )
+
+            displayColumn S7 (
+                sequence: 20
+            )
+
+            displayColumn "Semana" (
+                sequence: 1
+            )
+
+            displayColumn "Total Cobrado" (
+                sequence: 3
+            )
+
+            displayColumn "Total Geral Cobrado" (
+                sequence: 2
+            )
+
+            displayColumn "Valor Vendido" (
+                sequence: 5
+            )
+
+        )
+
+    )
+
+    region lucratividade-geral-distribuidores (
+        name: Lucratividade Geral Distribuidores
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select luc.idrepresentante
+                     , pck_romance.fnc_nomerepresentante(idrepresentante) "Distribuidor"
+                     , '|' s0
+                     , sum(luc.vendabruto) "Valor Vendido"
+                     , '-' s1
+                     , sum(luc.custovendido/luc.fatorconversao) "Custo Vendido"
+                     , '-' s2
+                     , sum(luc.debitos) "Inadimplencia"
+                     --, round(sum(luc.totdebnovos)/decode(sum(luc.totdebnovosger),0,1,sum(luc.totdebnovosger)) *100,2) "Perc Inad"
+                     , case
+                         when sum(luc.debitos) > 0 then
+                           round( sum( luc.totdebnovos) / sum( luc.totalgeral + luc.totdebnovos  ) * 100, 2)
+                         else
+                           0
+                       end "Perc Inad"
+                     , '-' s3      
+                     , sum(luc.comissaovend) "Com. Consultora"
+                     , '-' s4
+                     , sum(luc.comissaorepres) "Com. Distribuidor"
+                     , '|' s5
+                     , sum(luc.custodevolvido/luc.fatorconversao) "Custo Devolvido"
+                     , '=' s6
+                     , ( sum(luc.vendabruto)
+                       - sum(luc.custovendido/luc.fatorconversao)
+                       - sum(luc.debitos)
+                       - sum(luc.comissaovend)
+                       - sum(luc.comissaorepres) ) "Contribuição"
+                     , decode(sum(luc.vendabruto),0,0,(round(( ( sum(luc.vendabruto)
+                               - sum(luc.custovendido/luc.fatorconversao)
+                               - sum(luc.debitos)
+                               - sum(luc.comissaovend)
+                               - sum(luc.comissaorepres) ) / sum(luc.vendabruto) ) * 100,2))) "% Contribuição"
+                     , sum(luc.totalcobrado) "Total Cobrado"
+                     , sum(luc.totalgeral) "Total Geral Cobrado"
+                from ( select r.idrepresentante
+                            , g.idfilial
+                            , ( select f.fatorconversao
+                                from filiais f
+                                where f.idfilial = g.idfilial ) fatorconversao
+                            , nvl( ( select sum(nv.valortotalvenda)
+                                     from notasvendas nv
+                                     where nv.idrepresentante     = r.idrepresentante
+                                       and nv.idsemanacobranca    = s.idsemana
+                                       and nv.idsituacaonotavenda = 4
+                                       and nv.idfilial            = g.idfilial ), 0 ) vendabruto
+                            , nvl( ( select sum((it.quantidade - it.qtddevolvida)*pck_estoque.fnc_retornaprecocusto(it.idestoquefil))
+                                     from itensnotavenda it
+                                     where it.idnotavenda in ( select nv.idnotavenda
+                                                               from notasvendas nv
+                                                               where nv.idrepresentante     = r.idrepresentante
+                                                                 and nv.idsemanacobranca    = s.idsemana
+                                                                 and nv.idfilial            = g.idfilial
+                                                                 and nv.idsituacaonotavenda = 4 )
+                                       and it.quantidade - it.qtddevolvida > 0 ), 0 ) custovendido
+                            , nvl( ( select sum(nv.saldo)
+                                     from notasvendas nv
+                                     where nv.idrepresentante     = r.idrepresentante
+                                       and nv.idsemanacobranca    = s.idsemana
+                                       and nv.idsituacaonotavenda = 4
+                                       and nv.idfilial            = g.idfilial 
+                                       and nv.saldo > 0), 0 ) debitos
+                            , nvl( ( select sum(nv.valorcomissao)
+                                     from notasvendas nv
+                                     where nv.idrepresentante     = r.idrepresentante
+                                       and nv.idsemanacobranca    = s.idsemana
+                                       and nv.idsituacaonotavenda = 4
+                                       and nv.idfilial            = g.idfilial ), 0 ) comissaovend
+                            , nvl( ( select sum(f.vlrcomissao)
+                                     from fechamentorepresentantes f
+                                        , comissoesfiliais c
+                                     where f.idrepresentante  = r.idrepresentante
+                                       and c.idcomissaofilial = f.idcomissao
+                                       and exists ( select 1
+                                                    from fechamentossemanais ff
+                                                    where ff.idfechamento = f.idfechamentopontuacao
+                                                      and ff.idfilial     = g.idfilial
+                                                      and ff.idsemana     = s.idsemana ) ), 0 ) comissaorepres
+                            , nvl( ( select sum(it.qtddevolvida*pck_estoque.fnc_retornaprecocusto(it.idestoquefil))
+                                     from itensnotavenda it
+                                     where it.idnotavenda in ( select nv.idnotavenda
+                                                               from notasvendas nv
+                                                               where nv.idrepresentante     = r.idrepresentante
+                                                                 and nv.idsemanacobranca    = s.idsemana
+                                                                 and nv.idfilial            = g.idfilial
+                                                                 and nv.idsituacaonotavenda = 4 )
+                                       and it.qtddevolvida > 0 ), 0 ) custodevolvido
+                            , nvl( ( select sum(nv.valorpago)
+                                     from notasvendas nv
+                                     where nv.idrepresentante     = r.idrepresentante
+                                       and nv.idsemanacobranca    = s.idsemana
+                                       and nv.idsituacaonotavenda = 4
+                                       and nv.idfilial            = g.idfilial ), 0 ) totalcobrado
+                            , nvl( ( select sum(f.totalgeral)
+                                     from fechamentorepresentantes f
+                                     where f.idrepresentante  = r.idrepresentante
+                                       and exists ( select 1
+                                                    from fechamentossemanais ff
+                                                    where ff.idfechamento = f.idfechamentopontuacao
+                                                      --and ff.idfilial     = g.idfilial
+                                                      and ff.idsemana     = s.idsemana ) ), 0 ) totalgeral
+                            ,(select sum(case
+                                         when totaldebitosnovos > 0 then
+                                           totaldebitosnovos
+                                         else
+                                           0
+                                         end )
+                             from fechamentorepresentantes fr
+                                , fechamentossemanais   ff
+                             where ff.idfechamento    = fr.idfechamento
+                               and fr.idrepresentante = r.idrepresentante
+                               and trim(ff.semana)    = trim(s.semanacompleta)) totdebnovos
+                            ,(select sum(case
+                                         when totaldebitosnovos > 0 then
+                                           ( totalgeral + totaldebitosnovos  ) 
+                                         else
+                                           0
+                                         end )
+                             from fechamentorepresentantes fr
+                                , fechamentossemanais   ff
+                             where ff.idfechamento    = fr.idfechamento
+                               and fr.idrepresentante = r.idrepresentante
+                               and trim(ff.semana)    = trim(s.semanacompleta)) totdebnovosger
+                        from semana_dias s
+                           , representantes r
+                           , gerentes g
+                        where r.idgerente = g.idgerente 
+                          and (   ( :P0_IDFILIAL is null)
+                               or ( :P0_IDFILIAL != 1135 and g.idfilial  = :P0_IDFILIAL ) 
+                               or ( :P0_IDFILIAL  = 1135 and exists (select pc.idfilial
+                                                                       from catal.filiais pc --pc->Pertence Comercial
+                                                                      where pc.pertencecomercialromance = 'S'
+                                                                        and pc.idfilial = g.idfilial )))
+                            
+                          and r.ativo = 'S'
+                          and :P533_TIPO_RELATORIO = 'A'
+                          and ( :P533_IDREPRESENTANTE is null or r.idrepresentante = :P533_IDREPRESENTANTE )
+                          and ( :P533_TIPOPERIODO is null
+                              or ( :P533_TIPOPERIODO = 'S' and s.idsemana = :P533_IDSEMANA )
+                              or ( :P533_TIPOPERIODO = 'P' and s.idsemana between :P533_IDSEMANAINI and :P533_IDSEMANAFIM ) ) ) luc
+                group by idrepresentante
+                order by 2
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P533_TIPO_RELATORIO
+            value: A
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhuma informação encontrada, verifique os filtros utilizados.
+        }
+        advanced {
+            savedReportMappingIdentifier: 3766287488592288450
+        }
+
+        column "% Contribuição" (
+            type: plainText
+            heading {
+                heading: % Contribuição
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "Com. Consultora" (
+            type: plainText
+            heading {
+                heading: Comissão Cons.
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Com. Distribuidor" (
+            type: plainText
+            heading {
+                heading: Comissão Dist.
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column Contribuição (
+            type: plainText
+            heading {
+                heading: Contribuição
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Custo Devolvido" (
+            type: plainText
+            heading {
+                heading: Custo Devolvido
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Custo Vendido" (
+            type: plainText
+            heading {
+                heading: Custo Vendido
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column IDREPRESENTANTE (
+            type: hidden
+            heading {
+                heading: Idrepresentante
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Inadimplencia (
+            type: plainText
+            heading {
+                heading: Inadimplência
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "Perc Inad" (
+            type: plainText
+            heading {
+                heading: Perc Inad
+                alignment: center
+            }
+            layout {
+                sequence: 250
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column S0 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S1 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S2 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S3 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S4 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S5 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column S6 (
+            type: plainText
+            heading {
+                heading: |
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Total Cobrado" (
+            type: plainText
+            heading {
+                heading: Total Cobrado
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        column "Total Geral Cobrado" (
+            type: plainText
+            heading {
+                heading: Total Geral Cobrado
+                alignment: center
+            }
+            layout {
+                sequence: 240
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column "Valor Vendido" (
+            type: plainText
+            heading {
+                heading: Valor Vendido
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+            serverSideCondition {
+                type: noRowsReturned
+                sqlQuery:
+                    ```sql
+                    select g.idgerente, g.idfilial, roman.pck_romance.fnc_nomefilial(g.idfilial)
+                      from catal.usuarios u
+                         , catal.gerentes g
+                     where u.idpessoa = g.idpessoa
+                       and g.idfilial in (1089,1252,1223,221,1071,1083,1132,320,124,1210,1090,122,1243,1242,1082,1072,1084,1070,1227,1106,290)
+                       and u.usuario = v('APP_USER');
+                    ```
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 39157904 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "% Contribuição" (
+                sequence: 19
+            )
+
+            displayColumn APXWS_CC_001 (
+                sequence: 10
+            )
+
+            displayColumn "Com. Consultora" (
+                sequence: 12
+            )
+
+            displayColumn "Com. Distribuidor" (
+                sequence: 14
+            )
+
+            displayColumn "Contribuição" (
+                sequence: 18
+            )
+
+            displayColumn "Custo Devolvido" (
+                sequence: 16
+            )
+
+            displayColumn "Custo Vendido" (
+                sequence: 7
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 1
+            )
+
+            displayColumn "Inadimplencia" (
+                sequence: 9
+            )
+
+            displayColumn S0 (
+                sequence: 4
+            )
+
+            displayColumn S1 (
+                sequence: 6
+            )
+
+            displayColumn S2 (
+                sequence: 8
+            )
+
+            displayColumn S3 (
+                sequence: 11
+            )
+
+            displayColumn S4 (
+                sequence: 13
+            )
+
+            displayColumn S5 (
+                sequence: 15
+            )
+
+            displayColumn S6 (
+                sequence: 17
+            )
+
+            displayColumn "Total Cobrado" (
+                sequence: 3
+            )
+
+            displayColumn "Total Geral Cobrado" (
+                sequence: 2
+            )
+
+            displayColumn "Valor Vendido" (
+                sequence: 5
+            )
+
+            computation APXWS_CC_001 (
+                identifier: C01
+                source {
+                    expression:
+                        ```sql
+                        case when  I > 0 then round( ( ( I ) / ( W+ I)) * 100,2) end
+                        
+                        ```
+                    dataType: number
+                }
+                label {
+                    column: % Inadimplência
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P533_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomerepresentante(r.idrepresentante)||' ('||decode(r.ativo,'S','Ativo','N','Inativo')||')' diplay_value,
+                       r.idrepresentante return_value
+                  from catal.representantes r
+                 where (    (:P0_IDFILIAL = -1)-- Todos
+                         or (:P0_IDFILIAL = -2 and exists (select 1
+                                                             from roman.vw_filiais f
+                                                            where f.ididioma = 1
+                                                              and f.idfilial = r.idfilial))-- Todos Brasil
+                         or (:P0_IDFILIAL = -3 and exists (select 1
+                                                             from roman.vw_filiais f
+                                                            where f.ididioma != 1
+                                                              and f.idfilial = r.idfilial))-- Todos fora do brasil
+                         or (r.idgerente  in ( select g.idgerente
+                                                 from catal.gerentes g
+                                                where g.idfilial = :P0_IDFILIAL)))-- Todos da filial selecioanda
+                   and r.ativo = 'S'  
+                order by 1;
+                ```
+            nullDisplayValue: - Mostrar Todos -
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P533_IDSEMANA (
+        type: selectList
+        label {
+            label: Semana
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select to_char(s.semana,'00')||'/'||s.ano semana
+                     , idsemana 
+                from semana_dias s
+                where s.ano between to_char(sysdate,'RRRR')-2 and to_char(sysdate,'RRRR')
+                order by idsemana desc
+                ```
+            nullDisplayValue: - Selecione a Semana -
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P533_IDSEMANAFIM (
+        type: selectList
+        label {
+            label: Até
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select to_char(s.semana,'00')||'/'||s.ano semana
+                     , idsemana 
+                from semana_dias s
+                where s.ano between to_char(sysdate,'RRRR')-2 and to_char(sysdate,'RRRR')
+                order by idsemana desc
+                ```
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P533_IDSEMANAINI (
+        type: selectList
+        label {
+            label: Semana Inicio
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select to_char(s.semana,'00')||'/'||s.ano semana
+                     , idsemana 
+                from semana_dias s
+                where s.ano between to_char(sysdate,'RRRR')-2 and to_char(sysdate,'RRRR')
+                order by idsemana desc
+                ```
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P533_TIPOPERIODO (
+        type: radioGroup
+        label {
+            label: Pesquisar Por
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Semana;S,Período;P
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: S
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P533_TIPO_RELATORIO (
+        type: radioGroup
+        label {
+            label: Tipo do Relatório
+            alignment: left
+        }
+        settings {
+            noOfCols: 3
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Detalhado;D,Resumido Empresa;R,Agrupado Distribuidores;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: D
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Buscar
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction escolha-de-tipo-de-semana (
+        name: Escolha de Tipo de Semana
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P533_TIPOPERIODO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P533_TIPOPERIODO
+            value: P
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P533_IDSEMANAINI
+                    P533_IDSEMANAFIM
+                ]
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P533_IDSEMANA
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P533_IDSEMANAINI
+                    P533_IDSEMANAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P533_IDSEMANA
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    branch (
+        name: Go To Page 533
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 533
+                items: {
+                    P533_IDREPRESENTANTE: &P533_IDREPRESENTANTE.
+                    P533_TIPOPERIODO: &P533_TIPOPERIODO.
+                    P533_IDSEMANA: &P533_IDSEMANA.
+                    P533_IDSEMANAINI: &P533_IDSEMANAINI.
+                    P533_IDSEMANAFIM: &P533_IDSEMANAFIM.
+                    P533_TIPO_RELATORIO: &P533_TIPO_RELATORIO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @buscar
+        }
+    )
+
+)
+

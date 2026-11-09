@@ -1,0 +1,197 @@
+page 710 (
+    name: Imprime Nota Transferências
+    alias: IMPRIME-NOTA-TRANSFERÊNCIAS
+    title: Imprime Nota Transferências
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+
+    region imprime-nota-transferência (
+        name: Imprime Nota Transferência
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                    -- variáveis de controle 
+                    l_mime_type        varchar2(100);
+                    l_filename         varchar2(255);
+                    l_blob             blob;
+                    v_chave_nfe        varchar2(100);
+                    v_numero_nfe       number;
+                    v_emp_virtualAge   number;
+                    
+                begin
+                
+                    -- (NEW 03/10/2025 utilizando a rotina do gui que grava a chave da nfe)
+                    -- #1 - verifica se a chave da nota fiscal já está disponível
+                    begin
+                        select a.invoice_code, a.access_key
+                          into v_numero_nfe, v_chave_nfe
+                          from favorita.tb_invoices_api a
+                         where a.orderid_so = :P74_IDCOMPRATRANSFERENCIA
+                           and rownum = 1;
+                    exception
+                        when others then
+                            -- #1.1 - chave ainda não disponivel, então busca a empresa virtualAGE
+                            select ff.idempresavirtualage
+                              into v_emp_virtualAge
+                              from favorita.filiaisfavorita ff
+                             where ff.idfilialfavorita = :P74_IDFILIALFAVORITAORIGEM;
+                
+                            -- #1.2 - Chama a rotina criada pelo Gui(gerente), para guardar a chave nfe
+                            favorita.pck_integracaogeral_fav.prc_buscatransferencias_va(pidempresava => v_emp_virtualAge,
+                                                                                        pdatabase => trunc(sysdate));
+                
+                            -- #1.3 - Tenta pela 2ª vez: verifica se a chave da nota fiscal já está disponível
+                            select a.invoice_code, a.access_key
+                              into v_numero_nfe, v_chave_nfe
+                              from favorita.tb_invoices_api a
+                             where a.orderid_so = :P74_IDCOMPRATRANSFERENCIA;
+                    end;
+                
+                    -- #2 - Busca o PDF da danf da nota fiscal na tabela dos pdfs.    
+                    begin
+                        select 'application/pdf',
+                               'danfe.pdf',
+                               a.attach_data
+                          into l_mime_type,
+                               l_filename,
+                               l_blob
+                          from favorita.tb_invoices_api_danf_pdf a
+                         where a.access_key = v_chave_nfe
+                           and a.status_erro is null
+                           and rownum = 1;
+                    exception
+                        when others then
+                            
+                            -- #2.1 - tem a chave mas ainda não fez dowload do PDF da nota
+                            begin
+                                -- Chama a pck para baixar o PDF para a tabela favorita.tb_invoices_api_danf_pdf
+                                favorita.pck_integracaogeral_fav.prc_busca_pdf_nota_fiscal_va(v_chave_nfe);
+                
+                                select 'application/pdf',
+                                       'danfe.pdf',
+                                       a.attach_data
+                                  into l_mime_type,
+                                       l_filename,
+                                       l_blob
+                                  from favorita.tb_invoices_api_danf_pdf a
+                                 where a.access_key = v_chave_nfe
+                                   and a.status_erro is null
+                                   and rownum = 1;
+                            exception
+                                when others then
+                                    return;
+                            end;
+                    end;
+                
+                    -- #3 - ajusta informações da remessa transferencia
+                    --grava o numero da nota na remessa
+                    update favorita.comprastransferencias cc
+                       set cc.notafiscal = v_numero_nfe
+                     where cc.idcompratransferencia = :P74_IDCOMPRATRANSFERENCIA;
+                    -- ajusta situação da remessa
+                    if :P74_IDSITUACAO < 7 then
+                        update favorita.comprastransferencias cc
+                           set cc.idsituacao = 7
+                         where cc.idcompratransferencia = :P74_IDCOMPRATRANSFERENCIA;
+                    end if;
+                
+                    -- #4 - imprime o arquivo blob
+                    sys.htp.init;
+                    owa_util.mime_header(l_mime_type, false);
+                    htp.p('Content-Length: ' || dbms_lob.getlength(l_blob));
+                    htp.p('Content-Disposition: inline; filename="' || l_filename || '"');
+                    owa_util.http_header_close;
+                    wpg_docload.download_file(l_blob);
+                    apex_application.stop_apex_engine;
+                    
+                
+                
+                    -- (OLD 03/10/2025)
+                    /*
+                    -- #1 - busca a chave da nota fiscal eletronica no owner Crisdu
+                    select substr(n.nomearquivoxml,1,44)
+                      into v_chave_nfe
+                      from crisdu.notasfiscais n
+                     where n.idnotafiscal = ( select c.idnotafiscal
+                                                from favorita.comprastransferencias c
+                                               where c.idcompratransferencia = :P74_IDCOMPRATRANSFERENCIA);
+                
+                    -- #2 - Busca o PDF da danf da nota fiscal na tabela dos pdfs.    
+                    begin
+                        select 'application/pdf',
+                               'danfe.pdf',
+                               a.attach_data
+                          into l_mime_type,
+                               l_filename,
+                               l_blob
+                          from favorita.tb_invoices_api_danf_pdf a
+                         where a.access_key = v_chave_nfe
+                           and a.status_erro is null
+                           and rownum = 1;
+                    exception
+                        when others then
+                            
+                            -- #2.1 - tem a chave mas ainda não fez dowload do PDF da nota
+                            begin
+                                -- Chama a pck para baixar o PDF para a tabela favorita.tb_invoices_api_danf_pdf
+                                favorita.pck_integracaogeral_fav.prc_busca_pdf_nota_fiscal_va(v_chave_nfe);
+                
+                                select 'application/pdf',
+                                       'danfe.pdf',
+                                       a.attach_data
+                                  into l_mime_type,
+                                       l_filename,
+                                       l_blob
+                                  from favorita.tb_invoices_api_danf_pdf a
+                                 where a.access_key = v_chave_nfe
+                                   and a.status_erro is null
+                                   and rownum = 1;
+                            exception
+                                when others then
+                                    return;
+                            end;
+                    end;
+                
+                    -- #3 - imprime o arquivo blob
+                    sys.htp.init;
+                    owa_util.mime_header(l_mime_type, false);
+                    htp.p('Content-Length: ' || dbms_lob.getlength(l_blob));
+                    htp.p('Content-Disposition: inline; filename="' || l_filename || '"');
+                    owa_util.http_header_close;
+                    wpg_docload.download_file(l_blob);
+                    apex_application.stop_apex_engine;
+                    */
+                    
+                -- #5 - tratamento de erros
+                exception
+                    when others then
+                        return;
+                end;
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <div style="font-family: Arial, sans-serif; font-size: 20px; color: #81bb5f; text-align: center; padding: 10px; border: 1px solid #81bb5f; background-color: #f5fbf1;">
+                  <br>
+                  <strong>Atenção!</strong>
+                  <br><br>
+                  Não foi possível localizar o PDF para impressão da Nota Fiscal.
+                  <br><br>
+                  
+                  <br><br><br>
+                </div>
+                ```
+        }
+    )
+
+)
+

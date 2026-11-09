@@ -1,0 +1,1080 @@
+page 487 (
+    name: Gerar Tarefas Cobrança Preventiva
+    title: Gerar Tarefas Cobrança Preventiva
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region pedidos-para-preventivas (
+        name: Pedidos para Preventivas
+        type: tabform
+        source {
+            sqlQuery:
+                ```sql
+                select p.idpedido
+                     , p.representante
+                     , p.vendedora
+                     , p.cpf
+                     , p.dataemissao
+                     , p.datavencimento
+                     , p.valortotal
+                     , p.valorapagar
+                     , p.valorpago
+                     , p.saldodevedor
+                     , p.idvendedora
+                     , p.idpessoa
+                     , p.numeropedido
+                     , ( select max(t.datainclusao)
+                         from tarefas t
+                         where t.idtipotarefa in (49,58)
+                           and t.idpessoa = pp.idpessoa ) ultimatarefa
+                from vw_pedidos_fav p
+                   , catal.pessoas pp
+                where pp.idpessoa = p.idpessoa
+                  and exists ( select 1
+                               from vencimentospedidos vp
+                               where vp.idpedido = p.idpedido
+                                 and vp.situacaovencimento = 'V'
+                                 and vp.valorpago < vp.valorpagar
+                                 and vp.datavencimento between to_date(:P487_DATAINICIO||' 00:00:01','DD/MM/RRRR HH24:MI:SS') and to_date(:P487_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') )
+                  and (:P487_IDFILIALROMANCE is null 
+                    and exists ( select 1
+                                 from roman.vw_filiais f
+                                 where f.tipofilial = 'D'
+                                   and f.ativo = 'S'
+                                   and f.idgrupo != 5
+                                   and f.idfilial = p.idfilialromance
+                                   and exists ( select 1
+                                                from favorita.pedidos p
+                                                where p.idfilialromance = f.idfilial ))
+                      or p.idfilialromance = :P487_IDFILIALROMANCE)
+                  and ( :P487_IDREPRESENTANTE is null or p.idrepresentante = :P487_IDREPRESENTANTE )
+                  and ( :P487_SEXO is null or :P487_SEXO = upper(pp.sexo))
+                  and ( :P487_FAIXAVALOR is null
+                      or (:P487_FAIXAVALOR = 1 and p.valorapagar between 0.01 and 129.99) 
+                      or (:P487_FAIXAVALOR = 2 and p.valorapagar between 130.00 and 299.99) 
+                      or (:P487_FAIXAVALOR = 3 and p.valorapagar between 300.00 and 599.99) 
+                      or (:P487_FAIXAVALOR = 4 and p.valorapagar between 600.00 and 799.99) 
+                      or (:P487_FAIXAVALOR = 5 and p.valorapagar between 800.00 and 99999.99))  
+                  and ( :P487_FAIXAIDADE is null
+                      or (:P487_FAIXAIDADE = 1 and pp.idade between 18 and 23) 
+                      or (:P487_FAIXAIDADE = 2 and pp.idade between 24 and 29) 
+                      or (:P487_FAIXAIDADE = 3 and pp.idade between 30 and 35) 
+                      or (:P487_FAIXAIDADE = 4 and pp.idade between 36 and 41) 
+                      or (:P487_FAIXAIDADE = 5 and pp.idade between 42 and 47) 
+                      or (:P487_FAIXAIDADE = 6 and pp.idade between 48 and 53) 
+                      or (:P487_FAIXAIDADE = 7 and pp.idade between 54 and 59) 
+                      or (:P487_FAIXAIDADE = 8 and pp.idade between 60 and 160) )
+                  and ( :P487_PEDIDOANTERIOREMDIA is null
+                      or (:P487_PEDIDOANTERIOREMDIA = 'S' and ( select sum(vp.valorpagar - ( select sum(pg.valorpago)
+                                                                                             from favorita.pagamentospedidos pg
+                                                                                             where pg.idvencimentopedido = vp.idvencimentopedido
+                                                                                               and pg.idsituacao = 20
+                                                                                               and pg.datapagamento <= vp.datavencimento) )
+                                                                from favorita.vencimentospedidos vp
+                                                                where vp.idpedido = ( select max(pe.idpedido)
+                                                                                                from favorita.pedidos pe
+                                                                                                where pe.idpedido < p.idpedido
+                                                                                                  and pe.idvendedora = p.idvendedora
+                                                                                                  and pe.datacancelamento is null)) <= 0 )
+                      or (:P487_PEDIDOANTERIOREMDIA = 'N' and ( select sum(vp.valorpagar - ( select sum(pg.valorpago)
+                                                                                         from favorita.pagamentospedidos pg
+                                                                                         where pg.idvencimentopedido = vp.idvencimentopedido
+                                                                                           and pg.idsituacao = 20
+                                                                                           and pg.datapagamento <= vp.datavencimento) )
+                                                                from favorita.vencimentospedidos vp
+                                                                where vp.idpedido = ( select max(pe.idpedido)
+                                                                                                from favorita.pedidos pe
+                                                                                                where pe.idpedido < p.idpedido
+                                                                                                  and pe.idvendedora = p.idvendedora
+                                                                                                  and pe.datacancelamento is null)) > 0 ))
+                  and ( :P487_PEDIDOANTERIORSPC is null
+                      or (:P487_PEDIDOANTERIORSPC = 'S' and ( select spp.spc_quantidade
+                                                              from roman.consultaspc spp    
+                                                              where spp.idconsultaspc = ( select max(sp.idconsultaspc)
+                                                                                          from roman.consultaspc sp,
+                                                                                               catal.vendedoras v,
+                                                                                               catal.pessoas p
+                                                                                          where sp.cpf = p.cpf
+                                                                                            and p.idpessoa = v.idpessoa
+                                                                                            and v.idvendedora = p.idvendedora)) >=1 )
+                      or (:P487_PEDIDOANTERIORSPC = 'N' and ( select spp.spc_quantidade
+                                                              from roman.consultaspc spp    
+                                                              where spp.idconsultaspc = ( select max(sp.idconsultaspc)
+                                                                                          from roman.consultaspc sp,
+                                                                                               catal.vendedoras v,
+                                                                                               catal.pessoas p
+                                                                                          where sp.cpf = p.cpf
+                                                                                            and p.idpessoa = v.idpessoa
+                                                                                            and v.idvendedora = p.idvendedora )) <=0 ))
+                  and p.saldodevedor > 0 
+                  and ( ( :P487_RECONTATO is null and not exists ( select 1
+                                                                   from tarefas t
+                                                                   where t.idtipotarefa in (49,58)
+                                                                     and t.idpessoa     = p.idpessoa
+                                                                     and t.idsituacao   in (0,10,20,30) ) )
+                      or ( :P487_RECONTATO = 'S' and exists ( select 1
+                                                              from tarefas t
+                                                              where t.idtipotarefa = 49
+                                                                and t.idpessoa     = p.idpessoa
+                                                                and trunc(t.datainclusao) < trunc(sysdate-15)
+                                                                and t.idsituacao   in (0,10,20,30) )
+                                                 and not exists ( select 1
+                                                                  from tarefas t
+                                                                  where t.idtipotarefa in (49,58)
+                                                                    and t.idpessoa     = p.idpessoa
+                                                                    and trunc(t.datainclusao) >= trunc(sysdate-15)
+                                                                    and t.idsituacao   in (0,10,20,30) ) ) )
+                order by p.datavencimentomenor desc
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <font color="red"><h3>
+                    Verificar com a Carol antes de gerar novas tarefas! As preventivas foram solicitadas para serem retiradas dos atendimentos!
+                    </h3> </font>
+                ```
+        }
+        reportLayout {
+            numberOfRows: 10000
+        }
+        componentAppearance {
+            template: @/standard
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        messages {
+            whenNoDataFound: Nenhum pedido encontrado, verifique os filtros!
+        }
+
+        column CHECK$01 (
+            reportColumnQueryId: 15
+            derivedColumn: Y
+            type: rowSelector
+            heading {
+                heading: Selector Row
+                alignment: center
+            }
+            layout {
+                sequence: 1
+                columnAlignment: center
+            }
+        )
+
+        column CPF (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DATAEMISSAO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DATAVENCIMENTO (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Datavencimento
+                alignment: center
+            }
+            layout {
+                sequence: 15
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPEDIDO (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPESSOA (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 13
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDVENDEDORA (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 12
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column NUMEROPEDIDO (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            heading {
+                heading: Nr Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 3
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column REPRESENTANTE (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SALDODEVEDOR (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 11
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column ULTIMATAREFA (
+            reportColumnQueryId: 14
+            derivedColumn: N
+            heading {
+                heading: Ultima Tarefa Realizada
+                alignment: center
+            }
+            layout {
+                sequence: 14
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALORAPAGAR (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: A Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 9
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALORPAGO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Pago
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALORTOTAL (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Total
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VENDEDORA (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    pageItem P487_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 12
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P487_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: Vencimento de
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 12
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P487_FAIXAIDADE (
+        type: plugin/select
+        label {
+            label: Faixa de Idade
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select FAIXAIDADE as showvalue
+                     , CODIGOFAIXA as returnvalue
+                from ( select '18 a 23' as FAIXAIDADE,
+                              1  as CODIGOFAIXA
+                       from dual
+                       union
+                       select '24 a 29' as FAIXAIDADE,
+                              2  as CODIGOFAIXA
+                       from dual
+                       union
+                       select '30 a 35' as FAIXAIDADE,
+                              3  as CODIGOFAIXA
+                       from dual
+                       union
+                       select '36 a 41' as FAIXAIDADE,
+                              4  as CODIGOFAIXA
+                       from dual
+                       union
+                       select '42 a 47' as FAIXAIDADE,
+                              5  as CODIGOFAIXA
+                       from dual
+                       union
+                       select '48 a 53' as FAIXAIDADE,
+                              6  as CODIGOFAIXA
+                       from dual
+                       union
+                       select '54 a 59' as FAIXAIDADE,
+                              7  as CODIGOFAIXA
+                       from dual
+                       union
+                       select '60 a 99' as FAIXAIDADE,
+                              8  as CODIGOFAIXA
+                       from dual)
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P487_FAIXAVALOR (
+        type: plugin/select
+        label {
+            label: Faixa de Valor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select FAIXAVALOR as showvalue
+                     , CODIGOFAIXA as returnvalue
+                from ( select '0,01 - 129,99' as FAIXAVALOR,
+                              1  as CODIGOFAIXA
+                       from dual
+                       union
+                       select '130,00 - 299,99' as FAIXAIDADE,
+                              2  as CODIGOFAIXA
+                       from dual
+                       union
+                       select '300,00 - 599,99' as FAIXAIDADE,
+                              3  as CODIGOFAIXA
+                       from dual
+                       union
+                       select '600,00 - 799,99' as FAIXAIDADE,
+                              4  as CODIGOFAIXA
+                       from dual
+                       union
+                       select '800,00 - 99.999,99' as FAIXAIDADE,
+                              5  as CODIGOFAIXA
+                       from dual)
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P487_IDFILIALROMANCE (
+        type: selectList
+        label {
+            label: Empresa Romance
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from roman.vw_filiais f
+                where f.tipofilial = 'D'
+                  and f.ativo = 'S'
+                  and f.idgrupo != 5
+                  and exists ( select 1
+                               from pedidos p
+                               where p.idfilialromance = f.idfilial )
+                
+                ```
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P487_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomerepresentante(r.idrepresentante) d
+                     , idrepresentante r
+                from representantes r
+                    , gerentes g
+                where r.idgerente = g.idgerente
+                  and g.idfilial  = :P487_IDFILIALROMANCE
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P487_IDFILIALROMANCE
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P487_IDUSUARIO (
+        type: selectList
+        label {
+            label: "Enviar Para "
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomepessoa(u.idpessoa) d
+                     , u.idusuario r
+                from usuarios u
+                where exists ( select 1
+                               from roman.usuariosgruposatendimento ug
+                               where ug.usuario = u.usuario
+                                 and ug.idgrupoatendimento = 4 )
+                  and u.ativo = 'S'
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P487_PEDIDOANTERIOREMDIA (
+        type: selectList
+        label {
+            label: Pedido Anterior em Dia
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N
+            displayExtraValues: false
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P487_PEDIDOANTERIORSPC (
+        type: selectList
+        label {
+            label: Pedido SPC
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N
+            displayExtraValues: false
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P487_RECONTATO (
+        type: checkboxGroup
+        label {
+            label: Recontato
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC: ;S
+            displayExtraValues: false
+        }
+        layout {
+            sequence: 120
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P487_SEXO (
+        type: plugin/select
+        label {
+            label: Sexo
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Masculino;M,Feminino;F
+            displayExtraValues: false
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P487_TIPO (
+        type: radioGroup
+        label {
+            label: Contato
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Vencido;S,Não Vencido;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Buscar
+        layout {
+            sequence: 130
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button gerar-tarefas (
+        buttonName: GERAR_TAREFAS
+        label: Gerar Tarefas
+        layout {
+            sequence: 10
+            region: @pedidos-para-preventivas
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process gera-tarefa-de-pedidos-vencidos (
+        name: Gera Tarefa de Pedidos Vencidos
+        type: executeCode
+        editableRegion: @pedidos-para-preventivas
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidusuario    number := :P487_IDUSUARIO; 
+                  vidpessoa     number := null;
+                  vtelefone     varchar2(100) := null;
+                  vcodigoarea   number;
+                  vexiste       varchar(1) := 'N';
+                  vidtipotarefa number;
+                  --
+                begin
+                  --
+                  vidpessoa := :IDPESSOA;
+                  --
+                  if :P487_TIPO = 'N' then
+                    --
+                    vidtipotarefa := 49;
+                    --
+                  else
+                    --
+                    vidtipotarefa := 58;
+                    --
+                  end if;
+                  --
+                  if :P487_RECONTATO is null then
+                    --
+                    begin
+                      select 'S'
+                      into vexiste
+                      from tarefas t
+                      where t.idpessoa = vidpessoa
+                        and t.idtipotarefa = 49
+                        and t.idsituacao in (0,10,20,30);
+                    exception
+                      when others then
+                        vexiste := 'N';
+                    end;
+                    --
+                  else
+                    --
+                    vexiste := 'N';
+                    --
+                  end if;
+                  --
+                  begin
+                    --
+                    select substr(translate(t.telefone,'0123456789AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvXxYyWwZz_-,.  Ññ~ !@#$%?&*()/??','0123456789'),0,100 )telefone
+                    into vtelefone
+                    from tarefas t
+                       , pedidos p
+                    where p.idpedido = :IDPEDIDO
+                      and p.idtarefa = t.idtarefa
+                      -- só utiliza o telefone se o idpessoa da tarefa for o mesmo do pedido
+                      and t.idpessoa = vidpessoa
+                      -- -------------------------------------------------------------------
+                      ;
+                    --
+                  exception
+                    when others then
+                      --
+                      for i in ( select substr(translate(t.telefone,'0123456789AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvXxYyWwZz_-,.  Ññ~ !@#$%?&*()/??','0123456789'),0,100 )telefone
+                                 from ROMAN.telefonespessoas t
+                                 where t.idpessoa = vidpessoa
+                                 order by t.ultimaatualizacao desc )
+                      loop
+                        --
+                        vtelefone := i.telefone;
+                        exit;
+                        --
+                      end loop;
+                    --
+                  end;
+                  --
+                  if vtelefone is not null and vexiste = 'N' then
+                    --
+                    insert into favorita.tarefas ( idtarefa            , datainclusao    , idsituacao
+                                                 , observacao          , idtipotarefa    , idpessoa
+                                                 , idgrupoatendimento  , telefone        , idusuario
+                                                 , idpedido )
+                    values ( favorita.seq_idtarefa.nextval,   sysdate,  0
+                           , substr(roman.pck_romance.fnc_retornatelefones(:IDVENDEDORA),0,100) , vidtipotarefa  , vidpessoa
+                           , 4 , vtelefone , vidusuario
+                           , :IDPEDIDO ); 
+                    --
+                  end if;
+                  --
+                  exception when others then
+                  raise_application_error(-20001,sqlerrm);
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Tarefas geradas com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 96949732242650548
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERAR_TAREFAS
+        }
+    )
+
+    branch (
+        name: Buscar
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 487
+                items: {
+                    P487_IDFILIALROMANCE: &P487_IDFILIALROMANCE.
+                    P487_IDREPRESENTANTE: &P487_IDREPRESENTANTE.
+                    P487_IDUSUARIO: &P487_IDUSUARIO.
+                    P487_DATAINICIO: &P487_DATAINICIO.
+                    P487_DATAFIM: &P487_DATAFIM.
+                    P487_SEXO: &P487_SEXO.
+                    P487_FAIXAIDADE: &P487_FAIXAIDADE.
+                    P487_FAIXAVALOR: &P487_FAIXAVALOR.
+                    P487_PEDIDOANTERIOREMDIA: &P487_PEDIDOANTERIOREMDIA.
+                    P487_PEDIDOANTERIORSPC: &P487_PEDIDOANTERIORSPC.
+                    P487_TIPO: &P487_TIPO.
+                    P487_RECONTATO: &P487_RECONTATO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: BUSCAR
+        }
+    )
+
+)
+

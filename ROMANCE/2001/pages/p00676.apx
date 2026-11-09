@@ -1,0 +1,791 @@
+page 676 (
+    name: Relatório de Balanços
+    title: Relatório de Balanços
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region lista-de-balanços-por-empresa (
+        name: Lista de Balanços Por Empresa
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select rep.empresa                                                   empresa
+                     , roman.pck_romance.fnc_nomerepresentante(rep.idrepresentante)  distribuidor
+                     , decode(rep.ativo,'S','Ativo','N','Inativo')                   ativo
+                     , (select sd.semanacompleta
+                          from roman.semana_dias sd
+                         where sd.idsemana = rep.semanaparou) semana_parou
+                     , catal.pck_util.fnc_semanaid(rep.idsemanabalanco)                    semana
+                     , rep.databalancoiniciado                                       data_balanco
+                     , ( select catal.pck_util.fnc_semanaid(min(n.idsemanadistribuicao)) 
+                           from roman.notasvendas n
+                          where idrepresentante  = rep.idrepresentante )              iniciou_em
+                     , nfcom.Qtd_pc_Com_comissao
+                     , nfcom.valor_Com_comissao
+                     , nfsem.Qtd_pc_sem_comissao
+                     , nfsem.valor_Sem_comissao
+                     , rep.idrepresentante 
+                     , (select (x.idsemanafec - xx.idsemanabalanco)
+                                  from ( select (max(f.idsemana)) idsemanafec
+                                           from roman.fechamentossemanais f
+                                          where f.idfilial = rep.idfilial)x
+                                     , (select (rt.idsemanabalanco) idsemanabalanco
+                                          from catal.representantes rt
+                                         where rt.idrepresentante = rep.idrepresentante)xx) total_sema
+                from ( select r.idrepresentante
+                            , roman.pck_romance.fnc_nomefilial(f.idfilial) empresa
+                            , r.ativo
+                            , r.semanaparou
+                            , r.idsemanabalanco
+                            , f.idfilial
+                            , r.databalancoiniciado 
+                       from catal.representantes r
+                          , catal.filiais f
+                          , catal.gerentes g
+                       where r.idgerente = g.idgerente
+                         and g.idfilial = f.idfilial
+                         and f.ativo = 'S'
+                         and f.tipofilial = 'D'
+                          and (:P676_IDFILIAL is null or f.idfilial = :P676_IDFILIAL)
+                         and (:P676_ATIVO is null or r.ativo = :P676_ATIVO)
+                         and r.idsemanabalanco between :P676_SEMANADE and :P676_SEMANAATE
+                         and (:P676_IDREPRESENTANTE is null or r.idrepresentante = :P676_IDREPRESENTANTE)
+                    
+                    
+                    /*select r.idrepresentante
+                            , f.nome empresa
+                            , r.ativo
+                            , r.semanaparou
+                            , r.idsemanabalanco
+                            , f.idfilial
+                            , r.databalancoiniciado 
+                       from catal.representantes r
+                          , roman.vw_filiais f
+                       where r.idgerente = f.idgerente
+                         and f.ativo = 'S'
+                         and f.tipofilial = 'D'
+                         and (:P676_IDFILIAL is null or f.idfilial = :P676_IDFILIAL)
+                         and (:P676_ATIVO is null or r.ativo = :P676_ATIVO)
+                         and r.idsemanabalanco between :P676_SEMANADE and :P676_SEMANAATE
+                         and (:P676_IDREPRESENTANTE is null or r.idrepresentante = :P676_IDREPRESENTANTE)
+                       union
+                       select r.idrepresentante
+                            , f.nome empresa
+                            , r.ativo
+                            , r.semanaparou
+                            , r.idsemanabalanco
+                            , f.idfilial
+                            , null databalancoiniciado
+                       from catal.representantes r
+                          , roman.vw_filiais f
+                       where r.idgerente = f.idgerente
+                         and f.ativo = 'S'
+                         and f.tipofilial = 'D'
+                         and (:P676_IDFILIAL is null or f.idfilial = :P676_IDFILIAL)
+                         and (:P676_ATIVO is null or r.ativo = :P676_ATIVO)
+                         and r.idsemanabalanco between :P676_SEMANADE and :P676_SEMANAATE
+                         and :P676_IDREPRESENTANTE is null or r.idrepresentante = :P676_IDREPRESENTANTE*/) rep
+                       ,(select w.idrepresentante
+                              , w.idsemanabalanco
+                              , sum(w.faltadevolver)      Qtd_pc_Com_comissao
+                              , sum(w.valorfaltadevolver) valor_Com_comissao
+                         from roman.vw_balanco_romance_v4_com w
+                         Group by w.idrepresentante,
+                                    w.idsemanabalanco) nfcom
+                        ,(select w.idrepresentante
+                               , w.idsemanabalanco
+                               , sum(faltadevolver) Qtd_pc_sem_comissao
+                               , sum(w.valorfaltadevolver)  valor_Sem_comissao 
+                          from roman.vw_balanco_romance_v4_sem w
+                          group by w.idrepresentante
+                                 , w.idsemanabalanco) nfsem
+                where nfcom.idrepresentante = rep.idrepresentante
+                  and nfcom.idsemanabalanco = rep.idsemanabalanco
+                  and nfsem.idrepresentante = rep.idrepresentante
+                  and nfsem.idsemanabalanco = rep.idsemanabalanco
+                  and :P676_FILTRAR = 'S'
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 562790133086866905
+        }
+
+        column ATIVO (
+            type: plainText
+            heading {
+                heading: Ativo
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DATA_BALANCO (
+            type: plainText
+            heading {
+                heading: Data Balanço
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column EMPRESA (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column IDREPRESENTANTE (
+            type: link
+            heading {
+                heading: Ver Balanços
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 506
+                    items: {
+                        P506_IDREPRESENTANTE: #IDREPRESENTANTE#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#menu/pencil16x16.gif" alt=""/>
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column INICIOU_EM (
+            type: plainText
+            heading {
+                heading: Iniciou Em
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column QTD_PC_COM_COMISSAO (
+            type: plainText
+            heading {
+                heading: Qtd. Pçs. com Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column QTD_PC_SEM_COMISSAO (
+            type: plainText
+            heading {
+                heading: Qtd. Pçs. Sem Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column SEMANA (
+            type: plainText
+            heading {
+                heading: Semana Balanço
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column SEMANA_PAROU (
+            type: plainText
+            heading {
+                heading: Semana Parou
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column TOTAL_SEMA (
+            type: plainText
+            heading {
+                heading: Qtd Semanas s/ Balanço
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column VALOR_COM_COMISSAO (
+            type: plainText
+            heading {
+                heading: Valor com Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column VALOR_SEM_COMISSAO (
+            type: plainText
+            heading {
+                heading: Valor Sem Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 5628513 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn ATIVO (
+                sequence: 3
+            )
+
+            displayColumn DATA_BALANCO (
+                sequence: 5
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 2
+            )
+
+            displayColumn EMPRESA (
+                sequence: 1
+            )
+
+            displayColumn IDREPRESENTANTE (
+                sequence: 13
+            )
+
+            displayColumn INICIOU_EM (
+                sequence: 7
+            )
+
+            displayColumn QTD_PC_COM_COMISSAO (
+                sequence: 8
+            )
+
+            displayColumn QTD_PC_SEM_COMISSAO (
+                sequence: 10
+            )
+
+            displayColumn SEMANA (
+                sequence: 4
+            )
+
+            displayColumn SEMANA_PAROU (
+                sequence: 12
+            )
+
+            displayColumn TOTAL_SEMA (
+                sequence: 6
+            )
+
+            displayColumn VALOR_COM_COMISSAO (
+                sequence: 9
+            )
+
+            displayColumn VALOR_SEM_COMISSAO (
+                sequence: 11
+            )
+
+            highlight ir-condition (
+                name: Dist. com ou  + de 52 semanas
+                condition {
+                    column: TOTAL_SEMA
+                    operator: >=
+                    value: 52
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #ED6B6B
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Dist. entre 40 a 51 semanas
+                condition {
+                    column: TOTAL_SEMA
+                    operator: between
+                    from: 40
+                    to: 51
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #EDED80
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P676_ATIVO (
+        type: radioGroup
+        label {
+            label: Ativo
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N
+            nullDisplayValue: Ambos
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P676_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P676_IDFILIAL (
+        type: selectList
+        label {
+            label: Franquia
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomefilial(u.idfilial) display_value
+                     , u.idfilial return_value
+                from roman.usuariosfiliais u
+                where u.usuario = v('APP_USER')
+                  and exists( select 1
+                                from roman.vw_filiais f
+                               where f.idfilial = u.idfilial
+                                 and f.tipofilial = 'D'
+                                 and f.ativo = 'S')
+                order by 1
+                ```
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P676_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomerepresentante(r.idrepresentante) display_value
+                     , r.idrepresentante return_value
+                from catal.representantes r
+                where r.idgerente = ( select ff.idgerente
+                                       from roman.vw_filiais ff
+                                       where  ff.idfilial = :P676_IDFILIAL)
+                  --and r.ativo = :P676_ATIVO
+                order by 1 
+                ```
+            nullDisplayValue: "- Todos - "
+        }
+        cascadingLov {
+            parentItems: P676_IDFILIAL
+            itemsToSubmit: P676_IDREPRESENTANTE
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P676_SEMANAATE (
+        type: selectList
+        label {
+            label: Até:
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ss.semanacompleta display_value
+                     , ss.idsemana return_value
+                from roman.semana_dias ss
+                where ss.ano between 2014 and to_number(to_char(sysdate,'yyyy'))
+                order by 2 desc
+                ```
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P676_SEMANADE (
+        type: selectList
+        label {
+            label: De:
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ss.semanacompleta display_value
+                     , ss.idsemana return_value
+                from roman.semana_dias ss
+                where ss.ano between 2014 and to_number(to_char(sysdate,'yyyy'))
+                order by 2 desc
+                ```
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--primary
+                t-Button--iconRight
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        name: Go To Page 676
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 676
+                items: {
+                    P676_FILTRAR: S
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

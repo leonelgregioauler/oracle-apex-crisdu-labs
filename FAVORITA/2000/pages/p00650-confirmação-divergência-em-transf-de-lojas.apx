@@ -1,0 +1,1022 @@
+page 650 (
+    name: Confirmação Divergência em Transf. de Lojas
+    alias: CONFIRMAÇÃO-DIVERGÊNCIA-EM-TRANSF-DE-LOJAS
+    title: Confirmação Divergência em Transf. de Lojas
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+    )
+
+    region relatório-apontamento-de-divergências-de-transferência (
+        name: Relatório Apontamento de Divergências de Transferência
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select fo.nomefilialfavorita origem
+                     , fd.nomefilialfavorita destino
+                     , d.iddivergenciacomprastransferencias
+                     , d.idcompratransferencia          
+                     , d.iditemcompratransferencia
+                     , i.idprodutodetalhado
+                     , favorita.pck_util_fav.fnc_nomeprodutodetalhado(i.idprodutodetalhado,nvl(:P0_IDIDIOMA,1)) produto
+                     , i.quantidadecomprada
+                     , i.quantidaderecebida
+                     , (i.quantidadecomprada - i.quantidaderecebida) Divergência
+                     , case
+                           when d.situacaodivergencia = 'E' then 
+                               apex_item.CHECKBOX2(1,d.iddivergenciacomprastransferencias, null)
+                           else 
+                               null
+                       end Aceitar
+                     , case
+                           when d.situacaodivergencia = 'E' then 
+                               apex_item.CHECKBOX2(2,d.iddivergenciacomprastransferencias, null)
+                           else 
+                               null
+                       end Recusar
+                     , decode(d.situacaodivergencia, 'A','Aceita','R','Recusada','Em Análise') as "Divergência Aceita?"
+                     , usuarioaceite usuarioaceite
+                     , c.dataemissao as "Data Inclusão"
+                     , c.numero as "Número Transferência"
+                     , d.dataaceite
+                     , (select lo.dataalteracao
+                       from logfavorita.log_divergenciascomprastransferencias lo
+                       where lo.iddivergenciacomprastransferencias = d.iddivergenciacomprastransferencias
+                         and lo.tipoalteracao = 'INSERT') data_divergencia_enviada
+                  from favorita.divergenciascomprastransferencias d
+                     , favorita.itenscomprastransferencias        i
+                     , favorita.comprastransferencias             c
+                     , favorita.filiaisfavorita                   fd
+                     , favorita.filiaisfavorita                   fo
+                 where i.iditemcompratransferencia = d.iditemcompratransferencia
+                   and c.idcompratransferencia = i.idcompratransferencia
+                   and fd.idfilialfavorita = c.idfilialfavoritadestino
+                   and fo.idfilialfavorita = c.idfilialfavoritaorigem
+                   /*Adiciona opção em tela para listar ou não recebidos 40
+                    Trazer somente transferência que ainda não foram recebidas*/
+                   and (:P650_LISTARRECEBIDOS = 'S' OR (:P650_LISTARRECEBIDOS = 'N' AND c.idsituacao < 40))
+                   /* Filtra por período*/
+                   and c.dataemissao >= to_date(:P650_DATA_INICIAL, 'DD/MM/YYYY')
+                   and c.dataemissao <  to_date(:P650_DATA_FINAL, 'DD/MM/YYYY') + 1
+                   /* Filtra for filial favorita destino*/
+                   and (    ( :P650_IDFILIALFAVORITAORIGEM = -1) 
+                         or ( c.idfilialfavoritaorigem = :P650_IDFILIALFAVORITAORIGEM))
+                   /* Filtrar por Transferência ou todas*/
+                   and (    ( :P650_TRANSFERENCIA is null)
+                         or ( d.idcompratransferencia = :P650_TRANSFERENCIA))
+                   -- Traz somente divergencia que tenham ao menos uma divirgencia com aceite = NÃO!
+                   /*and exists (select 1
+                                 from favorita.divergenciascomprastransferencias div
+                                where d.idcompratransferencia = div.idcompratransferencia
+                                  and div.situacaodivergencia = 'E')*/
+                   and (:P650_SITUACAO = -1 
+                    or (:P650_SITUACAO = 1 and d.situacaodivergencia = 'E') -- Em Analise
+                    or (:P650_SITUACAO = 2 and d.situacaodivergencia in ('A','R')) ) -- Aceita / Recusar
+                   -- Ordena pelo ID da Divergência               
+                 order by d.iddivergenciacomprastransferencias;
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 371782312829840912
+        }
+
+        column ACEITAR (
+            type: plainText
+            heading {
+                heading: Aceitar
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DATAACEITE (
+            type: plainText
+            heading {
+                heading: Data (Aceite/Recusa)
+            }
+            layout {
+                sequence: 220
+            }
+            appearance {
+                formatMask: dd/mm/yyyy hh24:mi:ss
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AB
+            }
+        )
+
+        column DATA_DIVERGENCIA_ENVIADA (
+            type: plainText
+            heading {
+                heading: Data Enviada
+            }
+            layout {
+                sequence: 230
+            }
+            appearance {
+                formatMask: dd/mm/yyyy
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column DESTINO (
+            type: plainText
+            heading {
+                heading: Filial Destino
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DIVERGÊNCIA (
+            type: plainText
+            heading {
+                heading: Divergência
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column "Data Inclusão" (
+            type: plainText
+            heading {
+                heading: Data Inclusão Transf.
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/YYYY
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column "Divergência Aceita?" (
+            type: plainText
+            heading {
+                heading: Divergência Aceita?
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column IDCOMPRATRANSFERENCIA (
+            type: plainText
+            heading {
+                heading: ID Transferência
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column IDDIVERGENCIACOMPRASTRANSFERENCIAS (
+            type: plainText
+            heading {
+                heading: ID Divergência
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column IDITEMCOMPRATRANSFERENCIA (
+            type: plainText
+            heading {
+                heading: ID Item Transferência
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column IDPRODUTODETALHADO (
+            type: plainText
+            heading {
+                heading: ID Produto Detalhado
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column "Número Transferência" (
+            type: plainText
+            heading {
+                heading: Número Transf.
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column ORIGEM (
+            type: plainText
+            heading {
+                heading: Filial Origem
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column PRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column QUANTIDADECOMPRADA (
+            type: plainText
+            heading {
+                heading: Qtd. Comprada Loja
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column QUANTIDADERECEBIDA (
+            type: plainText
+            heading {
+                heading: Qtd. Recebida Loja
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column RECUSAR (
+            type: plainText
+            heading {
+                heading: Recusar
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column USUARIOACEITE (
+            type: plainText
+            heading {
+                heading: Revisado Por (Aceite/Recusa)
+            }
+            layout {
+                sequence: 190
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 3718969 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ACEITAR (
+                sequence: 9
+            )
+
+            displayColumn DATAACEITE (
+                sequence: 13
+            )
+
+            displayColumn DATA_DIVERGENCIA_ENVIADA (
+                sequence: 4
+            )
+
+            displayColumn DESTINO (
+                sequence: 1
+            )
+
+            displayColumn DIVERGÊNCIA (
+                sequence: 8
+            )
+
+            displayColumn "Data Inclusão" (
+                sequence: 14
+            )
+
+            displayColumn "Divergência Aceita?" (
+                sequence: 11
+            )
+
+            displayColumn IDCOMPRATRANSFERENCIA (
+                sequence: 2
+            )
+
+            displayColumn "Número Transferência" (
+                sequence: 15
+            )
+
+            displayColumn ORIGEM (
+                sequence: 3
+            )
+
+            displayColumn PRODUTO (
+                sequence: 5
+            )
+
+            displayColumn QUANTIDADECOMPRADA (
+                sequence: 6
+            )
+
+            displayColumn QUANTIDADERECEBIDA (
+                sequence: 7
+            )
+
+            displayColumn RECUSAR (
+                sequence: 10
+            )
+
+            displayColumn USUARIOACEITE (
+                sequence: 12
+            )
+
+            controlBreak (
+                column: DESTINO
+                layout {
+                    sequence: 1
+                }
+            )
+
+            controlBreak (
+                column: IDCOMPRATRANSFERENCIA
+                layout {
+                    sequence: 2
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P650_DATA_FINAL (
+        type: datePicker
+        label {
+            label: <b>Data Final</b>
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/YYYY
+            width: 30
+        }
+        default {
+            type: expression
+            language: sql
+            sqlExpression: to_char(sysdate,'DD/MM/YYYY')
+        }
+    )
+
+    pageItem P650_DATA_INICIAL (
+        type: datePicker
+        label {
+            label: <b>Data Inicial</b>
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/YYYY
+            width: 30
+        }
+        default {
+            type: sqlQuerySingleValue
+            sqlQuerySingleValue:
+                ```sql
+                select trunc(sysdate, 'MM') as primeiro_dia_mes
+                  from dual;
+                ```
+        }
+    )
+
+    pageItem P650_IDFILIALFAVORITAORIGEM (
+        type: selectList
+        label {
+            label: <b>Filial Origem (Estoque)</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ff.nomefilialfavorita as display_value
+                     , ff.idfilialfavorita   as return_value
+                  from favorita.filiaisfavorita ff
+                 where tipofilial = 'E'
+                   and (    ( exists (select 1
+                                        from roman.usuariosgruposatendimento u
+                                       where u.usuario            = v('APP_USER')
+                                         and u.idgrupoatendimento = 0))
+                         or ( ff.idfilialfavorita = (select u.idfilialfavorita
+                                                       from catal.usuarios u
+                                                      where u.usuario = v('APP_USER')))
+                         or ( roman.pck_util.fnc_verificaacesso(pidaplicacao => 34002, pusuario => v('APP_USER')) = 'S'))
+                
+                union
+                
+                select '- Todas -' as display_value
+                     , -1          as return_value
+                  from dual
+                 where exists (select 1
+                                 from roman.usuariosgruposatendimento u
+                                where u.usuario            = v('APP_USER')
+                                  and u.idgrupoatendimento = 0)
+                    or roman.pck_util.fnc_verificaacesso(pidaplicacao => 34002, pusuario => v('APP_USER')) = 'S'
+                  
+                 order by 1;
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+    )
+
+    pageItem P650_LISTARRECEBIDOS (
+        type: checkbox
+        label {
+            label: Listar Recebidos
+            alignment: left
+        }
+        settings {
+            useDefaults: false
+            checkedValue: S
+            uncheckedValue: N
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        source {
+            type: staticValue
+            staticValue: N
+        }
+    )
+
+    pageItem P650_SITUACAO (
+        type: selectList
+        label {
+            label: Situação
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC: Todos;-1,Em Análise;1,Analisadas;2
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: -1
+        }
+    )
+
+    pageItem P650_TRANSFERENCIA (
+        type: numberField
+        label {
+            label: <b>Transferência</b>
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+    )
+
+    button buscar-divergencias (
+        buttonName: BUSCAR_DIVERGENCIAS
+        label: Buscar
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--stretch
+                t-Button--gapTop
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button salvar (
+        buttonName: Salvar
+        label: Salvar
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process aceitar-recusar-divergência (
+        name: Aceitar Recusar Divergência
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                    -- Escopo para declaração de variáveis
+                    v_chk_aceitar_marcado          varchar2(1);
+                    v_id_compra_transferencia      number;
+                    v_id_item_compra_transferencia number;
+                    v_id_produto_detalhado         number;
+                    v_qtd_recebida                 number;
+                    v_qtd_comprada                 number;
+                
+                begin
+                
+                    -- Loop na coluna (ACEITAR) verificando todos que estiverem marcado
+                    for i in 1 .. APEX_APPLICATION.G_F01.COUNT loop
+                        
+                        -- Efetiva os produtos marcados como aceitar divergencia
+                        update favorita.divergenciascomprastransferencias d
+                           set d.usuarioaceite       = v('APP_USER')
+                             , d.situacaodivergencia = 'A'
+                             , d.dataaceite          = sysdate
+                         where d.iddivergenciacomprastransferencias = APEX_APPLICATION.G_F01(i);
+                
+                        -- Busca dados para gravar a Classificação 
+                        select d.idcompratransferencia
+                             , d.iditemcompratransferencia
+                             , i.idprodutodetalhado
+                             , i.quantidaderecebida
+                             , i.quantidadecomprada
+                          into v_id_compra_transferencia
+                             , v_id_item_compra_transferencia
+                             , v_id_produto_detalhado
+                             , v_qtd_recebida
+                             , v_qtd_comprada
+                          from favorita.divergenciascomprastransferencias d
+                             , favorita.itenscomprastransferencias i
+                         where i.iditemcompratransferencia = d.iditemcompratransferencia
+                           and d.iddivergenciacomprastransferencias = APEX_APPLICATION.G_F01(i);
+                
+                        -- Grava a Classificação para a classificação da divergência
+                        insert into favorita.classificacoescomprastransf ( idclassificacaocompratransf,
+                                                                           idcompratransferencia,
+                                                                           dataclassificado,
+                                                                           idusuario,
+                                                                           idcaracteristicacomptransf,
+                                                                           idvalorcaracteristica,
+                                                                           observacao)
+                                                                  values ( favorita.seq_idclassificacaocomptransf.nextval,
+                                                                           v_id_compra_transferencia,
+                                                                           sysdate,
+                                                                           favorita.pck_util_fav.fnc_idusuario(v('APP_USER')),
+                                                                           29,
+                                                                           v_id_item_compra_transferencia,
+                                                                           'Ocorreu uma divergência entre qtd. envida e recebida! Estoque enviou qtd ('|| v_qtd_recebida ||
+                                                                           ') loja deveria ter recebido ('|| v_qtd_comprada ||
+                                                                           ').  <'|| favorita.pck_util_fav.fnc_nomeprodutodetalhadosref(v_id_produto_detalhado, nvl(:P0_IDIDIOMA,1)) || '>.');
+                    end loop;
+                
+                    -- Loop na coluna (RECUSAR) verificando todos que estiverem marcado
+                    for i in 1 .. APEX_APPLICATION.G_F02.COUNT loop
+                        
+                        -- verifica se a coluna (ACEITAR) tabém está marcada
+                        begin
+                            select 'S'
+                              into v_chk_aceitar_marcado
+                              from favorita.divergenciascomprastransferencias d
+                             where d.iddivergenciacomprastransferencias = APEX_APPLICATION.G_F02(i)
+                               and d.situacaodivergencia = 'A';
+                        exception
+                            when others then
+                                v_chk_aceitar_marcado := 'N';
+                        end;
+                
+                        -- Bloqueia produtos com (Aceitar) e (Recusar) marcados, deve ser selecionado um ou outro.
+                        if v_chk_aceitar_marcado = 'S' then
+                            apex_error.add_error( p_message => 'Atenção! Não é permitido marcar Aceitar e Recusar para o mesmo produto!'
+                    		                    , p_display_location => apex_error.c_inline_in_notification);
+                            rollback;
+                            return;
+                        end if;
+                
+                        -- Efetiva os produtos marcados como recusar divergencia
+                        update favorita.divergenciascomprastransferencias d
+                           set d.usuarioaceite       = v('APP_USER')
+                             , d.situacaodivergencia = 'R'
+                             , d.dataaceite          = sysdate
+                         where d.iddivergenciacomprastransferencias = APEX_APPLICATION.G_F02(i);
+                
+                    end loop;
+                
+                    -- Efetiva as alterações no banco de dados
+                    commit;
+                
+                    -- Tratamento de erro da rotina
+                exception
+                    when others then
+                        apex_error.add_error( p_message => 'Ops! Ocorreu um erro na rotina (Aceitar Recusar Divergência). Entre em contato com o suporte.' || SQLERRM
+                		                    , p_display_location => apex_error.c_inline_in_notification);
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        advanced {
+            executionMappingIdentifier: 372453729943190601
+        }
+        serverSideCondition {
+            whenButtonPressed: @salvar
+        }
+    )
+
+    process inicializa-data-inicial-e-final (
+        name: Inicializa data inicial e final
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                    
+                    /* Carrega data inicial*/
+                    if :P650_DATA_INICIAL is null then
+                        :P650_DATA_INICIAL := to_char(sysdate-30, 'DD/MM/YYYY');
+                    end if;
+                
+                    /* Carrega data final*/
+                    if :P650_DATA_FINAL is null then
+                        :P650_DATA_FINAL := to_char(sysdate, 'DD/MM/YYYY');
+                    end if;
+                
+                    -- Limpa o id Divergência
+                    :P650_IDDIVERGENCIACOMPRASTRANSFERENCIAS := null;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+        advanced {
+            executionMappingIdentifier: 371784102265840930
+        }
+    )
+
+    process po-atualizar-status-transferencia (
+        name: PO_ATUALIZAR_STATUS_TRANSFERENCIA
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                    l_idtipocomptransrem        number;
+                    l_iditemcompratransferencia number;
+                    l_sucesso                   varchar2(1);
+                    l_idsituacao                number;
+                    l_idguiaconqlevou           number;
+                begin
+                
+                    for i in 1 .. APEX_APPLICATION.G_F01.COUNT loop
+                
+                        for l_aceite in ( select *
+                                          from divergenciascomprastransferencias d
+                                          where d.iddivergenciacomprastransferencias = APEX_APPLICATION.G_F01(i)
+                                          and not exists ( select 1
+                                                           from divergenciascomprastransferencias dc
+                                                           where dc.idcompratransferencia = d.idcompratransferencia 
+                                                           and situacaodivergencia in ('E', 'R') ) )
+                        loop
+                
+                            select idtipocomptransrem
+                            into l_idtipocomptransrem
+                            from comprastransferencias
+                            where idcompratransferencia = l_aceite.idcompratransferencia;
+                            --
+                            if l_idtipocomptransrem = 1 then
+                                --
+                               /* update itenscomprastransferencias
+                                set quantidadecomprada = quantidaderecebida
+                                where iditemcompratransferencia = l_aceite.iditemcompratransferencia; T11878223 */ 
+                                --
+                                pck_comprastransf_fav.prc_confirmarecebimento( pidcompratransferencia => l_aceite.idcompratransferencia
+                                                                             , pidusuario             => :P0_IDUSUARIO
+                                                                             , psucesso               => l_sucesso );
+                                --
+                            elsif l_idtipocomptransrem = 12 then
+                                --
+                                -- CLEBER - 30/10/2026 - Conquistou Levou (12 = Transferencia Brinde): com todas as divergencias
+                                -- aceitas, confirma o recebimento e atualiza a guia de brindes, como a pagina 87 faz no Confirmar.
+                                -- Uma vez por remessa: se ja esta recebida (40), nao repete.
+                                select idsituacao
+                                into l_idsituacao
+                                from comprastransferencias
+                                where idcompratransferencia = l_aceite.idcompratransferencia;
+                                --
+                                if l_idsituacao <> 40 then
+                                    --
+                                    pck_comprastransf_fav.prc_confirmarecebimento( pidcompratransferencia => l_aceite.idcompratransferencia
+                                                                                 , pidusuario             => :P0_IDUSUARIO
+                                                                                 , psucesso               => l_sucesso );
+                                    --
+                                    begin
+                                        select geb.idguiaentregabrinde
+                                        into l_idguiaconqlevou
+                                        from roman.guiasentregasbrindes geb
+                                        where geb.idremessafavorita = l_aceite.idcompratransferencia;
+                                        --
+                                        roman.pck_conquistoulevou.pr_receber_automatico(p_idguiaentregabrinde => l_idguiaconqlevou);
+                                    exception
+                                        when no_data_found then
+                                            null; -- remessa nao vinculada a guia de brindes Conquistou Levou
+                                        when others then
+                                            apex_error.add_error( p_message => 'Divergencia aceita, mas houve erro ao atualizar a guia de brindes do Conquistou Levou. Contate o suporte. ' || SQLERRM
+                                                                , p_display_location => apex_error.c_inline_in_notification );
+                                    end;
+                                    --
+                                end if;
+                                --
+                            end if;
+                            --
+                        end loop;
+                        --
+                    end loop;
+                    --
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        advanced {
+            executionMappingIdentifier: 1792084370499534620
+        }
+        serverSideCondition {
+            whenButtonPressed: @salvar
+        }
+    )
+
+)
+

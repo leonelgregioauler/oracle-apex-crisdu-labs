@@ -1,0 +1,1440 @@
+page 190 (
+    name: Débitos de Distribuidores
+    title: Débitos de Distribuidores
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region débitos-adm (
+        name: Débitos ADM
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select idboleto
+                     , numero
+                     , empresa "Empresa"
+                     , idrepresentante
+                     , representante "Representante"
+                     , vendedora "Vendedora"
+                     , cpfvend "Cpf Vendedora"
+                     , round(valortotal*t.fatorconversao,2) "Valor Total"
+                     , datavencimento "Vencimento"
+                     , diasatrasado "Dias Atrasado"
+                     , situacao "Situação"
+                     , round(valor_atualizado*t.fatorconversao,2) "Valor Atualizado p/ Hoje"
+                     , round(valororiginal*t.fatorconversao,2) "Valor Original"
+                     , vencimentooriginal "Venc. Original"
+                     , vencimentos
+                     , motivo "Motivo"
+                     , round(valor_pago*t.fatorconversao,2) "Valor Pago" 
+                     , round(valor_nao_vencido*t.fatorconversao,2) "Valor Não Vencido"
+                from (
+                      select b.idboleto
+                           , numero
+                           , empresa
+                           , idrepresentante
+                           , representante || ' - ' || situacaorepres ||' - '||empresa representante
+                           , vendedora
+                           , cpfvend
+                           , valortotal 
+                           , b.datavencimento
+                           , diasatrasado
+                           , situacao
+                           , case 
+                               when b.origem = 'antigo' then
+                                 b.valoratualizado
+                               else
+                                 (select pck_util.fnc_calculajuros(pvalororiginal      => p.saldodevedor,
+                                                       pdatavencimentoorig => p.datavencimentomenor,
+                                                       pdatavencimentonovo => sysdate,
+                                                       ppercmulta          => 2,
+                                                       ppercjuros          => 1)
+                                 from favorita.vw_pedidos_fav p 
+                                 where p.idpedido = b.idboleto
+                                   and p.ididioma = 1)
+                             end valor_atualizado
+                           , valororiginal
+                           , vencimentooriginal
+                           , vencimentos
+                           , motivo 
+                           , case
+                               when b.origem = 'antigo' then
+                                 nvl(valorpago,0)
+                               else 
+                                 nvl((select sum(pg.valorpago)
+                                          from favorita.vencimentospedidos v
+                                             , favorita.pagamentospedidos pg
+                                          where v.situacaovencimento = 'V'
+                                            and pg.idvencimentopedido = v.idvencimentopedido
+                                            and v.idpedido = b.idboleto ) ,0) 
+                             end valor_pago
+                           , case
+                               when b.origem = 'novo' then 
+                                  nvl(( select sum(vp.valorpagar) valor
+                                        from favorita.vencimentospedidos vp
+                                        where vp.idpedido = b.idboleto
+                                          and vp.situacaovencimento = 'V'
+                                          and vp.datavencimento >= TRUNC(sysdate)
+                                          and vp.valorpago < vp.valorpagar
+                                          and vp.valorpagar > 0 ),0) 
+                               else 
+                                 0
+                               end valor_nao_vencido
+                           , f.fatorconversao
+                      from debitosdistribuidoresfav b --vw_debitosrepresfavorita b
+                         , vw_filiais f
+                      where f.idfilial = b.idfilial
+                        and b.valorpago < b.valororiginal
+                        and :P190_FILTRAR = 'S'
+                        and :P190_PESQUISA = 'A' ) t
+                
+                
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P190_PESQUISA = 'A' and :P190_FILTRAR = 'S'
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 562691313897185828
+        }
+
+        column "Cpf Vendedora" (
+            type: plainText
+            heading {
+                heading: Cpf Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column "Dias Atrasado" (
+            type: hidden
+            heading {
+                heading: Dias Atrasado
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Empresa (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column IDBOLETO (
+            type: hidden
+            heading {
+                heading: Idboleto
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDREPRESENTANTE (
+            type: hidden
+            heading {
+                heading: Idrepresentante
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Motivo (
+            type: plainText
+            heading {
+                heading: Motivo
+                alignment: center
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column NUMERO (
+            type: plainText
+            heading {
+                heading: Número
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column Situação (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column VENCIMENTOS (
+            type: plainText
+            heading {
+                heading: Vencimentos
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column "Valor Atualizado p/ Hoje" (
+            type: plainText
+            heading {
+                heading: Valor Atualizado P/ Hoje
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column "Valor Não Vencido" (
+            type: plainText
+            heading {
+                heading: Valor Não Vencido
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "Valor Original" (
+            type: plainText
+            heading {
+                heading: Valor Original
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "Valor Pago" (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column "Valor Total" (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Venc. Original" (
+            type: plainText
+            heading {
+                heading: Venc. Original
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column Vencimento (
+            type: hidden
+            heading {
+                heading: Vencimentos
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Vendedora (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 5917389 (
+            visibility: primaryDefault
+            view {
+                groupBy: true
+                default: groupBy
+                rowsPerPage: 100000
+            }
+
+            displayColumn "Cpf Vendedora" (
+                sequence: 5
+            )
+
+            displayColumn "Empresa" (
+                sequence: 2
+            )
+
+            displayColumn "Motivo" (
+                sequence: 10
+            )
+
+            displayColumn NUMERO (
+                sequence: 1
+            )
+
+            displayColumn "Representante" (
+                sequence: 3
+            )
+
+            displayColumn "Situação" (
+                sequence: 7
+            )
+
+            displayColumn VENCIMENTOS (
+                sequence: 9
+            )
+
+            displayColumn "Valor Atualizado p/ Hoje" (
+                sequence: 12
+            )
+
+            displayColumn "Valor Não Vencido" (
+                sequence: 11
+            )
+
+            displayColumn "Valor Original" (
+                sequence: 8
+            )
+
+            displayColumn "Valor Pago" (
+                sequence: 13
+            )
+
+            displayColumn "Venc. Original" (
+                sequence: 6
+            )
+
+            displayColumn "Vendedora" (
+                sequence: 4
+            )
+
+            aggregate (
+                column: "Valor Atualizado p/ Hoje"
+            )
+
+            aggregate (
+                column: "Valor Não Vencido"
+            )
+
+            aggregate (
+                column: "Valor Original"
+            )
+
+            aggregate (
+                column: "Valor Pago"
+            )
+
+            controlBreak (
+                column: "Empresa"
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByColumn (
+                column: "Empresa"
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: Valor Original
+                aggregate {
+                    column: "Valor Original"
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: Valor Atualizado P/ Hoje
+                aggregate {
+                    column: "Valor Atualizado p/ Hoje"
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByAggregate (
+                heading: Valor Pago
+                aggregate {
+                    column: "Valor Pago"
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 3
+                }
+            )
+
+            groupByAggregate (
+                heading: QTD Débitos
+                aggregate {
+                    function: count
+                    column: NUMERO
+                    displaySum: true
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990
+                }
+                layout {
+                    sequence: 4
+                }
+            )
+
+        )
+
+    )
+
+    region débitos-de-distribuidor (
+        name: Débitos de Distribuidor
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select b.idboleto
+                     , numero
+                     , empresa "Empresa"
+                     , idrepresentante
+                     , representante || ' - ' || situacaorepres ||' - '||empresa "Representante"
+                     , vendedora "Vendedora"
+                     , cpfvend "Cpf Vendedora"
+                     , valortotal "Valor Total"
+                     , b.datavencimento "Vencimento"
+                     , diasatrasado "Dias Atrasado"
+                     , situacao "Situação"
+                     , case 
+                         when b.origem = 'antigo' then
+                           b.valoratualizado
+                         else
+                           (select pck_util.fnc_calculajuros(pvalororiginal      => (p.saldodevedor-case when b.origem = 'novo' then 
+                                                                                                        nvl(( select sum(vp.valorpagar) valor
+                                                                                                              from favorita.vencimentospedidos vp
+                                                                                                              where vp.idpedido = b.idboleto
+                                                                                                                and vp.situacaovencimento = 'V'
+                                                                                                                and vp.datavencimento >= TRUNC(sysdate)
+                                                                                                                and vp.valorpago < vp.valorpagar
+                                                                                                                and vp.valorpagar > 0 ),0) 
+                                                                                                     else 
+                                                                                                       0
+                                                                                                     end),
+                                                 pdatavencimentoorig => p.datavencimentomenor,
+                                                 pdatavencimentonovo => sysdate,
+                                                 ppercmulta          => 2,
+                                                 ppercjuros          => 1)/*+case when b.origem = 'novo' then 
+                                                                                                        nvl(( select sum(vp.valorpagar) valor
+                                                                                                              from favorita.vencimentospedidos vp
+                                                                                                              where vp.idpedido = b.idboleto
+                                                                                                                and vp.situacaovencimento = 'V'
+                                                                                                                and vp.datavencimento >= TRUNC(sysdate)
+                                                                                                                and vp.valorpago < vp.valorpagar
+                                                                                                                and vp.valorpagar > 0 ),0) 
+                                                                                                     else 
+                                                                                                       0
+                                                                                                     end|*/
+                           from favorita.vw_pedidos_fav p 
+                           where p.idpedido = b.idboleto
+                             and p.ididioma = 1)
+                       end "Valor Atualizado p/ Hoje"
+                     , valororiginal "Valor Original"
+                     , vencimentooriginal "Venc. Original"
+                     , vencimentos
+                     , motivo "Motivo"
+                     , case
+                         when b.origem = 'antigo' then
+                           nvl(valorpago,0)
+                         else 
+                           nvl((select sum(pg.valorpago)
+                                    from favorita.vencimentospedidos v
+                                       , favorita.pagamentospedidos pg
+                                    where v.situacaovencimento = 'V'
+                                      and pg.idvencimentopedido = v.idvencimentopedido
+                                      and v.idpedido = b.idboleto ) ,0) 
+                       end "Valor Pago"
+                     , case
+                         when b.origem = 'novo' then 
+                            nvl(( select sum(vp.valorpagar) valor
+                                  from favorita.vencimentospedidos vp
+                                  where vp.idpedido = b.idboleto
+                                    and vp.situacaovencimento = 'V'
+                                    and vp.datavencimento >= TRUNC(sysdate)
+                                    and vp.valorpago < vp.valorpagar
+                                    and vp.valorpagar > 0 ),0) 
+                         else 
+                           0
+                         end "Valor Não Vencido"
+                from debitosdistribuidoresfav b --vw_debitosrepresfavorita b
+                where b.idfilial = :P0_IDFILIAL
+                  and ( ( :P190_PESQUISA = 'R' and b.idrepresentante = :P190_IDREPRESENTANTE  )
+                    or ( :P190_PESQUISA = 'S' and b.situacaorepres = :P190_SITUACAO )
+                    or ( :P190_PESQUISA = 'T' ) )
+                  and :P190_FILTRAR = 'S'
+                  and nvl(b.valorpago,0) < b.valororiginal
+                  and :P190_PESQUISA != 'A'
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body-3
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        headerAndFooter {
+            headerText: <font color="green"><h3>Disponibilizado a informação de Valor Não Vencido para casos de pedidos que possuem parcelamentos, mais especificamente pedidos de distribuidores!</h3></font>
+        }
+        reportLayout {
+            numberOfRows: 300
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: " - "
+        }
+        messages {
+            whenNoDataFound: Nenhum Débito encontrado!
+        }
+        breakFormatting {
+            breakColumns: col1
+            style: repeatHeadings
+        }
+        componentAdvanced {
+            stripHtml: true
+        }
+        download {
+            csvExportEnabled: true
+            linkText: Clique aqui para baixar para Excel
+        }
+
+        column "Cpf Vendedora" (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Cpf Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column "Dias Atrasado" (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 12
+            }
+        )
+
+        column Empresa (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 11
+            }
+        )
+
+        column IDBOLETO (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 18
+            }
+        )
+
+        column IDREPRESENTANTE (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 10
+            }
+        )
+
+        column Motivo (
+            reportColumnQueryId: 16
+            derivedColumn: N
+            heading {
+                heading: Motivo
+                alignment: center
+            }
+            layout {
+                sequence: 14
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column NUMERO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Número
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column Representante (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Ver parcelas
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column Situação (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VENCIMENTOS (
+            reportColumnQueryId: 15
+            derivedColumn: N
+            heading {
+                heading: Vencimentos
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column "Valor Atualizado p/ Hoje" (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Valor Vencido Atualizado p/ hoje
+                alignment: center
+            }
+            layout {
+                sequence: 16
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column "Valor Não Vencido" (
+            reportColumnQueryId: 18
+            derivedColumn: N
+            heading {
+                heading: Valor Não Vencido
+                alignment: center
+            }
+            layout {
+                sequence: 15
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column "Valor Original" (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            heading {
+                heading: Valor Original
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column "Valor Pago" (
+            reportColumnQueryId: 17
+            derivedColumn: N
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 17
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column "Valor Total" (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 9
+            }
+        )
+
+        column "Venc. Original" (
+            reportColumnQueryId: 14
+            derivedColumn: N
+            heading {
+                heading: Venc. Original
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/rrrr
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column Vencimento (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 7
+            }
+        )
+
+        column Vendedora (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+    )
+
+    region filtrar-distribuidor (
+        name: Filtrar Distribuidor
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent3
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region informações (
+        name: Informações
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P190_AVISO (
+        type: displayOnly
+        label {
+            alignment: left
+        }
+        settings {
+            format: htmlUnsafe
+        }
+        layout {
+            sequence: 10
+            region: @filtrar-distribuidor
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select  '<font color"red"><h3>Atualizado em '|| to_char(LAST_DATE,'dd/mm/rrrr hh24:mi:ss')||', a próxima atualização será '|| to_char(next_date,'dd/mm/rrrr hh24:mi:ss')||'</font></h3>' a
+                from all_jobs
+                where what like upper('%vw_mdebitosrepresfavorita%')
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P190_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 50
+            region: @filtrar-distribuidor
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P190_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(pidrepresentante => r.idrepresentante)||' ('||r.idrepresentante||')' || decode(r.ativo,'S','','Inativo') display_value
+                     , r.idrepresentante
+                from representantes r
+                where idgerente in ( select idgerente
+                                     from gerentes
+                                     where idfilial = :P0_IDFILIAL)
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 30
+            region: @filtrar-distribuidor
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P190_PESQUISA (
+        type: radioGroup
+        label {
+            label: Tipo de Pesquisa
+            alignment: left
+        }
+        settings {
+            noOfCols: 4
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select d
+                     , r
+                from ( select 'Todos' d
+                            , 'T' r
+                            , 3 ordem
+                       from dual
+                       union
+                       select 'Situação'
+                            , 'S'
+                            , 2
+                       from dual
+                       union
+                       select 'Distribuidor'
+                            , 'R'
+                            , 1
+                       from dual
+                       union
+                       select 'ADM'
+                            , 'A'
+                            , 4
+                       from dual
+                       where v('APP_USER') in ('EZEQUIAS','BRUNOMULLER','GUILHERME') )
+                order by ordem
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @filtrar-distribuidor
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P190_SITUACAO (
+        type: selectList
+        label {
+            label: Situação Distribuidor
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Ativo;Ativo,Inativo;Inativo
+            nullDisplayValue: - Selecione a Situação -
+        }
+        layout {
+            sequence: 40
+            region: @filtrar-distribuidor
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 60
+            region: @filtrar-distribuidor
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction mostra-campos (
+        name: mostra campos
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P190_PESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P190_PESQUISA
+            value: R
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P190_IDREPRESENTANTE
+                    P190_SITUACAO
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P190_SITUACAO
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P190_IDREPRESENTANTE
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction mostra-campos-situacao (
+        name: "mostra campos situacao "
+        execution {
+            sequence: 30
+        }
+        when {
+            selectionType: items
+            items: P190_PESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P190_PESQUISA
+            value: S
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P190_IDREPRESENTANTE
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P190_SITUACAO
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P190_SITUACAO
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P190_IDREPRESENTANTE
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    dynamicAction mostra-campos-todos (
+        name: mostra campos todos
+        execution {
+            sequence: 40
+        }
+        when {
+            selectionType: items
+            items: P190_PESQUISA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P190_PESQUISA
+            value: T
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P190_IDREPRESENTANTE
+                    P190_SITUACAO
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    branch (
+        name: Filtrar
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 190
+                items: {
+                    P190_IDREPRESENTANTE: &P190_IDREPRESENTANTE.
+                    P190_PESQUISA: &P190_PESQUISA.
+                    P190_SITUACAO: &P190_SITUACAO.
+                    P190_FILTRAR: S
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

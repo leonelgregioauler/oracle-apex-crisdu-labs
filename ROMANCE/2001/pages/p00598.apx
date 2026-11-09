@@ -1,0 +1,2119 @@
+page 598 (
+    name: Pagamentos do Acordo
+    title: Pagamentos do Acordo
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        width: 70%
+        height: 70%
+        resizable: false
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            var htmldb_delete_message='"DELETE_CONFIRM_MSG"';
+            
+            
+            function fnc_quitar(pid)
+            {
+              document.getElementById("P598_IDEDITAR").value = pid;
+              apex.submit('QUITAR');
+            }
+            
+            function fnc_emespera(pid)
+            {
+              document.getElementById("P598_IDEDITAR").value = pid;
+              apex.submit('EMESPERA');
+            }
+            
+            function fnc_vencido(pid)
+            {
+              document.getElementById("P598_IDEDITAR").value = pid;
+              apex.submit('VENCIDO');
+            }
+            
+            function imprimeboleto(vidpagamento,vidvendedora)
+            {
+              vurl = 'https://boleto.romancemoda.com.br/bb/boleto_qrcode.php?cod1='+vidpagamento+'&cod2='+vidvendedora;
+              pjan = window.open(vurl,'boleto','toolbar=no,location=no,status=no,menubar=yes,scrollbars=yes,resizable=no,width=1024,height=1000,left=20,top=10','_blank'); 
+              pjan.focus();
+            }
+            
+            
+            function fnc_removedocumento(piddocumento)
+            {
+                apex.confirm("Deseja realmente remover o documento sinalizado?", {
+              request:"DELETAR_DOCUMENTO",
+              set:{"P591_IDDELETAR":piddocumento}
+              });
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region aviso (
+        name: Aviso
+        type: staticContent
+        layout {
+            sequence: 40
+            slot: dialogHeader
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from pagamentosnegociacoesparceiros pp
+                where pp.datavencimento = trunc(sysdate)
+                  and pp.situacao       = 'A'
+                  and exists ( select 1
+                               from negociacoesparceiros np
+                               where np.idnegociacaoparceiro = :P598_IDNEGOCIACAOPARCEIRO
+                                 and np.idnegociacaoparceiro = pp.idnegociacaoparceiro
+                                 and np.formapagamento       = 'B'
+                                 and trunc(np.datanegociacao) = trunc(sysdate) )
+                ```
+        }
+    )
+
+    region documentos-sinalizados (
+        name: Documentos Sinalizados
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select d.cpf
+                     , case
+                         when d.idnotavenda is not null then
+                           'Sacola Romance'
+                         when d.idpedido is not null then
+                           'Pedido Favorita'
+                         when d.idboleto is not null then
+                           'Pedido Catalogo'
+                         when d.idpepinorepres is not null then
+                           'Pepino Antigo'
+                       end origem
+                     , d.documento
+                     , (d.valor-valordesconto) valor
+                     , d.valororiginal 
+                     , d.valoratualizado
+                     , d.valordesconto
+                     , (d.valoratualizado - valororiginal) juros
+                     , case
+                         when exists ( select 1
+                                       from roman.documentosnegociacao dn
+                                          , favorita.vencimentospedidos v
+                                       where dn.idpedido = v.idpedido
+                                         and dn.idnegociacaoparceiro = d.idnegociacaoparceiro
+                                         and dn.documento            = d.documento
+                                         and v.datavencimento <= trunc (sysdate) - 31
+                                         and v.situacaovencimento = 'V'
+                                         and ( dn.idpedido is not null 
+                                           or dn.idboleto is not null ) ) then
+                           'Cobrança'     
+                         when exists ( select 1
+                                       from roman.documentosnegociacao dn
+                                       where dn.idnegociacaoparceiro = d.idnegociacaoparceiro
+                                         and dn.documento            = d.documento
+                                         and ( dn.idnotavenda is not null 
+                                           or dn.idpepinorepres is not null ) ) then
+                           'Cobrança'
+                         when exists ( select 1
+                                       from roman.documentosnegociacao dn
+                                          , favorita.vencimentospedidos v
+                                       where dn.idpedido = v.idpedido
+                                         and dn.idnegociacaoparceiro = d.idnegociacaoparceiro
+                                         and dn.documento            = d.documento
+                                         and v.datavencimento > trunc (sysdate) - 31
+                                         and v.situacaovencimento = 'V'
+                                         and dn.idpedido is not null ) then  
+                              'Crédito'
+                        end carteira
+                from documentosnegociacao d
+                where d.idnegociacaoparceiro = :P598_IDNEGOCIACAOPARCEIRO
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Report--altRowsDefault
+                t-Report--rowHighlight
+            ]
+            showNullValuesAs: -
+        }
+
+        column CARTEIRA (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Carteira
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+        )
+
+        column CPF (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 1
+                columnAlignment: center
+            }
+        )
+
+        column DOCUMENTO (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Nr Deb.
+                alignment: center
+            }
+            layout {
+                sequence: 3
+                columnAlignment: center
+            }
+        )
+
+        column JUROS (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Valor de Juros
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column ORIGEM (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Origem
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: center
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Valor Final
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VALORATUALIZADO (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Valor Atualizado
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VALORDESCONTO (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Total Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VALORORIGINAL (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Valor Original
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+    )
+
+    region informações-do-acordo (
+        name: Informações do Acordo
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        settings {
+            outputAs: text
+        }
+    )
+
+    region observações (
+        name: Observações
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT LISTAGG(base.idnotavenda, '; ') WITHIN GROUP (ORDER BY base.idnotavenda)      AS idnotavenda
+                     , LISTAGG(base.idpedido, '; ')    WITHIN GROUP (ORDER BY base.idpedido)         AS idpedido
+                     , LISTAGG(base.idpepinorepres, '; ') WITHIN GROUP (ORDER BY base.idpepinorepres) AS idpepinorepres
+                     , LISTAGG(base.idboleto, '; ')    WITHIN GROUP (ORDER BY base.idboleto)         AS idboleto
+                     , LISTAGG(base.obs_notasvendas, '; ')      WITHIN GROUP (ORDER BY base.idnotavenda)     AS obs_notasvendas
+                     , LISTAGG(base.obs_historicospedidos, '; ') WITHIN GROUP (ORDER BY base.idpedido)       AS obs_historicospedidos
+                     , LISTAGG(base.obs_pepinosrepres, '; ')     WITHIN GROUP (ORDER BY base.idpepinorepres) AS obs_pepinosrepres
+                     , LISTAGG(base.obs_historicos_boletos, '; ') WITHIN GROUP (ORDER BY base.idboleto)      AS obs_historicos_boletos
+                  FROM (
+                        SELECT /*+ CURSOR_SHARING_EXACT */
+                               dn.idnotavenda
+                             , dn.idpedido
+                             , dn.idpepinorepres
+                             , dn.idboleto
+                             , (SELECT LISTAGG(onv.observacao, '; ' ON OVERFLOW TRUNCATE '...' WITH COUNT)
+                                       WITHIN GROUP (ORDER BY onv.idnotavenda)
+                                  FROM roman.observacoesnotasvendas onv
+                                 WHERE onv.idnotavenda = dn.idnotavenda) AS obs_notasvendas
+                
+                             , (SELECT LISTAGG(hp.descricao, '; ' ON OVERFLOW TRUNCATE '...' WITH COUNT)
+                                       WITHIN GROUP (ORDER BY hp.idpedido)
+                                  FROM favorita.historicospedidos hp
+                                 WHERE hp.idpedido = dn.idpedido) AS obs_historicospedidos
+                
+                             , (SELECT LISTAGG(pr.observacao, '; ' ON OVERFLOW TRUNCATE '...' WITH COUNT)
+                                       WITHIN GROUP (ORDER BY pr.idpepinorepresentante)
+                                  FROM roman.observacoespepinosrepres pr
+                                 WHERE pr.idpepinorepresentante = dn.idpepinorepres) AS obs_pepinosrepres
+                
+                             , (SELECT LISTAGG(hb.observacao, '; ' ON OVERFLOW TRUNCATE '...' WITH COUNT)
+                                       WITHIN GROUP (ORDER BY hb.idboleto)
+                                  FROM catal.historicos_boletos hb
+                                 WHERE hb.idboleto = dn.idboleto) AS obs_historicos_boletos
+                
+                          FROM documentosnegociacao dn
+                         WHERE dn.idnegociacaoparceiro = :P598_IDNEGOCIACAOPARCEIRO
+                       ) base
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 758793216714044911
+        }
+
+        column IDBOLETO (
+            type: plainText
+            heading {
+                heading: Boleto
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column IDNOTAVENDA (
+            type: plainText
+            heading {
+                heading: Nota Venda
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column IDPEDIDO (
+            type: plainText
+            heading {
+                heading: Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column IDPEPINOREPRES (
+            type: plainText
+            heading {
+                heading: Pepino Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column OBS_HISTORICOSPEDIDOS (
+            type: plainText
+            heading {
+                heading: Observação Histórico Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column OBS_HISTORICOS_BOLETOS (
+            type: plainText
+            heading {
+                heading: Observação Histórico Boletos
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column OBS_NOTASVENDAS (
+            type: plainText
+            heading {
+                heading: Observação Nota Venda
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column OBS_PEPINOSREPRES (
+            type: plainText
+            heading {
+                heading: Observação Pepino Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 12620887 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn IDBOLETO (
+                sequence: 7
+            )
+
+            displayColumn IDNOTAVENDA (
+                sequence: 1
+            )
+
+            displayColumn IDPEDIDO (
+                sequence: 3
+            )
+
+            displayColumn IDPEPINOREPRES (
+                sequence: 5
+            )
+
+            displayColumn OBS_HISTORICOSPEDIDOS (
+                sequence: 4
+            )
+
+            displayColumn OBS_HISTORICOS_BOLETOS (
+                sequence: 8
+            )
+
+            displayColumn OBS_NOTASVENDAS (
+                sequence: 2
+            )
+
+            displayColumn OBS_PEPINOSREPRES (
+                sequence: 6
+            )
+
+        )
+
+    )
+
+    region observações-do-acordo (
+        name: Observações do Acordo
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select o.idobservacaonegociacao
+                     , ( select u.usuario
+                         from usuarios u
+                         where u.idusuario = o.idusuario ) usuario
+                     , o.data
+                     , o.observacao
+                from observacoesnegociacoes o
+                where o.idnegociacaoparceiro = :P598_IDNEGOCIACAOPARCEIRO
+                order by 1 desc
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: contentBody
+            startNewRow: false
+            newColumn: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from observacoesnegociacoes o
+                where o.idnegociacaoparceiro = :P598_IDNEGOCIACAOPARCEIRO
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 9996231010110083659
+        }
+
+        column DATA (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column IDOBSERVACAONEGOCIACAO (
+            type: link
+            heading {
+                heading: Ver/Editar
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 593
+                    items: {
+                        P593_IDOBSERVACAONEGOCIACAO: #IDOBSERVACAONEGOCIACAO#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-view.png" class="apex-edit-view" alt="">
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column USUARIO (
+            type: plainText
+            heading {
+                heading: Feito Por
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        savedReport 50418966 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATA (
+                sequence: 3
+            )
+
+            displayColumn IDOBSERVACAONEGOCIACAO (
+                sequence: 1
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 4
+            )
+
+            displayColumn USUARIO (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    region parcelas-do-acordo (
+        name: Parcelas do Acordo
+        type: tabform
+        source {
+            sqlQuery:
+                ```sql
+                SELECT ROWID
+                     , P.IDPAGAMENTONEGOCIACAOPARCEIRO
+                     , P.IDNEGOCIACAOPARCEIRO
+                     , P.NUMEROPARCELA
+                     , P.DATAVENCIMENTO
+                     , P.VALORPARCELA
+                     , P.VALORPARCELA parc
+                     , P.DATABAIXA
+                     , DECODE(P.SITUACAO,'E','EM ESPERA','A','ABERTO','V','VENCIDO','Q','QUITADO','C','CANCELADO') SITUACAO
+                     , case 
+                         when situacao in ('A','E','V') then
+                           '<a href="javascript:fnc_quitar('|| IDPAGAMENTONEGOCIACAOPARCEIRO ||')" ><img src="#APP_IMAGES#ok.png"  border="0"></a>'
+                         else 
+                           null
+                       end QUITAR
+                     , case 
+                         when situacao in ('V','A') then
+                           '<a href="javascript:fnc_emespera('|| IDPAGAMENTONEGOCIACAOPARCEIRO ||')" ><img src="#APP_IMAGES#Ampulheta.png"  border="0"></a>'
+                         else 
+                           null
+                       end EMESPERA
+                     , case 
+                         when situacao in ('A','E') then 
+                           '<a href="javascript:fnc_vencido('|| IDPAGAMENTONEGOCIACAOPARCEIRO ||')" ><img src="#APP_IMAGES#Deslike.png"  border="0"></a>'
+                         else
+                           null
+                       end VENCIDO
+                     , COMPROVANTE 
+                     , case
+                         when p.situacao != 'Q' then
+                           '<a href=javascript:imprimeboleto('||p.IDPAGAMENTONEGOCIACAOPARCEIRO||','||( select idvendedora
+                                                                                                        from negociacoesparceiros np where np.idnegociacaoparceiro = p.idnegociacaoparceiro )||');><img src="#IMAGE_PREFIX#magnifying_glass_white_bg.gif" alt=""/></a>'  
+                         else
+                           ' - ' 
+                       end imprimirboleto
+                     , decode(p.boletoenviado,'S','Sim','N','Não') smsenviado
+                     , decode(p.boletoenviadoemail,'S','Sim','N','Não') emailenviado
+                     , datapagamento
+                FROM PAGAMENTOSNEGOCIACOESPARCEIROS P
+                WHERE P.IDNEGOCIACAOPARCEIRO = :P598_IDNEGOCIACAOPARCEIRO
+                ORDER BY 1 
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            template: @/standard
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+
+        column COMPROVANTE (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            type: textField
+            heading {
+                heading: Comprovante
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            appearance {
+                width: 30
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DATABAIXA (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Data Baixa
+                alignment: center
+            }
+            layout {
+                sequence: 11
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DATAPAGAMENTO (
+            reportColumnQueryId: 17
+            derivedColumn: N
+            type: textField
+            heading {
+                heading: Data Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 12
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+                width: 12
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DATAVENCIMENTO (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            type: datePicker
+            heading {
+                heading: Vencimento
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+                width: 12
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column EMAILENVIADO (
+            reportColumnQueryId: 16
+            derivedColumn: N
+            heading {
+                heading: Email Enviado
+                alignment: center
+            }
+            layout {
+                sequence: 17
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column EMESPERA (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Em Espera
+                alignment: center
+            }
+            layout {
+                sequence: 14
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDNEGOCIACAOPARCEIRO (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPAGAMENTONEGOCIACAOPARCEIRO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IMPRIMIRBOLETO (
+            reportColumnQueryId: 14
+            derivedColumn: N
+            heading {
+                heading: Imprimir Boleto
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+            serverSideCondition {
+                type: item=value
+                item: P598_FORMAPAGAMENTO
+                value: B
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NUMEROPARCELA (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Parcela
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column PARC (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Valor da Parcela
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression: :P598_FORMAPAGAMENTO = 'B'
+            }
+        )
+
+        column QUITAR (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Quitar
+                alignment: center
+            }
+            layout {
+                sequence: 13
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column ROWID (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 1
+            }
+        )
+
+        column SITUACAO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 9
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SMSENVIADO (
+            reportColumnQueryId: 15
+            derivedColumn: N
+            heading {
+                heading: SMS Enviado
+                alignment: center
+            }
+            layout {
+                sequence: 16
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALORPARCELA (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            type: textField
+            heading {
+                heading: Valor da Parcela
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression: :P598_FORMAPAGAMENTO in ('D','C')
+            }
+        )
+
+        column VENCIDO (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Vencido
+                alignment: center
+            }
+            layout {
+                sequence: 15
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+    )
+
+    pageItem P598_AVISO_VENICMENTO_HOJE (
+        type: displayOnly
+        label {
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @aviso
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            preText: <font color="red"><h3> Exite um boleto com vencimento para o dia atual, não é possível pagar boletos gerados no dia, apenas para o próximo dia util em diante. </h3></font>
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_DATANEGOCIACAO (
+        type: datePickerJquery
+        label {
+            label: Negociado Em
+            alignment: left
+        }
+        layout {
+            sequence: 60
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR HH24:MI:SS
+            width: 32
+        }
+        validation {
+            maxLength: 255
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: DATANEGOCIACAO
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_FORMAPAGAMENTO (
+        type: radioGroup
+        label {
+            label: Forma de Pgto
+            alignment: left
+        }
+        settings {
+            noOfCols: 4
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Cartão de Crédito;C,Depósito;D,Boleto;B,PIX;P
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 120
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: FORMAPAGAMENTO
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_IDCONTABANCARIA (
+        type: selectList
+        label {
+            label: Conta Bancária
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select c.beneficiario||' ('||b.nomebanco||' - Ag: '||c.agencia||'- CC: '||c.conta||')' d
+                     , c.idcontabanc r
+                from roman.contasbancarias c
+                   , roman.bancos b
+                where b.idbanco = c.idbanco
+                  and c.usosetorcobranca = 'S'
+                  
+                ```
+        }
+        layout {
+            sequence: 80
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: IDCONTABANCARIA
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_IDEDITAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @parcelas-do-acordo
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and f.idgrupo != 5
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: IDFILIAL
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_IDNEGOCIACAOPARCEIRO (
+        type: numberField
+        label {
+            label: ID Neg.
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 10
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: IDNEGOCIACAOPARCEIRO
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(r.idrepresentante)||' - '||decode(r.ativo,'S','Ativo','N','Inativo') d
+                     , r.idrepresentante r
+                from representantes r
+                   , gerentes g
+                where r.idgerente = g.idgerente
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 40
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: IDREPRESENTANTE
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_IDUSUARIORESPONSAVEL (
+        type: selectList
+        label {
+            label: Responsável
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(nomepessoa) d
+                     , u.idusuario r
+                from pessoas p
+                   , usuarios u
+                where p.idpessoa = u.idpessoa
+                  and u.idgerente = 80
+                  and u.ativo = 'S'
+                order by 1
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: IDUSUARIORESPONSAVEL
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_IDVENDEDORA (
+        type: selectList
+        label {
+            label: Consultora
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(p.nomepessoa)||' CPF: '||p.cpf d
+                     , v.idvendedora r
+                from vendedoras v
+                   , pessoas p
+                where p.idpessoa = v.idpessoa
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        validation {
+            valueRequired: true
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: IDVENDEDORA
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_OBSERVACAO (
+        type: textarea
+        label {
+            label: Observação
+            alignment: left
+        }
+        layout {
+            sequence: 130
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 100
+            height: 4
+        }
+        validation {
+            maxLength: 4000
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: OBSERVACAO
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_QTDPARCELAS (
+        type: numberField
+        label {
+            label: Parcelas
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 100
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 32
+        }
+        validation {
+            maxLength: 255
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: QTDPARCELAS
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_SALDO (
+        type: numberField
+        label {
+            label: Saldo (=)
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 110
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+            width: 30
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select (neg.valor  - nvl(quit.valor,0)) saldo
+                from ( select nvl(pp.valorparcela,0) valor
+                       from pagamentosnegociacoesparceiros pp
+                       where pp.idnegociacaoparceiro = :P598_IDNEGOCIACAOPARCEIRO
+                         and pp.situacao = 'Q' ) quit
+                   , ( select n.valornegociacao valor
+                       from negociacoesparceiros n
+                       where n.idnegociacaoparceiro = :P598_IDNEGOCIACAOPARCEIRO ) neg
+                ```
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                begin
+                  return :P598_VALORNEGOCIACAO;
+                end;
+                ```
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_VALORNEGOCIACAO (
+        type: numberField
+        label {
+            label: Valor Negociado
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 70
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+            width: 32
+        }
+        validation {
+            maxLength: 255
+        }
+        source {
+            type: databaseColumn
+            databaseColumn: VALORNEGOCIACAO
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P598_VALORQUITADO (
+        type: numberField
+        label {
+            label: Valor Quitado
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 90
+            region: @informações-do-acordo
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+            width: 30
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select nvl(pp.valorparcela,0)
+                from pagamentosnegociacoesparceiros pp
+                where pp.idnegociacaoparceiro = :P598_IDNEGOCIACAOPARCEIRO
+                  and pp.situacao = 'Q'
+                ```
+            used: always
+        }
+        default {
+            type: static
+            staticValue: 0,00
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button adicionar-observacao (
+        buttonName: ADICIONAR_OBSERVACAO
+        label: ADD Observação
+        layout {
+            sequence: 20
+            region: @informações-do-acordo
+            slot: delete
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 593
+                items: {
+                    P593_IDNEGOCIACAOPARCEIRO: &P598_IDNEGOCIACAOPARCEIRO.
+                    P593_IDOBSERVACAONEGOCIACAO:
+                    P593_OBSERVACAO:
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button enviar-email-boleto (
+        buttonName: ENVIAR_EMAIL_BOLETO
+        label: Enviar EMAIL Boleto
+        layout {
+            sequence: 60
+            region: @informações-do-acordo
+            slot: change
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 592
+                items: {
+                    P592_IDNEGOCIACAOPARCEIRO: &P598_IDNEGOCIACAOPARCEIRO.
+                    P592_TIPO: E
+                    P592_EMAIL:
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: item=value
+            item: P598_FORMAPAGAMENTO
+            value: B
+        }
+    )
+
+    button enviar-sms-boleto (
+        buttonName: ENVIAR_SMS_BOLETO
+        label: Enviar SMS Boleto
+        layout {
+            sequence: 70
+            region: @informações-do-acordo
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 592
+                items: {
+                    P592_IDNEGOCIACAOPARCEIRO: &P598_IDNEGOCIACAOPARCEIRO.
+                    P592_TIPO: B
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: item=value
+            item: P598_FORMAPAGAMENTO
+            value: B
+        }
+    )
+
+    button remover-negociacao (
+        buttonName: REMOVER_NEGOCIACAO
+        label: Remover Negociação
+        layout {
+            sequence: 30
+            region: @informações-do-acordo
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--danger
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression:
+                ```sql
+                ( :P598_IDUSUARIORESPONSAVEL = ( select idusuario from usuarios where usuario = v('APP_USER') ) or ( pck_util.fnc_verificaacesso(2577,v('APP_USER')) = 'S') )
+                and not exists ( select 1
+                                 from pagamentosnegociacoesparceiros pp
+                                 where pp.idnegociacaoparceiro = :P598_IDNEGOCIACAOPARCEIRO
+                                   and pp.situacao             = 'Q' )
+                ```
+        }
+    )
+
+    button salvar (
+        buttonName: SALVAR
+        label: Salvar
+        layout {
+            sequence: 10
+            region: @parcelas-do-acordo
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+            databaseAction: update
+        }
+    )
+
+    dynamicAction confirma-remover (
+        name: Confirma Remover
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @remover-negociacao
+        }
+
+        action native-confirm (
+            action: confirm
+            settings {
+                message: Você deseja realmente remover esta negociação?
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: REMOVER_NEGOCIACAO
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process applymru (
+        name: ApplyMRU
+        type: tabformUpdate
+        editableRegion: @parcelas-do-acordo
+        target {
+            tableName: PAGAMENTOSNEGOCIACOESPARCEIROS
+            pkColumn: ROWID
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: #MRU_COUNT# LINHA(s) ATUALIZADA, #MRI_COUNT# LINHA(s) INSERIDA.
+        }
+        advanced {
+            executionMappingIdentifier: 5041882216805819730
+        }
+        serverSideCondition {
+            whenButtonPressed: @salvar
+        }
+    )
+
+    process atualiza-parcela (
+        name: Atualiza Parcela
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vsituacao  varchar2(1);
+                  vidusuario number;
+                  --
+                begin
+                  --
+                  select idusuario
+                  into vidusuario
+                  from usuarios u
+                  where u.usuario = :P0_USUARIO;
+                  --
+                  if v('REQUEST') = 'QUITAR' then
+                    vsituacao := 'Q';
+                  elsif v('REQUEST') = 'EMESPERA' then
+                    vsituacao := 'E';
+                  elsif v('REQUEST') = 'VENCIDO' then
+                    vsituacao := 'V';
+                  end if;
+                  --
+                  pck_negociacoes_rmc.prc_atualizaparcela_acordo( pidpagamentonegociacao => :P598_IDEDITAR,
+                                                                  psituacao              => vsituacao,
+                                                                  pidusuario             => vidusuario);
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        successMessage {
+            successMessage: Parcela atualizada com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 5041897886108819752
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: v('REQUEST') in ('QUITAR','EMESPERA','VENCIDO')
+        }
+    )
+
+    process fetch-row-from-negociacoesparceiros (
+        name: Fetch Row from NEGOCIACOESPARCEIROS
+        type: autoRowFetch
+        source {
+            tableName: NEGOCIACOESPARCEIROS
+            pkColumn: IDNEGOCIACAOPARCEIRO
+            pkItem: P598_IDNEGOCIACAOPARCEIRO
+        }
+        execution {
+            sequence: 20
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 5041897082372819751
+        }
+    )
+
+    process process-row-of-negociacoesparceiros (
+        name: Process Row of NEGOCIACOESPARCEIROS
+        type: autoRowProcessing
+        target {
+            tableName: NEGOCIACOESPARCEIROS
+            pkColumn: IDNEGOCIACAOPARCEIRO
+            pkItem: P598_IDNEGOCIACAOPARCEIRO
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Action Processed.
+        }
+        advanced {
+            executionMappingIdentifier: 5041897425457819752
+        }
+    )
+
+    process remove-negociação (
+        name: Remove Negociação
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  -- Call the procedure
+                  pck_negociacoes_rmc.prc_remove_negociacao(pidnegociacao => :P598_IDNEGOCIACAOPARCEIRO);
+                end;
+                ```
+        }
+        execution {
+            sequence: 40
+        }
+        successMessage {
+            successMessage: Negociação removida com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 5041898218294819752
+        }
+        serverSideCondition {
+            type: request=Value
+            value: REMOVER_NEGOCIACAO
+        }
+    )
+
+    branch (
+        name: Go To Page 591
+        execution {
+            sequence: 20
+        }
+        behavior {
+            target: {
+                page: 598
+                items: {
+                    P598_IDNEGOCIACAOPARCEIRO: &P598_IDNEGOCIACAOPARCEIRO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request!=Value
+            value: REMOVER_NEGOCIACAO
+        }
+    )
+
+    branch (
+        name: Go To Page 589
+        execution {
+            sequence: 30
+        }
+        behavior {
+            target: {
+                page: 597
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @remover-negociacao
+        }
+    )
+
+    branch (
+        name: Go To Page 598
+        execution {
+            sequence: 40
+        }
+        behavior {
+            target: {
+                page: 598
+                items: {
+                    P598_IDNEGOCIACAOPARCEIRO: &P598_IDNEGOCIACAOPARCEIRO.
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

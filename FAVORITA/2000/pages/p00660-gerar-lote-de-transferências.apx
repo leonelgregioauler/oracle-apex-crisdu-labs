@@ -1,0 +1,261 @@
+page 660 (
+    name: Gerar Lote de Transferências
+    alias: GERAR-LOTE-DE-TRANSFERÊNCIAS
+    title: Gerar Lote de Transferências
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+
+    region cd-abastecedor (
+        name: CD Abastecedor
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                t-Form--slimPadding
+                t-Form--large
+            ]
+        }
+    )
+
+    pageItem P660_ALVOMINIMO (
+        type: numberField
+        label {
+            label: Alvo Mínimo
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @cd-abastecedor
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+    )
+
+    pageItem P660_FILIAISDESTINOS (
+        type: shuttle
+        label {
+            label: Lojas Destinos
+            alignment: left
+        }
+        settings {
+            showControls: movingOnly
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ff.nomefilialfavorita
+                     , ff.idfilialfavorita 
+                from atendimentosestoques ae
+                   , filiaisfavorita ff
+                where ae.idfilialfavoritaorigem = :P660_IDFILIALABASTECEDOR
+                  and ff.idfilialfavorita = ae.idfilialfavoritadestino
+                  and ff.tipofilial = 'L'
+                ```
+        }
+        cascadingLov {
+            parentItems: P660_IDFILIALABASTECEDOR
+        }
+        layout {
+            sequence: 30
+            region: @cd-abastecedor
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 5
+        }
+    )
+
+    pageItem P660_IDFILIALABASTECEDOR (
+        type: selectOne
+        label {
+            label: CD Abastecedor
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nomefilialfavorita
+                     , f.idfilialfavorita
+                from filiaisfavorita f
+                where f.tipofilial = 'E'
+                  and f.ativo = 'S'
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @cd-abastecedor
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+    )
+
+    button processar (
+        buttonName: PROCESSAR
+        label: Processar Ressuprimentos
+        layout {
+            sequence: 10
+            region: @cd-abastecedor
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction processa-pre-transferencia (
+        name: Processa Pre Transferencia
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @processar
+        }
+
+        action native-confirm (
+            action: confirm
+            settings {
+                title: Confirmar lançamento
+                message: Deseja realmente lançar o ressuprimento para os Destinos selecionados?
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: PROCESSAR_EM_LOTE
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process gera-os-ressuprimentos (
+        name: Gera os Ressuprimentos
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                DECLARE
+                  l_destinos VARCHAR2(4000) := :P660_FILIAISDESTINOS;
+                  l_destino VARCHAR2(200);
+                  l_pos NUMBER;
+                  vidpretransferencia number;
+                BEGIN
+                  -- Enquanto houver destinos separados por ":"
+                  WHILE l_destinos IS NOT NULL LOOP
+                    -- Encontra a posição do próximo separador
+                    l_pos := INSTR(l_destinos, ':');
+                    
+                    IF l_pos > 0 THEN
+                      -- Extrai o destino atual
+                      l_destino := SUBSTR(l_destinos, 1, l_pos - 1);
+                      -- Remove o destino atual da lista
+                      l_destinos := SUBSTR(l_destinos, l_pos + 1);
+                    ELSE
+                      -- Último destino na lista
+                      l_destino := l_destinos;
+                      l_destinos := NULL;
+                    END IF;
+                    
+                    -- Chama a procedure para o destino atual
+                    BEGIN
+                      --
+                      pck_comprastransf_fav.prc_gerapretransferencia_v2(pidfilialfavorita => l_destino,
+                                                                        pidusuario => :P0_IDUSUARIO,
+                                                                        palvo_minimo => :P660_ALVOMINIMO,
+                                                                        pidcategoriasite => null,
+                                                                        pidcategoria => null,
+                                                                        pidsubcategoria => null,
+                                                                        pidpretransferencia => vidpretransferencia);
+                      --
+                      --SUA_PROCEDURE_RESSUPRIMENTO(l_destino);
+                      -- Registra no log de aplicação
+                      APEX_DEBUG.INFO('Processo chamado para o destino: ' || l_destino);
+                    EXCEPTION
+                      WHEN OTHERS THEN
+                        -- Registra erro e continua com próximo destino
+                        APEX_DEBUG.ERROR('Erro ao processar destino ' || l_destino || ': ' || SQLERRM);
+                    END;
+                  END LOOP;
+                  
+                  -- Mensagem de sucesso
+                  APEX_APPLICATION.G_PRINT_SUCCESS_MESSAGE := 'Ressuprimento gerado com sucesso para todos os destinos selecionados.';
+                END;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 379303220273623928
+        }
+        serverSideCondition {
+            type: request=Value
+            value: PROCESSAR_EM_LOTE
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 658
+            }
+        }
+    )
+
+)
+

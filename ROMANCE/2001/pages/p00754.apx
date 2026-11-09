@@ -1,0 +1,1716 @@
+page 754 (
+    name: Desafio Favorita
+    title: Desafio Favorita
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region aviso-congelamento (
+        name: Aviso Congelamento
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: noRowsReturned
+            sqlQuery:
+                ```sql
+                SELECT 1
+                FROM dual
+                WHERE  EXISTS (SELECT 1
+                                 FROM favorita.engajamentosrepresentantes eg
+                                 WHERE eg.datareferencia = to_date(:P754_DATAREFERENCIA,'dd/mm/rrrr')
+                                  AND eg.idfilial = :P0_IDFILIAL
+                                  AND trunc(sysdate) <= trunc(eg.datareferencia) + (select p.valor
+                                                                                     from favorita.parametros p
+                                                                                    where p.nome = 'CONGELAMENTODESAFIOFRANQUIAS'
+                                                                                      and p.idfilialromance = :P0_IDFILIAL))
+                ```
+        }
+    )
+
+    region desafio-franquia (
+        name: Desafio Franquia
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select 'Desafio Franquia' desafio,
+                       case
+                         when nvl((select sum(e.valordesafioajustado)
+                                      from favorita.engajamentosrepresentantes e
+                                     where e.datareferencia = to_date(:P754_DATAREFERENCIA,'dd/mm/rrrr')
+                                       and e.idfilial = :P0_IDFILIAL), 0) != 0
+                         then to_char((select sum(e.valordesafioajustado)
+                                          from favorita.engajamentosrepresentantes e
+                                         where e.datareferencia = to_date(:P754_DATAREFERENCIA,'dd/mm/rrrr')
+                                           and e.idfilial = :P0_IDFILIAL), '999G999G999G999G990D00')
+                         else nvl(to_char((select sum(f.valordesafioajustado)
+                                              from favorita.engajamentosfranquias f
+                                             where f.datareferencia = to_date(:P754_DATAREFERENCIA,'dd/mm/rrrr')
+                                               and f.idfilial = :P0_IDFILIAL), '999G999G999G999G990D00'), 0)
+                       end valor
+                  from dual
+                 
+                     
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            parentRegion: @informações-do-momento
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        settings {
+            labelColumn: DESAFIO
+            valueColumn: VALOR
+        }
+    )
+
+    region desafio-novo (
+        name: Desafio Novo
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select 'Desafio Ajustado' desafio
+                     , nvl(to_char(sum(e.valordesafioajustado2), '999G999G999G999G990D00'),0) valor
+                from favorita.engajamentosrepresentantes e
+                where e.datareferencia  = to_date(:P754_DATAREFERENCIA,'dd/mm/rrrr')
+                  and e.idfilial = :P0_IDFILIAL
+                  
+                     
+                     
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            parentRegion: @informações-do-momento
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        settings {
+            labelColumn: DESAFIO
+            valueColumn: VALOR
+        }
+    )
+
+    region engajamento-distribuidores (
+        name: Engajamento Distribuidores
+        type: interactiveGrid
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select e.idfilial
+                     , favorita.pck_util_fav.fnc_nomerepresentante(e.idrepresentante) "Representante"
+                     , e.valordesafio  valordesafioorig--desafiodistribuidor --"Desafio Distribuidor(R$)"
+                     , e.valorrealizado           --"Realizado Mes(R$)" -- buscara a informação de acordo com os filtros informados pelo usuario quando emitir o relatorio
+                     , case
+                         when e.valordesafioajustado2 is not null then 
+                           e.valordesafioajustado2 - e.valorrealizado
+                         when e.valordesafioajustado is not null then 
+                           e.valordesafioajustado - e.valorrealizado
+                         when e.valordesafio is not null then 
+                           e.valordesafio - e.valorrealizado
+                       end faltaatingir
+                     , e.qtdnotasabertas      --"Notas Abertas para o Mês"
+                     , e.percengajatual       --"Engajamento Atual%"
+                     , e.percengajant         --"Engajamento Anterior%"
+                     , e.desafioconsfav      --"Desafio Cons. Favorita"
+                     , e.ticketmediocalculado
+                     , e.ticketmedioinformado
+                     , e.idengajamentorepresentante
+                     , e.metadesafio
+                     , e.ticketmediodistribuidor
+                     , e.percengajnovo
+                     , e.valordesafioajustado
+                     , e.valordesafioajustado2
+                     , ( select eg.ticketmedioajustado
+                           from favorita.engajamentosfranquias eg
+                          where eg.idfilial = e.idfilial
+                            and eg.Datareferencia = e.datareferencia ) ticketmedioajustadofranq
+                     -- Maicon Aimi - 9264656 - 27/06/2024 - Criado essa subQuery pra buscar o CNPJ no representante
+                     , ( select listagg(m.cnpj, ' - ')
+                           from roman.mei m
+                          where m.idpessoa = r.idpessoa
+                            and m.ativo = 'S') cnpjRepresentante
+                  from favorita.engajamentosrepresentantes e
+                     , catal.representantes r
+                 where r.idrepresentante = e.idrepresentante
+                   and e.datareferencia  = to_date(:P754_DATAREFERENCIA,'dd/mm/rrrr')
+                   and e.idfilial = :P0_IDFILIAL
+                     
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        edit {
+            enabled: true
+            allowedOperations: update
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        toolbar {
+            controls: [
+                searchCol
+                searchField
+                actionsMenu
+                resetButton
+                saveButton
+            ]
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 2980229350233932614
+        }
+
+        savedReport 456581 (
+            visibility: primary
+            view {
+                default: grid
+            }
+            singleRowView {
+                displayedColumns: true
+            }
+
+            displayColumn (
+                column: @CNPJREPRESENTANTE
+                layout {
+                    width: 207.25
+                    sequence: 7
+                }
+            )
+
+            displayColumn (
+                column: @IDFILIAL
+                layout {
+                    sequence: 2
+                }
+            )
+
+            displayColumn (
+                column: @REPRESENTANTE
+                layout {
+                    sequence: 6
+                }
+            )
+
+            displayColumn (
+                column: @VALORDESAFIOORIG
+                layout {
+                    sequence: 4
+                }
+            )
+
+            displayColumn (
+                column: @VALORREALIZADO
+                layout {
+                    sequence: 8
+                }
+            )
+
+            displayColumn (
+                column: @FALTAATINGIR
+                layout {
+                    sequence: 9
+                }
+            )
+
+            displayColumn (
+                column: @QTDNOTASABERTAS
+                layout {
+                    sequence: 10
+                }
+            )
+
+            displayColumn (
+                column: @PERCENGAJATUAL
+                layout {
+                    sequence: 11
+                }
+            )
+
+            displayColumn (
+                column: @PERCENGAJANT
+                layout {
+                    sequence: 12
+                }
+            )
+
+            displayColumn (
+                column: @DESAFIOCONSFAV
+                layout {
+                    sequence: 14
+                }
+            )
+
+            displayColumn (
+                column: @TICKETMEDIOCALCULADO
+                layout {
+                    sequence: 16
+                }
+            )
+
+            displayColumn (
+                column: @TICKETMEDIOINFORMADO
+                layout {
+                    sequence: 18
+                }
+            )
+
+            displayColumn (
+                column: @IDENGAJAMENTOREPRESENTANTE
+                layout {
+                    sequence: 15
+                }
+            )
+
+            displayColumn (
+                column: @METADESAFIO
+                layout {
+                    sequence: 19
+                }
+            )
+
+            displayColumn (
+                column: @TICKETMEDIODISTRIBUIDOR
+                layout {
+                    sequence: 20
+                }
+            )
+
+            displayColumn (
+                column: @PERCENGAJNOVO
+                layout {
+                    sequence: 13
+                }
+            )
+
+            displayColumn (
+                column: @VALORDESAFIOAJUSTADO
+                layout {
+                    sequence: 3
+                }
+            )
+
+            displayColumn (
+                column: @VALORDESAFIOAJUSTADO2
+                layout {
+                    sequence: 5
+                }
+            )
+
+            displayColumn (
+                column: @APEX$ROW_ACTION
+                layout {
+                    frozen: true
+                    sequence: 1
+                }
+            )
+
+            displayColumn (
+                column: @TICKETMEDIOAJUSTADOFRANQ
+                layout {
+                    sequence: 17
+                }
+            )
+
+            aggregate sum (
+                column: @VALORDESAFIOAJUSTADO
+                showGrandTotal: true
+            )
+
+            aggregate sum-2 (
+                column: @VALORDESAFIOAJUSTADO2
+                showGrandTotal: true
+            )
+
+            aggregate sum-3 (
+                column: @FALTAATINGIR
+                showGrandTotal: true
+            )
+
+            aggregate sum-4 (
+                column: @VALORREALIZADO
+                showGrandTotal: true
+            )
+
+        )
+
+        column APEX$ROW_ACTION (
+            type: actionsMenu
+            layout {
+                sequence: 20
+            }
+        )
+
+        column APEX$ROW_SELECTOR (
+            type: rowSelector
+            layout {
+                sequence: 10
+            }
+        )
+
+        column CNPJREPRESENTANTE (
+            type: textarea
+            heading {
+                heading: CNPJ Distribuidor Independente
+            }
+            layout {
+                sequence: 50
+            }
+            validation {
+                maxLength: 4000
+            }
+            source {
+                databaseColumn: CNPJREPRESENTANTE
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column DESAFIOCONSFAV (
+            type: hidden
+            layout {
+                sequence: 120
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: DESAFIOCONSFAV
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column FALTAATINGIR (
+            type: numberField
+            heading {
+                heading: Falta Atingir
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: FALTAATINGIR
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column IDENGAJAMENTOREPRESENTANTE (
+            type: hidden
+            layout {
+                sequence: 150
+            }
+            source {
+                databaseColumn: IDENGAJAMENTOREPRESENTANTE
+                dataType: number
+                primaryKey: true
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column IDFILIAL (
+            type: hidden
+            layout {
+                sequence: 30
+            }
+            source {
+                databaseColumn: IDFILIAL
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column METADESAFIO (
+            type: hidden
+            layout {
+                sequence: 160
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: METADESAFIO
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column PERCENGAJANT (
+            type: hidden
+            layout {
+                sequence: 110
+            }
+            appearance {
+                formatMask: 990D00
+            }
+            source {
+                databaseColumn: PERCENGAJANT
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column PERCENGAJATUAL (
+            type: hidden
+            layout {
+                sequence: 100
+            }
+            appearance {
+                formatMask: 990D00
+            }
+            source {
+                databaseColumn: PERCENGAJATUAL
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column PERCENGAJNOVO (
+            type: hidden
+            layout {
+                sequence: 180
+            }
+            source {
+                databaseColumn: PERCENGAJNOVO
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column QTDNOTASABERTAS (
+            type: hidden
+            layout {
+                sequence: 90
+            }
+            appearance {
+                formatMask: 999G999G999G990
+            }
+            source {
+                databaseColumn: QTDNOTASABERTAS
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column REPRESENTANTE (
+            type: textarea
+            heading {
+                heading: Distribuidor Independente
+            }
+            layout {
+                sequence: 40
+            }
+            validation {
+                maxLength: 4000
+            }
+            source {
+                databaseColumn: Representante
+                dataType: varchar2
+                queryOnly: true
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+        )
+
+        column TICKETMEDIOAJUSTADOFRANQ (
+            type: hidden
+            layout {
+                sequence: 210
+            }
+            source {
+                databaseColumn: TICKETMEDIOAJUSTADOFRANQ
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column TICKETMEDIOCALCULADO (
+            type: hidden
+            layout {
+                sequence: 130
+            }
+            source {
+                databaseColumn: TICKETMEDIOCALCULADO
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column TICKETMEDIODISTRIBUIDOR (
+            type: hidden
+            layout {
+                sequence: 170
+            }
+            source {
+                databaseColumn: TICKETMEDIODISTRIBUIDOR
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column TICKETMEDIOINFORMADO (
+            type: hidden
+            layout {
+                sequence: 140
+            }
+            source {
+                databaseColumn: TICKETMEDIOINFORMADO
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column VALORDESAFIOAJUSTADO (
+            type: numberField
+            heading {
+                heading: DDesafio(R$)
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: VALORDESAFIOAJUSTADO
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column VALORDESAFIOAJUSTADO2 (
+            type: numberField
+            heading {
+                heading: Desafio Ajustado(R$)
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: VALORDESAFIOAJUSTADO2
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column VALORDESAFIOORIG (
+            type: hidden
+            layout {
+                sequence: 60
+            }
+            source {
+                databaseColumn: VALORDESAFIOORIG
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column VALORREALIZADO (
+            type: displayOnly
+            heading {
+                heading: Realizado(R$)
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: VALORREALIZADO
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+    )
+
+    region engajamento-distribuidores-efetivo (
+        name: Engajamento Distribuidores(Efetivo)
+        title: Engajamento Distribuidores(Efetivo)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select e.valordesafioajustado  as "Desafio(R$)"
+                     , e.valordesafioajustado2 as "Desafio Ajustado(R$)"
+                     , favorita.pck_util_fav.fnc_nomerepresentante(e.idrepresentante) as "Distribuidor Independente"
+                     , ( select listagg(m.cnpj, ' - ')
+                           from roman.mei m
+                          where m.idpessoa = r.idpessoa
+                            and m.ativo = 'S') as "CNPJ Distribuidor Independente"
+                     , e.valorrealizado as "Realizado(R$)"
+                     , case
+                         when e.valordesafioajustado2 is not null then 
+                           e.valordesafioajustado2 - e.valorrealizado
+                         when e.valordesafioajustado is not null then 
+                           e.valordesafioajustado - e.valorrealizado
+                         when e.valordesafio is not null then 
+                           e.valordesafio - e.valorrealizado
+                       end as "Falta Atingir"
+                  from favorita.engajamentosrepresentantesefetivo e
+                     , catal.representantes r
+                 where r.idrepresentante = e.idrepresentante
+                   and e.datareferencia  = to_date(:P754_DATAREFERENCIA,'dd/mm/rrrr')
+                   and e.idfilial = :P0_IDFILIAL
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 45542243818629332
+        }
+
+        column "CNPJ Distribuidor Independente" (
+            type: plainText
+            heading {
+                heading: CNPJ Distribuidor Independente
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AI
+            }
+        )
+
+        column "Desafio Ajustado(R$)" (
+            type: plainText
+            heading {
+                heading: Desafio Ajustado(R$)
+                alignment: end
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column "Desafio(R$)" (
+            type: plainText
+            heading {
+                heading: Desafio(R$)
+                alignment: end
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column "Distribuidor Independente" (
+            type: plainText
+            heading {
+                heading: Distribuidor Independente
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        column "Falta Atingir" (
+            type: plainText
+            heading {
+                heading: Falta Atingir
+                alignment: end
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AK
+            }
+        )
+
+        column "Realizado(R$)" (
+            type: plainText
+            heading {
+                heading: Realizado(R$)
+                alignment: end
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AJ
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        pageHeader {
+            pageHeaderText: Engajamento Distribuidores(Efetivo)
+        }
+
+        savedReport 457059 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "CNPJ Distribuidor Independente" (
+                sequence: 4
+            )
+
+            displayColumn "Desafio Ajustado(R$)" (
+                sequence: 2
+            )
+
+            displayColumn "Desafio(R$)" (
+                sequence: 1
+            )
+
+            displayColumn "Distribuidor Independente" (
+                sequence: 3
+            )
+
+            displayColumn "Falta Atingir" (
+                sequence: 6
+            )
+
+            displayColumn "Realizado(R$)" (
+                sequence: 5
+            )
+
+            aggregate (
+                column: "Desafio(R$)"
+            )
+
+            aggregate (
+                column: "Desafio Ajustado(R$)"
+            )
+
+            aggregate (
+                column: "Realizado(R$)"
+            )
+
+            aggregate (
+                column: "Falta Atingir"
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region informações-do-momento (
+        name: Informações do Momento
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region rec (
+        name: Rec
+        type: staticContent
+        layout {
+            sequence: 40
+            parentRegion: @informações-do-momento
+            slot: subRegions
+            startNewRow: false
+        }
+        appearance {
+            template: @/cards-container
+            templateOptions: #DEFAULT#
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <div style="position: relative; border: 2px solid #FFA500; background-color: rgba(255, 165, 0, 0.1); padding: 10px 20px 20px 70px; text-align: center; color: #FFA500;">
+                    <div style="position: absolute; top: 50%; left: 16px; transform: translateY(-50%); font-size: 4em; color: #FFA500;">
+                        &#9733;
+                    </div>
+                    <h2 style="margin: 0;">SUPERE SEU RECORDE</h2>
+                    <h3 style="margin: 0;">&P754_VALOR_RECORDE.</h3>
+                    <h6 style="margin: 0;">&P754_MESANO_RECORDE.</h6>
+                </div>
+                
+                ```
+        }
+    )
+
+    pageItem P754_AVISOCONGELA (
+        type: displayOnly
+        label {
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @aviso-congelamento
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            preText:
+                ```html
+                <font color="RED">
+                    <h4>
+                        Alteração no Desafio Ajustado está congelado. Para mais informações, entre em contato com o Administrativo Favorita!
+                    </h4>
+                </font>
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P754_DATAFINAL (
+        type: datePickerJquery
+        label {
+            label: Data Fim
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: dd/mm/rrrr
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P754_DATAINICIAL (
+        type: datePickerJquery
+        label {
+            label: Data Início
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: dd/mm/rrrr
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P754_DATAREFERENCIA (
+        type: datePickerJquery
+        label {
+            label: Data Referência
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: dd/mm/rrrr
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P754_IDFILIALROMANCE (
+        type: selectList
+        label {
+            label: Filial Romance
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select w.nome display_value
+                     , w.idfilial  return_value
+                from roman.vw_filiais w
+                where w.ativo = 'S'
+                  and w.tipofilial = 'D'
+                  and exists (  select 1
+                                from usuarios u
+                                where u.usuario = v('APP_USER')
+                                 and u.idgerente in (29,143) )
+                                 
+                union
+                
+                select '>> TODAS <<' display_value
+                     , -1 return_value
+                from roman.vw_filiais w
+                where w.ativo = 'S'
+                  and w.tipofilial = 'D'
+                  and exists (  select 1
+                                from usuarios u
+                                where u.usuario = v('APP_USER')
+                                 and u.idgerente in (29,143) )
+                
+                union 
+                
+                select h.nome display_value
+                     , h.idfilial return_value
+                from roman.vw_filiais h
+                where h.idgerente = ( select g.idgerente
+                                      from gerentes g
+                                      where g.idpessoa = ( select u.idpessoa
+                                                           from usuarios u
+                                                           where u.usuario = v('APP_USER') ) )
+                order by 1 
+                
+                                 
+                 
+                
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        serverSideCondition {
+            type: never
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P754_MESANO_RECORDE (
+        type: hidden
+        layout {
+            sequence: 20
+            region: @rec
+            slot: regionBody
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select aux.dataemissao
+                  from (  select to_char(p.dataemissao, 'MM/YYYY') dataemissao,
+                                 sum(p.valorapagar) as valor_total
+                            from favorita.vw_rank_pedidos_agrp p
+                           where p.idfilialromance = :P0_idfilial
+                             and p.dataemissao >= to_date('01/01/2023', 'DD/MM/YYYY')
+                           group by to_char(p.dataemissao, 'MM/YYYY')
+                           order by 2 desc
+                           fetch first 1 rows only) aux
+                /*
+                    maicon aimi - 27/06/2025 - 10219242
+                    comentei essa query pois substitui pela query acima
+                select 
+                    coalesce(
+                        (
+                            select aux.dataemissao
+                            from (
+                                select to_char(p.dataemissao, 'MM/YYYY') dataemissao,
+                                       sum(p.valorapagar) as valor_total
+                                from favorita.pedidos p
+                                where p.datacancelamento is null
+                                  and p.idsituacaoentrega >= 20000
+                                  and p.idfilialromance = :p0_idfilial
+                                  and p.dataemissao >= to_date('01/01/2023', 'DD/MM/YYYY')
+                                group by to_char(p.dataemissao, 'MM/YYYY')
+                                order by 2 desc
+                            ) aux
+                            where rownum = 1
+                        ),
+                        ' - '
+                    ) as valor
+                from dual;
+                */
+                ```
+            used: always
+        }
+    )
+
+    pageItem P754_VALOR_RECORDE (
+        type: hidden
+        layout {
+            sequence: 10
+            region: @rec
+            slot: regionBody
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select aux.valor
+                  from (  select to_char(p.dataemissao, 'MM/YYYY') as mes_ano
+                               , nvl(to_char(sum(p.valorapagar), '999G999G999G999G990D00'),'0,00') AS valor
+                            from favorita.vw_rank_pedidos_agrp p
+                           where p.idfilialromance = :P0_idfilial
+                             and p.dataemissao >= to_date('01/01/2023', 'DD/MM/YYYY')
+                           group by to_char(p.dataemissao, 'MM/YYYY')
+                           order by 2 desc
+                           fetch first 1 rows only ) aux
+                
+                /*
+                    Maicon Aimi - 27/06/2025 - 10219242
+                    comentei essa query pois substitui pela query acima
+                SELECT 
+                    COALESCE(
+                        (
+                            SELECT TO_CHAR(aux.valor_total, '999G999G999G999G990D00') AS Valor
+                            FROM (
+                                SELECT TO_CHAR(p.dataemissao, 'MM/YYYY') AS mes_ano,
+                                       SUM(p.valorapagar) AS valor_total
+                                FROM favorita.pedidos p
+                                WHERE p.datacancelamento IS NULL
+                                  AND p.idsituacaoentrega >= 20000
+                                  AND p.idfilialromance = :P0_IDFILIAL
+                                  AND p.dataemissao >= TO_DATE('01/01/2023', 'DD/MM/YYYY')
+                                GROUP BY TO_CHAR(p.dataemissao, 'MM/YYYY')
+                                ORDER BY 2 DESC
+                            ) aux
+                            WHERE ROWNUM = 1
+                        ),
+                        '0,00'
+                    ) AS Valor
+                FROM dual;
+                */
+                ```
+            used: always
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    button lancardesafio (
+        buttonName: LANCARDESAFIO
+        label: Lançar Desafio
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--warning
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction atualizadesafio (
+        name: AtualizaDesafio
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: columns
+            interactiveGrid: @engajamento-distribuidores
+            columns: TICKETMEDIOINFORMADO
+        }
+        serverSideCondition {
+            type: never
+        }
+
+        action native-set-value (
+            action: setValue
+            settings {
+                type: sqlQuery
+                sqlQuery: SELECT NVL(ROUND(to_number(:TICKETMEDIOINFORMADO) * to_number(:DESAFIOCONSFAV) ), :VALORDESAFIOAJUSTADO) FROM DUAL
+                itemsToSubmit: [
+                    TICKETMEDIOINFORMADO
+                    DESAFIOCONSFAV
+                ]
+            }
+            affectedElements {
+                selectionType: columns
+                columns: VALORDESAFIOAJUSTADO2
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction atualizaengaj (
+        name: AtualizaEngaj
+        execution {
+            sequence: 20
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @filtrar
+        }
+
+        action native-execute-plsql-code (
+            action: executeServerSideCode
+            settings {
+                plsqlCode:
+                    ```plsql
+                    begin
+                    
+                    /*UPDATE favorita.engajamentosrepresentantes e
+                        SET e.valorrealizado = nvl((SELECT round(sum(nvl(p.valorapagarfavorita * fatorconversao, 0)), 2)
+                                                FROM favorita.vw_rank_pedidos_dist p
+                                                WHERE trunc(p.dataemissao) BETWEEN :P754_DATAINICIAL AND :P754_DATAFINAL
+                                                  AND e.idfilial = nvl(p.idfilialromance, e.idfilial)
+                                                  AND e.idrepresentante = p.idrepresentante
+                                                GROUP BY p.idfilialromance, p.idrepresentante),0)
+                        WHERE e.datareferencia = TO_DATE(:P754_DATAREFERENCIA, 'dd/mm/yyyy');*/
+                    
+                     UPDATE favorita.engajamentosrepresentantes e
+                        SET e.valorrealizado = nvl((SELECT round(sum(nvl(p.valorapagarfavorita, 0)), 2)
+                                                FROM favorita.vw_rank_pedidos_dist p
+                                                WHERE trunc(p.dataemissao) BETWEEN :P754_DATAINICIAL AND :P754_DATAFINAL
+                                                  AND e.idfilial = nvl(p.idfilialromance, e.idfilial)
+                                                  AND e.idrepresentante = p.idrepresentante
+                                                GROUP BY p.idfilialromance, p.idrepresentante),0)
+                        WHERE e.datareferencia = TO_DATE(:P754_DATAREFERENCIA, 'dd/mm/yyyy')
+                          AND e.idfilial = :P0_IDFILIAL;
+                        
+                    commit;    
+                        
+                    end;
+                    ```
+                itemsToSubmit: [
+                    P754_DATAINICIAL
+                    P754_DATAFINAL
+                    P754_DATAREFERENCIA
+                ]
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction atualizaregiao (
+        name: AtualizaRegiao
+        execution {
+            sequence: 30
+        }
+        when {
+            event: custom
+            customEvent: interactivegridsave
+            selectionType: region
+            region: @engajamento-distribuidores
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @engajamento-distribuidores
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    validation congelado (
+        name: Congelado
+        execution {
+            sequence: 10
+        }
+        validation {
+            editableRegion: @engajamento-distribuidores
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                SELECT 1
+                FROM dual
+                WHERE  EXISTS (SELECT 1
+                                 FROM favorita.engajamentosrepresentantes eg
+                                 WHERE eg.datareferencia = to_date(:P754_DATAREFERENCIA,'dd/mm/rrrr')
+                                  AND eg.idfilial = :P0_IDFILIAL
+                                  AND trunc(sysdate) < trunc(eg.datareferencia) + (select p.valor
+                                                                                     from favorita.parametros p
+                                                                                    where p.nome = 'CONGELAMENTODESAFIOFRANQUIAS'
+                                                                                      and p.idfilialromance = :P0_IDFILIAL))
+                ```
+        }
+        error {
+            errorMessage: Alteração no Desafio Ajustado está congelado. Para mais informações, entre em contato com o Administrativo Favorita!
+        }
+    )
+
+    validation valida-lançar-desafio (
+        name: valida Lançar Desafio
+        execution {
+            sequence: 20
+        }
+        validation {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from dual
+                 where  exists (select 1
+                                  from favorita.engajamentosrepresentantes eg
+                                 where eg.datareferencia = to_date(:P754_DATAREFERENCIA,'dd/mm/rrrr')
+                                   and eg.idfilial = :P0_IDFILIAL
+                                   and trunc(sysdate) <= trunc(eg.datareferencia) + (select p.valor
+                                                                                      from favorita.parametros p
+                                                                                     where p.nome = 'CONGELAMENTODESAFIOFRANQUIAS'
+                                                                                       and p.idfilialromance = :P0_IDFILIAL));
+                ```
+        }
+        error {
+            errorMessage: Atualização não permitida, Data Referência está congelada. Para mais informações, entre em contato com o Administrativo Favorita!
+        }
+        serverSideCondition {
+            whenButtonPressed: @lancardesafio
+        }
+    )
+
+    process engajamento-distribuidores-save-interactive-grid-data (
+        name: Engajamento Distribuidores - Save Interactive Grid Data
+        type: executeCode
+        editableRegion: @engajamento-distribuidores
+        source {
+            plsqlCode:
+                ```plsql
+                declare 
+                    v1 number;
+                    v2 number;
+                    v_error_message VARCHAR2(200);
+                begin
+                
+                    update favorita.engajamentosrepresentantes e
+                       set e.valordesafioajustado2 =      to_number(:VALORDESAFIOAJUSTADO2,'999G999G999G999G990D00')
+                         , e.ticketmedioinformado =       :TICKETMEDIOINFORMADO
+                     where e.idengajamentorepresentante = :IDENGAJAMENTOREPRESENTANTE;
+                
+                    v1 := 0;
+                    v2 := 0;
+                
+                    select sum(e.valordesafioajustado) 
+                         , sum(e.valordesafioajustado2)
+                      into v1
+                         , v2
+                      from favorita.engajamentosrepresentantes e
+                     where e.idfilial = :P0_IDFILIAL
+                       and e.datareferencia = to_date(:P754_DATAREFERENCIA,'dd/mm/rrrr');
+                
+                    if v2 < v1 then 
+                        apex_error.add_error( p_message => 'A soma dos desafios ajustados não pode ser menor que os desafios estabelecidos originalmente. Por favor, verifique os valores informados.'||' '||'>>DISTRIBUIDOR<<:'||' '|| :REPRESENTANTE
+                                            , p_display_location => apex_error.c_inline_in_notification);
+                        rollback;
+                       /*raise_application_error(
+                            -20001,
+                            'A soma dos desafios ajustados não pode ser menor que os desafios estabelecidos originalmente. ' ||
+                            'Por favor, verifique os valores informados. >>DISTRIBUIDOR<<: ' || :REPRESENTANTE
+                        );*/
+                    end if;
+                
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Ajuste Realizado com Sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 2980232443828932645
+        }
+    )
+
+    process lançar-desafio (
+        name: lançar Desafio
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin    -- Maicon Aimi - 27/08/2024 - Criado para atender o ticket 9264656
+                
+                    -- Limpa a tabela engajamentosrepresentantesefetivo
+                    delete 
+                      from favorita.engajamentosrepresentantesefetivo e
+                     where e.datareferencia = TO_DATE(:P754_DATAREFERENCIA, 'dd/mm/rrrr')
+                       and (nvl(:P0_IDFILIAL, -1) = -1 or e.idfilial = :P0_IDFILIAL);
+                
+                    -- Atualiza a tabela engajamentosrepresentantesefetivo
+                    insert into favorita.engajamentosrepresentantesefetivo ( idengajamentorepresentante
+                                                                           , idfilial
+                                                                           , idrepresentante
+                                                                           , datareferencia
+                                                                           , qtdnotasabertas
+                                                                           , valordesafio
+                                                                           , valorrealizado
+                                                                           , percengajant
+                                                                           , percengajatual
+                                                                           , percengajnovo
+                                                                           , idusuarioinclusao
+                                                                           , idusuarioalteracao
+                                                                           , desafioconsfav
+                                                                           , ticketmediocalculado
+                                                                           , ticketmedioinformado
+                                                                           , metadesafio
+                                                                           , valorrealizadofinal
+                                                                           , ticketmediodistribuidor
+                                                                           , valordesafioajustado
+                                                                           , valordesafioajustado2)
+                        select idengajamentorepresentante
+                             , idfilial
+                             , idrepresentante
+                             , datareferencia
+                             , qtdnotasabertas
+                             , valordesafio
+                             , valorrealizado
+                             , percengajant
+                             , percengajatual
+                             , percengajnovo
+                             , idusuarioinclusao
+                             , idusuarioalteracao
+                             , desafioconsfav
+                             , ticketmediocalculado
+                             , ticketmedioinformado
+                             , metadesafio
+                             , valorrealizadofinal
+                             , ticketmediodistribuidor
+                             , valordesafioajustado
+                             , valordesafioajustado2
+                          from favorita.engajamentosrepresentantes e
+                         where e.datareferencia = TO_DATE(:P754_DATAREFERENCIA, 'dd/mm/rrrr')
+                           and (nvl(:P0_IDFILIAL, -1) = -1 or e.idfilial = :P0_IDFILIAL);
+                
+                    -- confirmar a transação
+                    commit;
+                
+                end;
+                
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        advanced {
+            executionMappingIdentifier: 45539962581629309
+        }
+        serverSideCondition {
+            whenButtonPressed: @lancardesafio
+        }
+    )
+
+)
+

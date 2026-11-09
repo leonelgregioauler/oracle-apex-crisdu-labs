@@ -1,0 +1,1756 @@
+page 747 (
+    name: Análise de Aguardando Acerto com Débito
+    title: Análise de Aguardando Acerto com Débito
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region análise-de-notas-após-atendimentos (
+        name: Análise de Notas Após Atendimentos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(p.nomepessoa) consultora
+                     , pck_romance.fnc_nomerepresentante(nv.idrepresentante) distribuidor
+                     , nvl(p.cpf,p.documentoestrangeiro) cpf
+                     , t.datainclusao datatarefa
+                     , nv.idnotavenda
+                     , nv.datanota
+                     , nv.numeronota
+                     , nv.semanadistribuicao
+                     , nv.semanacobranca
+                     , nv.valortotalnota
+                     , nv.valorpago
+                     , nv.saldo
+                     , nvl(( select sum(pn.valorpago)
+                             from pagamentosnotasvendas pn
+                             where pn.idnotavenda = nv.idnotavenda
+                               and pn.datapagamento > nt.data ),0) pagamentos_apos_atendimento
+                     -- Maicon Aimi - 10/09/2024 - 9262255 - Busca o ultimo telefone que foi cadastrado para a consultora.
+                     , ( select tel2.telefonelimpo
+                           from catal.telefonespessoas tel2
+                          where tel2.idtelefonepessoa = ( select max(tel.idtelefonepessoa)
+                                                            from catal.telefonespessoas tel
+                                                           where tel.idpessoa = v.idpessoa)) telefone_consultora
+                from notastarefasgeradaspap nt
+                   , notasvendas nv
+                   , vendedoras v
+                   , pessoas p
+                   , favorita.tarefas t
+                   , representantes r
+                where t.idtarefa = nt.idtarefa
+                  and p.idpessoa = v.idpessoa
+                  and nv.idnotavenda = nt.idnotavenda
+                  and v.idvendedora = nv.idvendedora
+                  and nv.idrepresentante = r.idrepresentante
+                  and v.idfilial = :P747_IDFILIAL
+                  and ( :P747_IDREPRESENTANTE is null or v.idrepresentante = :P747_IDREPRESENTANTE )
+                  and (:P747_SITUACAO_REPRESENTANTE = 'A' or nvl(r.ativo,'N') = :P747_SITUACAO_REPRESENTANTE) -- T10083337
+                  and nt.data between to_date(:P747_DATAINICIO||' 00:00:01','DD/MM/RRRR HH24:MI:SS') and to_date(:P747_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                  -- Maicon Aimi - 10/09/2024 - 9262255 - Adicionado filtro por data de pagamento da nota.
+                  and (    ( :P747_DATA_INICIO_PAGAMENTO is null or :P747_DATA_FIM_PAGAMENTO is null)
+                        or ( exists ( select 1
+                                       from roman.pagamentosnotasvendas pag
+                                      where pag.idnotavenda = nv.idnotavenda
+                                        and trunc(pag.datapagamento) between :P747_DATA_INICIO_PAGAMENTO and :P747_DATA_FIM_PAGAMENTO)))
+                  and (:P747_SEMANA_COB_INICIO IS NULL or nv.idsemanacobranca between :P747_SEMANA_COB_INICIO and nvl(:P747_SEMANA_COB_FIM, nv.idsemanacobranca)) -- T13528314
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P747_TIPO_RELATORIO = 1 and :P747_FILTRAR = 'S'
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 3072256212104250631
+        }
+
+        column CONSULTORA (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DATANOTA (
+            type: plainText
+            heading {
+                heading: Data da Nota
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column DATATAREFA (
+            type: plainText
+            heading {
+                heading: Data da Tarefa
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column IDNOTAVENDA (
+            type: link
+            heading {
+                heading: Ir P/ Nota
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 37
+                    items: {
+                        P37_IDNOTAVENDA: #IDNOTAVENDA#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil.png" class="apex-edit-pencil" alt="">
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column NUMERONOTA (
+            type: plainText
+            heading {
+                heading: Nr Nota
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column PAGAMENTOS_APOS_ATENDIMENTO (
+            type: plainText
+            heading {
+                heading: Pagamentos Apos Atendimento
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column SEMANACOBRANCA (
+            type: plainText
+            heading {
+                heading: Sem. Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column SEMANADISTRIBUICAO (
+            type: plainText
+            heading {
+                heading: Sem. Distribuição
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column TELEFONE_CONSULTORA (
+            type: plainText
+            heading {
+                heading: Telefone Consultora
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column VALORPAGO (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column VALORTOTALNOTA (
+            type: plainText
+            heading {
+                heading: Total Nota
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 30725345 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CONSULTORA (
+                sequence: 1
+            )
+
+            displayColumn CPF (
+                sequence: 4
+            )
+
+            displayColumn DATANOTA (
+                sequence: 7
+            )
+
+            displayColumn DATATAREFA (
+                sequence: 5
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 3
+            )
+
+            displayColumn IDNOTAVENDA (
+                sequence: 6
+            )
+
+            displayColumn NUMERONOTA (
+                sequence: 8
+            )
+
+            displayColumn PAGAMENTOS_APOS_ATENDIMENTO (
+                sequence: 14
+            )
+
+            displayColumn SALDO (
+                sequence: 13
+            )
+
+            displayColumn SEMANACOBRANCA (
+                sequence: 10
+            )
+
+            displayColumn SEMANADISTRIBUICAO (
+                sequence: 9
+            )
+
+            displayColumn TELEFONE_CONSULTORA (
+                sequence: 2
+            )
+
+            displayColumn VALORPAGO (
+                sequence: 12
+            )
+
+            displayColumn VALORTOTALNOTA (
+                sequence: 11
+            )
+
+        )
+
+    )
+
+    region análise-de-notas-para-atendimentos (
+        name: Análise de Notas para Atendimentos
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select info.idpessoa
+                     , info.nome consultora
+                     , decode(nvl(info.ativo,'N'),'S','Ativa','Inativa') st_vendedora
+                     , info.cpf
+                     , info.distribuidor
+                     , info.qtd_acertos_quitados
+                     , info.sacola_aguardando_acerto
+                     , info.maior_sacola_com_debito
+                     , deb.idnotavenda
+                     , deb.numeronota
+                     , deb.semanadistribuicao
+                     , deb.semanacobranca
+                     , deb.saldo
+                     , deb.ultimo_pgto
+                     , apex_item.checkbox2( p_idx        => 2,
+                                            p_value      => deb.idnotavenda,
+                                            p_attributes => 'class="select-item"'
+                                          ) as CHECK1
+                from ( select p.idpessoa
+                            , v.idvendedora
+                            , v.idrepresentante
+                            , v.ativo
+                            , initcap(p.nomepessoa) nome
+                            , nvl(p.cpf,p.documentoestrangeiro) cpf
+                            , pck_romance.fnc_nomerepresentante(v.idrepresentante) distribuidor
+                            , ( select count(1)
+                                from notasvendas nv
+                                where nv.idvendedora = v.idvendedora
+                                  and nv.idsituacaonotavenda = 4
+                                  and nv.saldo = 0 ) qtd_acertos_quitados
+                            , ( select max(cn.idvalorcaracteristica)
+                                from notasvendas nv
+                                   , classificacoesnotasvendas cn
+                                where cn.idcaracteristicanotavenda = 52
+                                  and cn.idnotavenda = nv.idnotavenda 
+                                  and nv.idvendedora = v.idvendedora
+                                  and nv.idsituacaonotavenda = 3 ) sacola_aguardando_acerto
+                            , ( select max(cn.idvalorcaracteristica)
+                                from notasvendas nv
+                                   , classificacoesnotasvendas cn
+                                where cn.idcaracteristicanotavenda = 52
+                                  and cn.idnotavenda = nv.idnotavenda 
+                                  and nv.idvendedora = v.idvendedora
+                                  and nv.idsituacaonotavenda = 4
+                                  and nv.saldo > 0 ) maior_sacola_com_debito
+                       from vendedoras v
+                          , pessoas p
+                          , representantes r
+                       where v.idpessoa = p.idpessoa
+                         and v.idrepresentante = r.idrepresentante
+                         and (:P747_ST_VENDEDORAS = 'T' or nvl(v.ativo,'N') = :P747_ST_VENDEDORAS) --T13528314
+                         and v.idfilial = :P747_IDFILIAL
+                         and ( :P747_IDREPRESENTANTE is null or v.idrepresentante = :P747_IDREPRESENTANTE )
+                         and (:P747_SITUACAO_REPRESENTANTE = 'A' or nvl(r.ativo,'N') = :P747_SITUACAO_REPRESENTANTE) -- T10083337
+                         and exists ( select 1
+                                      from notasvendas nn
+                                      where nn.idvendedora = v.idvendedora
+                                        and nn.idsituacaonotavenda = 4
+                                        and nn.saldo > 0 ) ) info
+                   , ( select nv.idvendedora
+                            , cn.idvalorcaracteristica nrsacola
+                            , nv.idnotavenda
+                            , nv.numeronota
+                            , nv.semanadistribuicao
+                            , nv.semanacobranca
+                            , nv.saldo
+                            , ( select to_char(pn.valorpago,'999G999G999G990D00')||' em '||to_char(pn.datapagamento,'DD/MM/RRRR HH24:MI:SS')
+                                from pagamentosnotasvendas pn
+                                where pn.idpagtonotavenda = ( select max(pp.idpagtonotavenda)
+                                                              from pagamentosnotasvendas pp
+                                                              where pp.idnotavenda = nv.idnotavenda
+                                                                and pp.valorpago > 0 ) ) ultimo_pgto
+                       from notasvendas nv
+                          , classificacoesnotasvendas cn
+                       where nv.idnotavenda = cn.idnotavenda
+                         and cn.idcaracteristicanotavenda = 52
+                         and nv.idsituacaonotavenda = 4
+                         and nv.saldo > 0 
+                         and (:P747_SEMANA_COB_INICIO IS NULL or nv.idsemanacobranca between :P747_SEMANA_COB_INICIO and nvl(:P747_SEMANA_COB_FIM, nv.idsemanacobranca)) /*T13528314*/) deb
+                where ( :P747_TIPO = 'T'
+                     or ( :P747_TIPO = 1 and info.sacola_aguardando_acerto - info.maior_sacola_com_debito = 1 )
+                     or ( :P747_TIPO = 2 and info.sacola_aguardando_acerto - info.maior_sacola_com_debito > 1 ) )
+                  and info.idvendedora = deb.idvendedora
+                  and info.maior_sacola_com_debito = deb.nrsacola
+                  -- 
+                  -- Comentado no T13528314
+                  /*and not exists ( select 1
+                                   from favorita.tarefas t
+                                      , notastarefasgeradaspap nt
+                                   where nt.idtarefa = t.idtarefa
+                                     and nt.idnotavenda = deb.idnotavenda
+                                     and t.idsituacao = 0 )*/
+                order by 2
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            htmlDomId: partnerslRR
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P747_TIPO_RELATORIO = 2 and :P747_FILTRAR = 'S'
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum dado encontrado, verifique os filtros!
+        }
+        advanced {
+            savedReportMappingIdentifier: 2118953961077156350
+        }
+
+        column CHECK1 (
+            type: plainText
+            heading {
+                heading: Gerar Tarefa
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column CONSULTORA (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column IDNOTAVENDA (
+            type: link
+            heading {
+                heading: Ir P/ Nota
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 37
+                    items: {
+                        P37_IDNOTAVENDA: #IDNOTAVENDA#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil.png" class="apex-edit-pencil" alt="">
+                linkAttributes: target="_blank"
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column IDPESSOA (
+            type: plainText
+            heading {
+                heading: Idpessoa
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column MAIOR_SACOLA_COM_DEBITO (
+            type: plainText
+            heading {
+                heading: Maior Sacola Com Debito
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column NUMERONOTA (
+            type: plainText
+            heading {
+                heading: Nr Nota
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column QTD_ACERTOS_QUITADOS (
+            type: plainText
+            heading {
+                heading: Qtd Acertos Quitados
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column SACOLA_AGUARDANDO_ACERTO (
+            type: plainText
+            heading {
+                heading: Sacola Aguardando Acerto
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column SEMANACOBRANCA (
+            type: plainText
+            heading {
+                heading: Semana Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column SEMANADISTRIBUICAO (
+            type: plainText
+            heading {
+                heading: Sem. Distribuição
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column ST_VENDEDORA (
+            type: plainText
+            heading {
+                heading: Situação
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column ULTIMO_PGTO (
+            type: plainText
+            heading {
+                heading: Ultimo Pgto
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 30722636 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CHECK1 (
+                sequence: 1
+            )
+
+            displayColumn CONSULTORA (
+                sequence: 2
+            )
+
+            displayColumn CPF (
+                sequence: 4
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 5
+            )
+
+            displayColumn IDNOTAVENDA (
+                sequence: 9
+            )
+
+            displayColumn MAIOR_SACOLA_COM_DEBITO (
+                sequence: 8
+            )
+
+            displayColumn NUMERONOTA (
+                sequence: 10
+            )
+
+            displayColumn QTD_ACERTOS_QUITADOS (
+                sequence: 6
+            )
+
+            displayColumn SACOLA_AGUARDANDO_ACERTO (
+                sequence: 7
+            )
+
+            displayColumn SALDO (
+                sequence: 13
+            )
+
+            displayColumn SEMANACOBRANCA (
+                sequence: 12
+            )
+
+            displayColumn SEMANADISTRIBUICAO (
+                sequence: 11
+            )
+
+            displayColumn ST_VENDEDORA (
+                sequence: 3
+            )
+
+            displayColumn ULTIMO_PGTO (
+                sequence: 14
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P747_ATENDENTE (
+        type: selectList
+        label {
+            label: Atendente a Receber a(s) Tarefa(s)
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomeusuario(usuario) display_value
+                     , idusuario
+                from usuarios u
+                where u.ativo = 'S'
+                  and exists ( select 1
+                               from usuariosgruposatendimento ug
+                               where ug.usuario = u.usuario 
+                                 and ug.idgrupoatendimento = 22 )
+                order by 1
+                ```
+            nullDisplayValue: - Todas Atendentes -
+        }
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P747_CANALATENDIMENTO (
+        type: selectList
+        label {
+            label: Canal de Atendimento
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select ca.canalatendimento display_value
+                     , ca.idcanalatendimento return_value
+                from roman.canaisdeatendimentos ca
+                ```
+        }
+        layout {
+            sequence: 120
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P747_DATAFIM (
+        type: datePicker
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P747_DATAINICIO (
+        type: datePicker
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P747_DATA_FIM_PAGAMENTO (
+        type: datePicker
+        label {
+            label: Data Fim Pagamento
+            alignment: left
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+    )
+
+    pageItem P747_DATA_INICIO_PAGAMENTO (
+        type: datePicker
+        label {
+            label: Data Início Pagamento
+            alignment: left
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+    )
+
+    pageItem P747_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P747_IDFILIAL (
+        type: selectList
+        label {
+            label: Franquia
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nome
+                     , idfilial
+                from vw_filiais f
+                where f.idgrupo is not null
+                  and f.tipofilial = 'D'
+                  and ativo = 'S'
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P747_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(r.idrepresentante) nome
+                     , r.idrepresentante
+                from representantes r  
+                   , gerentes g
+                where r.idgerente = g.idgerente
+                  and g.idfilial = :P747_IDFILIAL
+                  and (:P747_SITUACAO_REPRESENTANTE = 'A' or nvl(r.ativo,'N') = :P747_SITUACAO_REPRESENTANTE)
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: [
+                P747_IDFILIAL
+                P747_SITUACAO_REPRESENTANTE
+            ]
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P747_SELECIONAR_TODOS (
+        type: checkbox
+        label {
+            label: Selecionar Todos
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @análise-de-notas-para-atendimentos
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+            columnSpan: 2
+            labelColumnSpan: 0
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P747_SEMANA_COB_FIM (
+        type: selectList
+        label {
+            label: até
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select s.semanacompleta
+                     , s.idsemana
+                  from roman.semana_dias s
+                 where exists ( select 1
+                                  from roman.notasvendas n
+                                 where s.idsemana = n.idsemanacobranca )
+                order by 2 desc
+                ```
+            displayExtraValues: false
+            nullDisplayValue: Todas
+        }
+        layout {
+            sequence: 150
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+    )
+
+    pageItem P747_SEMANA_COB_INICIO (
+        type: selectList
+        label {
+            label: Semana Cobrança de
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select s.semanacompleta
+                     , s.idsemana
+                  from roman.semana_dias s
+                 where exists ( select 1
+                                  from roman.notasvendas n
+                                 where s.idsemana = n.idsemanacobranca )
+                order by 2 desc
+                ```
+            displayExtraValues: false
+            nullDisplayValue: Todas
+        }
+        layout {
+            sequence: 140
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+    )
+
+    pageItem P747_SITUACAO_REPRESENTANTE (
+        type: selectList
+        label {
+            label: Situação Distribuidor
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Ambos;A,Ativos;S,Inativos;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: static
+            staticValue: S
+        }
+        comments {
+            comments: Este campo foi criado no T10083337
+        }
+    )
+
+    pageItem P747_ST_VENDEDORAS (
+        type: selectList
+        label {
+            label: Situação Vendedoras
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Ativo;S,Inativo;N,Ambos;T
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 130
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        serverSideCondition {
+            type: item=value
+            item: P747_TIPO_RELATORIO
+            value: 2
+        }
+    )
+
+    pageItem P747_TIPO (
+        type: radioGroup
+        label {
+            label: Tipo de Análise
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Débito no último Atendimento;1,Débito mais Antigo;2,Ambos;T
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+        help {
+            helpText:
+                ```html
+                <b>Débito no último Atendimento:</b> Considera débito na nota anterior a nota que está aguardando acerto.<P>
+                <b>Débito mais Antigo:</b> considera apartir da segunda sacola com débito.
+                ```
+        }
+    )
+
+    pageItem P747_TIPO_RELATORIO (
+        type: radioGroup
+        label {
+            label: Tipo Relatorio
+            alignment: left
+        }
+        settings {
+            noOfCols: 2
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Tarefas Geradas;1,Para Gerar Tarefas;2
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: 2
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 160
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button gerar-tarefa-atendimento (
+        buttonName: GERAR_TAREFA_ATENDIMENTO
+        label: Gerar Tarefas
+        layout {
+            sequence: 10
+            region: @análise-de-notas-para-atendimentos
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: item=value
+            item: P747_FILTRAR
+            value: S
+        }
+    )
+
+    dynamicAction p747-selecionar-todos (
+        name: P747_SELECIONAR_TODOS
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P747_SELECIONAR_TODOS
+        }
+
+        action marcar-todas-tarefas (
+            name: Marcar todas tarefas
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    var marcado = this.triggeringElement.checked;
+                    $('.select-item').prop('checked', marcado);
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction tipo-para-gerar-tarefas (
+        name: Tipo Para Gerar Tarefas
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P747_TIPO_RELATORIO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P747_TIPO_RELATORIO
+            value: 2
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P747_TIPO
+                    P747_ATENDENTE
+                    P747_CANALATENDIMENTO
+                    P747_ST_VENDEDORAS
+                ]
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P747_DATAINICIO
+                    P747_DATAFIM
+                    P747_DATA_INICIO_PAGAMENTO
+                    P747_DATA_FIM_PAGAMENTO
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P747_TIPO
+                    P747_ATENDENTE
+                    P747_CANALATENDIMENTO
+                    P747_ST_VENDEDORAS
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P747_DATAINICIO
+                    P747_DATAFIM
+                    P747_DATA_INICIO_PAGAMENTO
+                    P747_DATA_FIM_PAGAMENTO
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    process gera-tarefas-de-atendimento (
+        name: Gera Tarefas de Atendimento
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidtarefa             number;
+                  vdatainclusao         date          := sysdate;
+                  vidsituacao           number        :=  0;
+                  vobservacao           varchar2(4000);
+                  vidusuario            number        := :P747_ATENDENTE;
+                  vidtipotarefa         number        := 70;
+                  vidpessoa             number;
+                  vidgrupoatendimento   number        := 73;
+                  vidcanalatendimento   number        := :P747_CANALATENDIMENTO;
+                  vtelefone             varchar2(100);
+                  vidpais               number        := 1;
+                  vidvendedora          number;  
+                  vidnotavenda          number;
+                  --
+                  vnumber               number;
+                  vvarchar              varchar2(5);
+                  vdata                 date;
+                  vexiste               varchar2(1);
+                  --
+                begin
+                  --
+                  if APEX_APPLICATION.G_F02.COUNT > 0 then 
+                    --
+                    FOR i in 1..APEX_APPLICATION.G_F02.COUNT 
+                    LOOP
+                      --
+                      vidnotavenda := to_number(APEX_APPLICATION.G_F02(i));
+                      --
+                      select idpessoa
+                           , v.idvendedora
+                      into vidpessoa
+                         , vidvendedora
+                      from notasvendas nv
+                         , vendedoras v
+                      where idnotavenda = vidnotavenda
+                        and v.idvendedora = nv.idvendedora;
+                      --
+                      vobservacao := roman.pck_romance.fnc_retornatelefones(vidvendedora);
+                      --
+                      begin
+                        --
+                        select telefone
+                        into vtelefone
+                        from telefonespessoas t
+                        where t.idpessoa = vidpessoa
+                          and rownum = 1
+                        order by t.idtelefonepessoa desc;
+                        --
+                      exception 
+                        when NO_DATA_FOUND then
+                          vtelefone := null;
+                      end;
+                      --
+                      if vidusuario is null then
+                        --
+                        vidsituacao := 0;
+                        --
+                      else
+                        --
+                        vidsituacao := 50;
+                        --
+                      end if;
+                      --
+                      favorita.pck_tarefas_fav.prc_tarefas( pidtarefa                 => vidtarefa,
+                                                            pidtipotarefa             => vidtipotarefa,
+                                                            pidticketcallcenter       => vnumber,
+                                                            ptelefone                 => vtelefone,
+                                                            pdatainclusao             => vdatainclusao,
+                                                            pprioridade               => vnumber,
+                                                            pidsituacao               => vidsituacao,
+                                                            pobservacao               => vobservacao,
+                                                            pidusuario                => vidusuario,
+                                                            pidpessoa                 => vidpessoa,
+                                                            pidgrupoatendimento       => vidgrupoatendimento,
+                                                            pdatainicio               => vdata,
+                                                            pdataconclusao            => vdata,
+                                                            pnumeroposicaoatendimento => vvarchar,
+                                                            pidpedido                 => vnumber,
+                                                            pcodigoarea               => vnumber,
+                                                            pidpais                   => vidpais,
+                                                            pidcanalatendimento       => vidcanalatendimento,
+                                                            pmd5                      => vvarchar,
+                                                            poperacao_dml             => 'I' );
+                      --
+                      insert into notastarefasgeradaspap
+                      values ( vidnotavenda, vidtarefa, sysdate);
+                      --
+                      commit;
+                      --
+                    end loop;
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Tarefa(s) Gerada(s) com Sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 3072254955641250618
+        }
+        serverSideCondition {
+            whenButtonPressed: @gerar-tarefa-atendimento
+        }
+    )
+
+    branch (
+        name: Go To Page 747
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 747
+                items: {
+                    P747_IDFILIAL: &P747_IDFILIAL.
+                    P747_IDREPRESENTANTE: &P747_IDREPRESENTANTE.
+                    P747_TIPO: &P747_TIPO.
+                    P747_FILTRAR: S
+                    P747_TIPO_RELATORIO: &P747_TIPO_RELATORIO.
+                    P747_DATAINICIO: &P747_DATAINICIO.
+                    P747_DATAFIM: &P747_DATAFIM.
+                    P747_ATENDENTE: &P747_ATENDENTE.
+                    P747_CANALATENDIMENTO: &P747_CANALATENDIMENTO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

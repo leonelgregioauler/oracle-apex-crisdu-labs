@@ -1,0 +1,502 @@
+page 647 (
+    name: Consulta Equifax
+    title: Consulta Equifax
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function carregarScriptEquifax() {
+            
+              var idPais   = apex.item('P647_IDPAIS').getValue();
+              var nomePais = apex.item('P647_NOMEPAIS').getValue();
+            
+              // Valida se o país é suportado pelo Equifax
+              if (idPais !== '4' && idPais !== '6' && idPais !== '2') {
+                apex.message.alert('Consulta Equifax inválido para País: ' + nomePais);
+                return;
+              }
+            
+              var scriptSrc;
+              var nomeFuncao;
+            
+              if (idPais === '4') {
+                scriptSrc  = 'https://websocket.romancemoda.com.br/romance_equifax_py.js';
+                nomeFuncao = 'ConsultarEquifaxPY';
+              } else if (idPais === '6') {
+                scriptSrc  = 'https://websocket.romancemoda.com.br/romance_equifax.js';
+                nomeFuncao = 'ConsultarEquifax';
+              } else if (idPais === '2') {
+                scriptSrc  = 'https://websocket.romancemoda.com.br/romance_equifax_uy.js';
+                nomeFuncao = 'ConsultarEquifaxUY';
+              }
+            
+              function executarConsulta() {
+                var callback = function(dados) {
+                  window.location.reload();
+                };
+            
+                if (idPais === '6') {
+                  window[nomeFuncao](
+                    apex.item('P647_RUT').getValue(),
+                    apex.item('P647_DOCESTRANGEIRO').getValue(),
+                    apex.item('P647_RUT_MD5').getValue(),
+                    apex.item('P647_IDFILIAL').getValue(),
+                    apex.item('P647_USUARIO').getValue(),
+                    callback
+                  );
+                } else if (idPais === '4') {
+                  window[nomeFuncao](
+                    apex.item('P647_DOCESTRANGEIRO').getValue(),
+                    apex.item('P647_RUT_MD5').getValue(),
+                    apex.item('P647_IDFILIAL').getValue(),
+                    apex.item('P647_USUARIO').getValue(),
+                    callback
+                  );
+                } else if (idPais === '2') {
+                  // Uruguai não possui RUT separado (igual ao Paraguai), usa o campo P647_RUT como CI
+                  window[nomeFuncao](
+                    apex.item('P647_RUT').getValue(),
+                    apex.item('P647_RUT_MD5').getValue(),
+                    apex.item('P647_IDFILIAL').getValue(),
+                    apex.item('P647_USUARIO').getValue(),
+                    callback
+                  );
+                }
+              }
+            
+              if (typeof window[nomeFuncao] === 'function') {
+                executarConsulta();
+                return;
+              }
+            
+              var script = document.createElement('script');
+              script.type = 'text/javascript';
+              script.src  = scriptSrc;
+              script.onload = executarConsulta;
+              document.head.appendChild(script);
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region informações (
+        name: Informações
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <script type="text/javascript" src="https://websocket.romancemoda.com.br/romance_equifax.js"></script>
+                <script type="text/javascript" src="https://websocket.romancemoda.com.br/romance_equifax_uy.js"></script>
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P647_DOCESTRANGEIRO (
+        type: textField
+        label {
+            label: Doc. Estrangeiro
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @informações
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P647_IDFILIAL (
+        type: selectList
+        label {
+            label: Franquia
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomefilial(u.idfilial) empresa
+                     , u.idfilial 
+                from roman.usuariosfiliais u
+                where u.usuario = v('APP_USER')
+                order by 1
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 40
+            region: @informações
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P647_IDPAIS (
+        type: hidden
+        layout {
+            sequence: 60
+            region: @informações
+            slot: regionBody
+        }
+    )
+
+    pageItem P647_NOMEPAIS (
+        type: hidden
+        layout {
+            sequence: 65
+            region: @informações
+            slot: regionBody
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  vnome catal.paises.nome%type;
+                begin
+                  select p.nome
+                  into vnome
+                  from catal.paises p
+                  where p.idpais = :P647_IDPAIS;
+                  --
+                  return vnome;
+                  --
+                exception
+                  when others then
+                    return null;
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P647_RUT (
+        type: textField
+        label {
+            label: RUT
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @informações
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P647_RUT_MD5 (
+        type: hidden
+        layout {
+            sequence: 30
+            region: @informações
+            slot: regionBody
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  v_input VARCHAR2(2000) := :P647_RUT;--replace(replace(:P755_RUT,'.',''),'-','');
+                  --hexkey VARCHAR2(32) := NULL;
+                  vmd5 varchar2(300);
+                BEGIN
+                  --
+                  vmd5 := roman.pck_ti.fnc_md5(v_input);
+                  --
+                  return vmd5;
+                  --
+                exception
+                  when others then
+                    return null;
+                END;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P647_USUARIO (
+        type: hidden
+        layout {
+            sequence: 50
+            region: @informações
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button consultar (
+        buttonName: CONSULTAR
+        label: Consultar
+        layout {
+            sequence: 10
+            region: @informações
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction altera-md (
+        name: Altera MD5
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P647_RUT
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    apex.server.process('ATUALIZAR_RUT_MD5', {
+                        pageItems: '#P647_RUT'
+                    }, {
+                        success: function(pData) {
+                            $s('P647_RUT_MD5', pData.P755_RUT_MD5);
+                        }
+                    });
+                    
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction mostra-oculta (
+        name: Mostra_Oculta
+        execution {
+            sequence: 30
+        }
+        when {
+            event: ready
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P647_DOCESTRANGEIRO
+            }
+            execution {
+                sequence: 20
+            }
+            clientSideCondition {
+                type: item!=value
+                item: P647_IDPAIS
+                value: 4
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P647_RUT
+            }
+            execution {
+                sequence: 40
+            }
+            clientSideCondition {
+                type: item=value
+                item: P647_IDPAIS
+                value: 4
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P647_DOCESTRANGEIRO
+            }
+            execution {
+                sequence: 10
+            }
+            clientSideCondition {
+                type: item=value
+                item: P647_IDPAIS
+                value: 4
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P647_RUT
+            }
+            execution {
+                sequence: 30
+            }
+            clientSideCondition {
+                type: item!=value
+                item: P647_IDPAIS
+                value: 4
+            }
+        )
+
+    )
+
+    dynamicAction new (
+        name: New
+        execution {
+            sequence: 40
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @consultar
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    carregarScriptEquifax();
+                    
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction realiza-consulta (
+        name: Realiza Consulta
+        execution {
+            sequence: 41
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @consultar
+        }
+        serverSideCondition {
+            type: never
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    javascript: ConsultarEquifax(document.getElementById('P647_RUT').value
+                    ,document.getElementById('P647_DOCESTRANGEIRO').value
+                    ,document.getElementById('P647_RUT_MD5').value
+                    ,document.getElementById('P647_IDFILIAL').value
+                    ,document.getElementById('P647_USUARIO').value
+                    ,function(dados){window.location.reload()});
+                    
+                    
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process atualizar-rut-md (
+        name: ATUALIZAR_RUT_MD5
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                DECLARE
+                  v_input VARCHAR2(2000) := :P647_RUT;
+                  vmd5 VARCHAR2(300);
+                BEGIN
+                  vmd5 := roman.pck_ti.fnc_md5(v_input);
+                  apex_json.open_object;
+                  apex_json.write('P647_RUT_MD5', vmd5);
+                  apex_json.close_all;
+                END;
+                
+                ```
+        }
+        execution {
+            sequence: 10
+            point: ajaxCallback
+        }
+        advanced {
+            executionMappingIdentifier: 3076020685515765339
+        }
+    )
+
+)
+

@@ -1,0 +1,633 @@
+page 438 (
+    name: Revisão de Despesas
+    title: Revisão de Despesas
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration: var htmldb_delete_message='"DELETE_CONFIRM_MSG_23"';
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region despesas-pendentes (
+        name: Despesas Pendentes
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select w.nomefilialfavorita
+                     , count (D.IDDESPESA) Qtd
+                     , f.idfilialfavorita
+                from roman.despesas d
+                   , roman.fechamentossemanais f
+                   , favorita.vw_filiaisfavorita w
+                where f.idfilialfavorita = w.idfilialfavorita
+                  and d.idfechamento = f.idfechamento
+                  and nvl(d.emmaos,'N') = 'N'
+                  and f.idsemana >= 909
+                  and exists ( select 1
+                               from catal.filiais ff
+                               where ff.idfilial = f.idfilial
+                                 and ff.tipofilial = 'L')
+                having count(1) > 0
+                group by f.idfilialfavorita,w.nomefilialfavorita
+                order by 1;
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            labelColumn: NOMEFILIALFAVORITA
+            valueColumn: QTD
+            linkTarget: {
+                page: 438
+                items: {
+                    P0_IDFILIALCAIXA: &IDFILIALFAVORITA.
+                    P0_IDFECHAMENTO:
+                }
+                action: resetPagination
+            }
+            layout: 5Columns
+            color: yes
+        }
+    )
+
+    region revisão-de-despesas (
+        name: Revisão de Despesas
+        type: tabform
+        source {
+            sqlQuery:
+                ```sql
+                select IDDESPESA
+                     , IDDESPESA IDDESPESA_DISPLAY
+                     , IDCONTACONTABIL
+                     , OBSERVACAO
+                     , VALOR
+                     , EMMAOS
+                     , IDSUBCONTACONTABIL
+                     , OBSERVACAOCONTROLE
+                     , DESCRICAOORIGEM
+                     , null anexos
+                     , ( select count(1)
+                         from roman.anexosdespesas dd
+                         where dd.iddespesa = d.iddespesa ) qtdanexos
+                     , ( select decode(cf.tipo,'V','Variável','F','Fixa')
+                         from roman.contasfinanceiras cf
+                         where cf.idcontafinan = d.idcontacontabil ) tipodespesa
+                     , null questionamento
+                     , replace(replace(replace(OBSERVACAO||' - '||VALOR,',','.') ,'+',''),'-','.')  questionar 
+                     , idmatrizclassificacao 
+                     , nvl(d.valor*ff.fatorconversao,0) valorpagoconversao 
+                from roman.DESPESAS d
+                   , roman.vw_filiais ff
+                where d.idfilial = ff.idfilial
+                  and idfechamento = :P0_IDFECHAMENTO
+                  and d.IDFECHAMENTOREPRES is null
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        reportLayout {
+            numberOfRows: 300
+        }
+        componentAppearance {
+            template: @/standard
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+            partialPageRefresh: false
+        }
+        performance {
+            maxRowsToProcess: 500
+        }
+        messages {
+            whenNoDataFound: Nenhuma despesa encontrada!
+        }
+        breakFormatting {
+            breakColumns: col1
+        }
+        componentAdvanced {
+            stripHtml: true
+        }
+
+        column ANEXOS (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            type: link
+            heading {
+                heading: Anexos
+                alignment: center
+            }
+            layout {
+                sequence: 15
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 282
+                    items: {
+                        P282_IDDESPESA: #IDDESPESA_DISPLAY#
+                        P282_PAGINA: 438
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-view.png" class="apex-edit-view" alt="">
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CHECK$01 (
+            reportColumnQueryId: 17
+            derivedColumn: Y
+            type: rowSelector
+            heading {
+                heading: Select Row
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            serverSideCondition {
+                type: never
+            }
+        )
+
+        column DESCRICAOORIGEM (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                alignment: center
+            }
+            layout {
+                sequence: 12
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column EMMAOS (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            type: simpleCheckbox
+            heading {
+                heading: Em Mãos
+                alignment: center
+            }
+            lov {
+                checkboxValues: S
+            }
+            layout {
+                sequence: 11
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDCONTACONTABIL (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            type: popupLovShowsDisplaysValue
+            heading {
+                heading: Conta
+                alignment: center
+            }
+            lov {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select nomeconta display_value
+                         , idcontafinan  return_value
+                    from roman.contasfinanceiras c
+                    order by 1
+                    ```
+            }
+            layout {
+                sequence: 6
+            }
+            appearance {
+                width: 40
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDDESPESA (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 3
+            }
+            primaryKeySource {
+                type: existingTrigger
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDDESPESA_DISPLAY (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: ID
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDMATRIZCLASSIFICACAO (
+            reportColumnQueryId: 15
+            derivedColumn: N
+            type: selectList
+            heading {
+                heading: Classificação
+                alignment: center
+            }
+            lov {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select m.classificacaodespesa
+                         , m.idmatrizclassificacao
+                    from roman.matrizclassificacoesdespesas m
+                    where m.idfilial = ( select f.idfilialromance
+                                         from favorita.filiaisfavorita f
+                                         where f.idfilialfavorita = :P0_IDFILIALCAIXA )
+                    order by 1
+                    ```
+            }
+            layout {
+                sequence: 5
+            }
+        )
+
+        column IDSUBCONTACONTABIL (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            type: popupLovShowsDisplaysValue
+            heading {
+                heading: Sub Conta
+                alignment: center
+            }
+            lov {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select s.nomeconta display_value
+                         , s.idsubcontafinan return_value
+                    from roman.subcontasfinanceiras s
+                       , roman.contasfinanceiras c
+                    where c.idcontafinan = s.idcontafinan
+                    order by 1
+                    ```
+            }
+            layout {
+                sequence: 7
+            }
+            appearance {
+                width: 40
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column OBSERVACAO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            type: textField
+            heading {
+                heading: Observacao
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            appearance {
+                width: 50
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column OBSERVACAOCONTROLE (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            type: textField
+            heading {
+                heading: Obs Revisão
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            appearance {
+                width: 40
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column QTDANEXOS (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Anexos
+                alignment: center
+            }
+            layout {
+                sequence: 16
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column QUESTIONAMENTO (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            type: link
+            heading {
+                heading: Questionar
+                alignment: center
+            }
+            layout {
+                sequence: 14
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 440
+                    items: {
+                        P440_IDFECHAMENTO: &P0_IDFECHAMENTO.
+                        P440_DESTINO: E
+                        P440_IDFILIALFAVORITA: &P0_IDFILIALCAIXA.
+                        P440_IDQUESTIONAMENTO:
+                        P440_QUESTIONAMENTO: #QUESTIONAR#
+                        P440_PAGINA: 438
+                        P440_ORIGEM: &P438_ORIGEMD.
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#APP_IMAGES#quest1.png" alt="">
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column QUESTIONAR (
+            reportColumnQueryId: 14
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 17
+            }
+        )
+
+        column TIPODESPESA (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Tipo
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALOR (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            type: textField
+            heading {
+                heading: Valor
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            appearance {
+                formatMask: 999G999G999G990D00
+                width: 15
+            }
+            sorting {
+                defaultSequence: 1
+                direction: desc
+            }
+            advanced {
+                customAttributes: style="text-align:right"  readonly
+                computeSum: true
+            }
+        )
+
+        column VALORPAGOCONVERSAO (
+            reportColumnQueryId: 16
+            derivedColumn: N
+            heading {
+                heading: Valor Conversão
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+    )
+
+    pageItem P438_ORIGEMD (
+        type: hidden
+        layout {
+            sequence: 10
+            region: @revisão-de-despesas
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button add (
+        buttonName: ADD
+        label: Add
+        layout {
+            sequence: 40
+            region: @revisão-de-despesas
+            slot: bottom
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:apex.widget.tabular.addRow();
+            executeValidations: false
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    button cancel (
+        buttonName: CANCEL
+        label: Voltar
+        layout {
+            sequence: 10
+            region: @revisão-de-despesas
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 245
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button multi-row-delete (
+        buttonName: MULTI_ROW_DELETE
+        label: Delete
+        layout {
+            sequence: 20
+            region: @revisão-de-despesas
+            slot: delete
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:apex.confirm(htmldb_delete_message,'MULTI_ROW_DELETE');
+            executeValidations: false
+            warnOnUnsavedChanges: doNotCheck
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    button submit (
+        buttonName: SUBMIT
+        label: Salvar
+        layout {
+            sequence: 30
+            region: @revisão-de-despesas
+            slot: change
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process applymru (
+        name: ApplyMRU
+        type: tabformUpdate
+        editableRegion: @revisão-de-despesas
+        target {
+            tableOwner: ROMAN
+            tableName: DESPESAS
+            pkColumn: IDDESPESA
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: #MRU_COUNT# row(s) updated, #MRI_COUNT# row(s) inserted.
+        }
+        advanced {
+            executionMappingIdentifier: 24060586058098075
+        }
+        serverSideCondition {
+            whenButtonPressed: @submit
+        }
+    )
+
+    branch (
+        name: Go To Page 438
+        execution {
+            sequence: 1
+        }
+        behavior {
+            target: {
+                page: 438
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @submit
+        }
+    )
+
+)
+

@@ -1,0 +1,873 @@
+page 74 (
+    name: Faturamento Favorita x Romance
+    title: Faturamento Favorita x Romance
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region faturamento-x-crescimento (
+        name: Faturamento x Crescimento
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT vf.NOME 
+                     , sum(t.rmc_fat_2022) rmc_fat_2022
+                     , sum(t.rmc_fat_2022_conv) rmc_fat_2022_conv
+                     , sum(t.rmc_fat_2023) rmc_fat_2023
+                     , sum(t.rmc_fat_2023_conv) rmc_fat_2023_conv
+                     , CASE 
+                      WHEN sum(rmc_fat_2023) > sum(rmc_fat_2022) THEN
+                        round(pck_util_fav.FNC_DIVISOR_ZERO(sum(rmc_fat_2023), sum(rmc_fat_2022))*100,2)
+                        else 
+                         0
+                       END rmc_crescimento
+                     , sum(t.fav_fat_2022) fav_fat_2022 
+                     , sum(t.fav_fat_2022_conv) fav_fat_2022_conv 
+                     , sum(t.fav_fat_2023) fav_fat_2023
+                     , sum(t.fav_fat_2023_conv) fav_fat_2023_conv
+                     , CASE 
+                      WHEN sum(fav_fat_2023) > sum(fav_fat_2022) THEN
+                        round(pck_util_fav.FNC_DIVISOR_ZERO(sum(fav_fat_2023), sum(fav_fat_2022))*100,2)
+                       else
+                         0
+                       END fav_crescimento
+                FROM roman.VW_FILIAIS vf  
+                   , (
+                     SELECT f.idfilial
+                        , NVL(sum(f.TOTALCOBRANCA+f.TOTALVENDASDIRETAS),0) rmc_fat_2022
+                        , NVL(round(sum((f.TOTALCOBRANCA+f.TOTALVENDASDIRETAS)*f.FATORCONVERSAO),2),0) rmc_fat_2022_conv
+                        , 0 rmc_fat_2023
+                        , 0 rmc_fat_2023_conv
+                        , 0 fav_fat_2022
+                        , 0 fav_fat_2022_conv
+                        , 0 fav_fat_2023
+                        , 0 fav_fat_2023_conv
+                     FROM roman.FECHAMENTOSSEMANAIS f 
+                        , roman.SEMANA_DIAS sd 
+                     WHERE sd.IDSEMANA = f.IDSEMANA 
+                       AND sd.ANO  = :P74_ANO-1
+                       AND sd.SEMANA BETWEEN :P74_SEMANAINI AND :P74_SEMANAFIM
+                     GROUP BY f.IDFILIAL 
+                     UNION ALL 
+                     SELECT f.idfilial
+                        , 0 rmc_fat_2022
+                        , 0 rmc_fat_2022_conv
+                        , NVL(sum(f.TOTALCOBRANCA+f.TOTALVENDASDIRETAS),0) rmc_fat_2023
+                        , NVL(round(sum((f.TOTALCOBRANCA+f.TOTALVENDASDIRETAS)*f.FATORCONVERSAO),2),0) rmc_fat_2023_conv
+                        , 0 fav_fat_2022
+                        , 0 fav_fat_2022_conv
+                        , 0 fav_fat_2023
+                        , 0 fav_fat_2023_conv
+                     FROM roman.FECHAMENTOSSEMANAIS f 
+                        , roman.SEMANA_DIAS sd 
+                     WHERE sd.IDSEMANA = f.IDSEMANA 
+                       AND sd.ANO  = :P74_ANO
+                       AND sd.SEMANA BETWEEN :P74_SEMANAINI AND :P74_SEMANAFIM
+                     GROUP BY f.IDFILIAL 
+                     UNION ALL 
+                     SELECT p.IDFILIALROMANCE 
+                        , 0 rmc_fat_2022
+                        , 0 rmc_fat_2022_conv
+                        , 0 rmc_fat_2023
+                        , 0 rmc_fat_2023_conv
+                        , NVL(sum(v.VALORPAGAR),0) fav_fat_2022
+                        , NVL(sum(v.VALORPAGAR*P.FATORCONVERSAO),0) fav_fat_2022_conv
+                        , 0 fav_fat_2023
+                        , 0 fav_fat_2023_conv
+                     FROM PEDIDOS P
+                        , VENCIMENTOSPEDIDOS V
+                        , roman.SEMANA_DIAS sd2 
+                     WHERE P.DATACANCELAMENTO IS NULL 
+                       AND P.IDPEDIDO = V.IDPEDIDO
+                       AND V.SITUACAOVENCIMENTO = 'V'
+                       AND SD2.IDSEMANA = p.IDSEMANAEMISSAO 
+                       AND sd2.SEMANA BETWEEN :P74_SEMANAINI AND :P74_SEMANAFIM
+                       AND sd2.ANO = :P74_ANO-1
+                       AND p.IDSITUACAOENTREGA  >= 20000
+                       AND p.TIPOPEDIDO IN ('P','V','T')
+                       AND p.VALORAPAGAR  > 0 
+                     GROUP BY p.IDFILIALROMANCE 
+                     UNION ALL
+                     SELECT p.IDFILIALROMANCE 
+                        , 0 rmc_fat_2022
+                        , 0 rmc_fat_2022_conv
+                        , 0 rmc_fat_2023
+                        , 0 rmc_fat_2023_conv
+                        , 0 fav_fat_2022
+                        , 0 fav_fat_2022_conv
+                        , NVL(sum(v.VALORPAGAR),0) fav_fat_2023
+                        , NVL(sum(v.VALORPAGAR*P.FATORCONVERSAO),0) fav_fat_2023_conv
+                     FROM PEDIDOS p 
+                        , VENCIMENTOSPEDIDOS V
+                        , roman.SEMANA_DIAS sd2 
+                     WHERE p.DATACANCELAMENTO IS NULL 
+                       AND V.IDPEDIDO = P.IDPEDIDO
+                       AND V.SITUACAOVENCIMENTO = 'V'
+                       AND SD2.IDSEMANA = p.IDSEMANAEMISSAO 
+                       AND sd2.SEMANA BETWEEN :P74_SEMANAINI AND :P74_SEMANAFIM
+                       AND sd2.ANO = :P74_ANO
+                       AND p.IDSITUACAOENTREGA  >= 20000
+                       AND p.TIPOPEDIDO IN ('P','V','T')
+                       AND p.VALORAPAGAR  > 0 
+                     GROUP BY p.IDFILIALROMANCE 
+                     ) T
+                WHERE vf.IDFILIAL = t.idfilial(+)
+                  AND vf.TIPOFILIAL  = 'D'
+                  AND vf.ATIVO = 'S'
+                  AND vf.IDGRUPO IS NOT null
+                  and :P74_FILTRAR = 'S'
+                group by vf.nome
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado. Verifique os filtros!
+        }
+        advanced {
+            savedReportMappingIdentifier: 1500917170472589623
+        }
+
+        column FAV_CRESCIMENTO (
+            type: plainText
+            heading {
+                heading: Fav Crescimento
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column FAV_FAT_2022 (
+            type: plainText
+            heading {
+                heading: Fav Fat Ano Ant.
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column FAV_FAT_2022_CONV (
+            type: plainText
+            heading {
+                heading: Fav Fat Ano Ant. Conv
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column FAV_FAT_2023 (
+            type: plainText
+            heading {
+                heading: Fav Fat Ano Pesquisa
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column FAV_FAT_2023_CONV (
+            type: plainText
+            heading {
+                heading: Fav Fat Ano Pesquisa Conv
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column NOME (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column RMC_CRESCIMENTO (
+            type: plainText
+            heading {
+                heading: Rmc Crescimento
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column RMC_FAT_2022 (
+            type: plainText
+            heading {
+                heading: Rmc Fat Ano Ant.
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column RMC_FAT_2022_CONV (
+            type: plainText
+            heading {
+                heading: Rmc Fat Ano Ant. Conv
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column RMC_FAT_2023 (
+            type: plainText
+            heading {
+                heading: Rmc Fat Ano Pesquisa
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column RMC_FAT_2023_CONV (
+            type: plainText
+            heading {
+                heading: Rmc Fat Ano Pesquisa Conv
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15021101 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn FAV_CRESCIMENTO (
+                sequence: 11
+            )
+
+            displayColumn FAV_FAT_2022 (
+                sequence: 7
+            )
+
+            displayColumn FAV_FAT_2022_CONV (
+                sequence: 8
+            )
+
+            displayColumn FAV_FAT_2023 (
+                sequence: 9
+            )
+
+            displayColumn FAV_FAT_2023_CONV (
+                sequence: 10
+            )
+
+            displayColumn NOME (
+                sequence: 1
+            )
+
+            displayColumn RMC_CRESCIMENTO (
+                sequence: 6
+            )
+
+            displayColumn RMC_FAT_2022 (
+                sequence: 2
+            )
+
+            displayColumn RMC_FAT_2022_CONV (
+                sequence: 3
+            )
+
+            displayColumn RMC_FAT_2023 (
+                sequence: 4
+            )
+
+            displayColumn RMC_FAT_2023_CONV (
+                sequence: 5
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: FILTROS
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region representatividade-favorita-x-romance (
+        name: Representatividade Favorita x Romance
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , fat_romance.faturado as rmc_faturado
+                     , fat_romance.faturado_conv as rmc_faturado_conv
+                     , fat_favorita.faturado as fav_faturado
+                     , fat_favorita.faturado_conv as fav_faturado_conv
+                     , round( favorita.pck_util_fav.FNC_DIVISOR_ZERO(fat_favorita.faturado,fat_romance.faturado) * 100,2) representatividade
+                from roman.vw_filiais f
+                   , ( select p.idfilialromance idfilial
+                            , sum(v.valorpagar) faturado
+                            , round(sum(v.valorpagar*p.fatorconversao),2) faturado_conv
+                       from favorita.pedidos p
+                          , favorita.vencimentospedidos v
+                          , roman.semana_dias s
+                       where p.idsemanaemissao = s.idsemana
+                         and v.idpedido = p.idpedido
+                         and v.situacaovencimento = 'V'
+                         and s.semana between :P74_SEMANAINI and :P74_SEMANAFIM
+                         and p.tipopedido in ('P','T','V')
+                         and p.idsituacaoentrega >= 20000
+                         and s.ano = :P74_ANO
+                         and p.valorapagar > 0
+                         and :P74_FILTRAR = 'S'
+                       group by p.idfilialromance ) fat_favorita
+                   , ( select idfilial
+                            , sum(ff.totalcobranca+ff.totalvendasdiretas) faturado
+                            , round(sum((ff.totalcobranca+ff.totalvendasdiretas)*ff.fatorconversao),2) faturado_conv
+                       from roman.fechamentossemanais ff
+                          , roman.semana_dias s
+                       where ff.idsemana = s.idsemana
+                         and s.semana between :P74_SEMANAINI and :P74_SEMANAFIM
+                         and :P74_FILTRAR = 'S'
+                         and s.ano = :P74_ANO
+                       group by ff.idfilial ) fat_romance
+                where f.tipofilial = 'D'
+                  and f.idgrupo is not null
+                  and f.ativo = 'S'
+                  and f.idfilial = fat_romance.idfilial(+)
+                  and f.idfilial = fat_favorita.idfilial(+)
+                  and :P74_FILTRAR = 'S'
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado. Verifique os filtros!
+        }
+        advanced {
+            savedReportMappingIdentifier: 890096705455824137
+        }
+
+        column FAV_FATURADO (
+            type: plainText
+            heading {
+                heading: Fav Faturado
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column FAV_FATURADO_CONV (
+            type: plainText
+            heading {
+                heading: Fav Faturado Conv
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column NOME (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column REPRESENTATIVIDADE (
+            type: plainText
+            heading {
+                heading: Representatividade
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column RMC_FATURADO (
+            type: plainText
+            heading {
+                heading: Rmc Faturado
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column RMC_FATURADO_CONV (
+            type: plainText
+            heading {
+                heading: Rmc Faturado Conv
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 15021095 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn FAV_FATURADO (
+                sequence: 4
+            )
+
+            displayColumn FAV_FATURADO_CONV (
+                sequence: 5
+            )
+
+            displayColumn NOME (
+                sequence: 1
+            )
+
+            displayColumn REPRESENTATIVIDADE (
+                sequence: 6
+            )
+
+            displayColumn RMC_FATURADO (
+                sequence: 2
+            )
+
+            displayColumn RMC_FATURADO_CONV (
+                sequence: 3
+            )
+
+        )
+
+    )
+
+    pageItem P74_ANO (
+        type: numberField
+        label {
+            label: Ano
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P74_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P74_SEMANAFIM (
+        type: numberField
+        label {
+            label: Semana Fim
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P74_SEMANAINI (
+        type: numberField
+        label {
+            label: Semana Inicio
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        name: Go To Page 74
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 74
+                items: {
+                    P74_SEMANAINI: &P74_SEMANAINI.
+                    P74_SEMANAFIM: &P74_SEMANAFIM.
+                    P74_FILTRAR: S
+                    P74_ANO: &P74_ANO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

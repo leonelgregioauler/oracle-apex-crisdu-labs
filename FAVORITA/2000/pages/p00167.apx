@@ -1,0 +1,2392 @@
+page 167 (
+    name: Emissão de Pedidos
+    title: Emissão de Pedidos
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    css {
+        inline:
+            ```css
+            /* Deixa as tags com cantos mais arredondados e um fundo sutil */
+            .apex-item-token {
+                background-color: #f0f4f8 !important;
+                border: 1px solid #d1d9e0 !important;
+                border-radius: 20px !important;
+                padding: 2px 10px !important;
+                font-weight: 500;
+                color: #1a202c !important;
+            }
+            
+            /* Muda a cor do 'X' de remover para dar destaque */
+            .apex-item-token-close {
+                color: #e53e3e !important;
+            }
+            
+            /* Força as tags selecionadas a se alinharem no início (esquerda) da caixa */
+            .apex-item-token-list {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                justify-content: flex-start !important; /* Alinha no começo */
+                align-items: flex-start !important;
+                padding: 4px !important;
+                gap: 4px !important; /* Cria um espinho padrão entre as tags */
+            }
+            
+            /* Garante que cada tag fique colada na esquerda */
+            .apex-item-token {
+                margin: 0 !important;
+                float: left !important;
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region emissão-detalhado (
+        name: Emissão Detalhado
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distinct
+                       p.idpedido 
+                     , p.desctipopedido tipopedido
+                     , p.edicaorevista
+                     , p.filialromance
+                     , p.representante
+                     , p.vendedora
+                     , p.idusuario
+                     , p.nomeusuario
+                     , p.dataemissao
+                     , p.dataentrega
+                     , p.datavencimento
+                     , round(p.valortotal  * nvl(p.fatorconversao,1),2) valortotal
+                     , round(p.valorapagar * nvl(p.fatorconversao,1),2) valorapagar
+                     , round(p.valortotalcomdesconto * nvl(p.fatorconversao,1),2) valortotalcomdesconto
+                     , p.situacaovencimento ||' - '||pck_pedidos_fav.fnc_situacaopagamentoped(p.idpedido) situacaoboleto
+                     , p.situacaoentrega
+                from classificacoespedidos cp
+                   , vw_pedidos_fav_new p
+                where cp.idpedido = p.idpedido(+)
+                  and (:P167_ATENDENTE is null or p.idusuario = :P167_ATENDENTE)
+                  and trunc(p.dataemissao) between to_date(:P167_DATAINICIO,'DD/MM/RRRR') and to_date(:P167_DATAFIM,'DD/MM/RRRR')
+                  and :P167_TIPORELATORIO = 'D'
+                  and p.idsituacaoentrega >= 20000
+                  and ( :P167_FORMAENTREGA = 0 or exists ( select 1
+                                                             from classificacoespedidos c
+                                                             where c.idcaracteristicapedido = 13
+                                                               and c.idvalorcaracteristica = :P167_FORMAENTREGA
+                                                               and c.idpedido = p.idpedido ))
+                  and (:P167_IDPAIS is null or p.idpais   = :P167_IDPAIS)
+                  and (
+                       :P167_FILTRARFAVORITA is null
+                
+                    or (
+                           :P167_FILTRARFAVORITA = 'C'
+                       and p.idfilialfavorita in (
+                              select ff.idfilialfavorita
+                              from filiaisfavorita ff
+                              where ff.ativo = 'S'
+                                and ff.tipofilial = 'C'
+                       )
+                    )
+                
+                    or (
+                           :P167_FILTRARFAVORITA = 'T'
+                    )
+                
+                    or (
+                           :P167_FILTRARFAVORITA = 'S'
+                       and p.idfilialfavorita in (
+                              select to_number(column_value)
+                              from apex_string.split(:P167_SELECTFILTROFAVORITA, ':')
+                       )
+                    )
+                )
+                
+                and (
+                       :P167_FILTRARROMANCE = 'T'
+                
+                    or (
+                           :P167_FILTRARROMANCE = 'S'
+                       and p.idfilialromance in (
+                              select to_number(column_value)
+                              from apex_string.split(:P167_SELECTFILTROROMANCE, ':')
+                       )
+                    )
+                )                                               
+                  and ( :P167_TIPO = 'Z'
+                       or p.tipopedido = :P167_TIPO )
+                  and nvl(p.valortotal,0) > 0
+                  and ( ( :P167_CANCELADO = 'S' and p.datacancelamento is not null and p.idsituacaoentrega != 50 )
+                     or ( :P167_CANCELADO = 'N' and p.datacancelamento is null ))  
+                  and ( :P167_PEDIDOS_PONTOS = 'T' 
+                       or ( :P167_PEDIDOS_PONTOS = 'S' and exists ( select 1
+                                                                    from classificacoespedidos c
+                                                                    where c.idcaracteristicapedido = 8
+                                                                      and c.idvalorcaracteristica  = 16
+                                                                      and c.idpedido               = p.idpedido ) )
+                       or ( :P167_PEDIDOS_PONTOS = 'N' and not exists ( select 1
+                                                                        from classificacoespedidos c
+                                                                        where c.idcaracteristicapedido = 8
+                                                                          and c.idvalorcaracteristica  = 16
+                                                                          and c.idpedido               = p.idpedido ) ) )
+                  and (:P167_CAMPANHA = 'T' or ( :P167_CAMPANHA = 'P' and exists ( select 1
+                                                                                     from classificacoespedidos c
+                                                                                     where c.idpedido    = p.idpedido
+                                                                                       and c.idcaracteristicapedido = 74 ) )
+                                            or ( :P167_CAMPANHA = 'V' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 78 ) ) 
+                                            or ( :P167_CAMPANHA = 'W' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 94 ) ) 
+                                            or ( :P167_CAMPANHA = 'B' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 96 ) )
+                                            or ( :P167_CAMPANHA = 'A' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 97 ))
+                                            or ( :P167_CAMPANHA = 'K' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 111 )))
+                  and ( (:P167_CANCELADO = 'S'  and  :P167_PEDIDONUMERO = 'N')
+                       or (cp.idcaracteristicapedido = 11 
+                          and ( :P167_PEDIDONUMERO = 'N'
+                           or ( :P167_PEDIDONUMERO = 1 and cp.idvalorcaracteristica = 1 )
+                           or ( :P167_PEDIDONUMERO = 2 and cp.idvalorcaracteristica = 2 )
+                           or ( :P167_PEDIDONUMERO = 3 and cp.idvalorcaracteristica >= 3 ) ) ) )
+                  and ( (:P167_LIMITEEXCEDENTELIBERADO = 'T') or (:P167_LIMITEEXCEDENTELIBERADO = 'S' and exists ( select 1
+                                                                                                                   from classificacoespedidos c
+                                                                                                                   where c.idcaracteristicapedido = 22
+                                                                                                                     and c.idpedido = p.idpedido ) )
+                                                              or (:P167_LIMITEEXCEDENTELIBERADO = 'N' and not exists ( select 1
+                                                                                                                       from classificacoespedidos c
+                                                                                                                       where c.idcaracteristicapedido = 22
+                                                                                                                         and c.idpedido = p.idpedido ) ) )  
+                  and ( :P167_PAGO = 'T' or (:P167_PAGO = 'S' and (p.valorapagar - p.valorpago) = 0) or (:P167_PAGO = 'N' and (p.valorapagar - p.valorpago) > 0) )                                                                                                       
+                order by p.dataemissao
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText: <b><h4><font color="green"> Relatório só leva em consideração pedidos que possuem valor e não estão como Carrinho abandonado!</h4></b></font>
+        }
+        serverSideCondition {
+            type: item=value
+            item: P167_TIPORELATORIO
+            value: D
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 31852281240184642
+        }
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column DATAENTREGA (
+            type: plainText
+            heading {
+                heading: Entrega
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column DATAVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Vencimento(s)
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column EDICAOREVISTA (
+            type: plainText
+            heading {
+                heading: "Edição "
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column FILIALROMANCE (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column IDPEDIDO (
+            type: link
+            heading {
+                heading: NrPedido
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 68
+                    items: {
+                        P68_IDPEDIDO: #IDPEDIDO#
+                    }
+                    action: resetPagination
+                }
+                linkText: #IDPEDIDO#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column IDUSUARIO (
+            type: hidden
+            heading {
+                heading: Cod. Usuário
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NOMEUSUARIO (
+            type: plainText
+            heading {
+                heading: Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column SITUACAOBOLETO (
+            type: plainText
+            heading {
+                heading: Vencimento/Boleto
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column SITUACAOENTREGA (
+            type: plainText
+            heading {
+                heading: Situação Entrega
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column TIPOPEDIDO (
+            type: plainText
+            heading {
+                heading: Tipo de Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 170
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Valor A Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column VALORTOTALCOMDESCONTO (
+            type: plainText
+            heading {
+                heading: Valor com Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column VENDEDORA (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 569369 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn DATAEMISSAO (
+                sequence: 8
+            )
+
+            displayColumn DATAENTREGA (
+                sequence: 9
+            )
+
+            displayColumn DATAVENCIMENTO (
+                sequence: 10
+            )
+
+            displayColumn EDICAOREVISTA (
+                sequence: 3
+            )
+
+            displayColumn FILIALROMANCE (
+                sequence: 5
+            )
+
+            displayColumn IDPEDIDO (
+                sequence: 2
+            )
+
+            displayColumn NOMEUSUARIO (
+                sequence: 1
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 6
+            )
+
+            displayColumn SITUACAOBOLETO (
+                sequence: 13
+            )
+
+            displayColumn SITUACAOENTREGA (
+                sequence: 14
+            )
+
+            displayColumn TIPOPEDIDO (
+                sequence: 4
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 12
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 11
+            )
+
+            displayColumn VALORTOTALCOMDESCONTO (
+                sequence: 15
+            )
+
+            displayColumn VENDEDORA (
+                sequence: 7
+            )
+
+            aggregate (
+                column: VALORTOTAL
+            )
+
+            aggregate (
+                column: VALORAPAGAR
+            )
+
+            aggregate (
+                function: count
+                column: NUMEROPEDIDO
+            )
+
+            controlBreak (
+                column: NOMEUSUARIO
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region emissão-detalhado-maicon (
+        name: Emissão Detalhado _MAICON
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distinct
+                       p.idpedido 
+                     , p.desctipopedido tipopedido
+                     , p.edicaorevista
+                     , p.filialromance
+                     , p.representante
+                     , p.vendedora
+                     , p.idusuario
+                     , p.nomeusuario
+                     , p.dataemissao
+                     , p.dataentrega
+                     , p.datavencimento
+                     , round(p.valortotal  * nvl(p.fatorconversao,1),2) valortotal
+                     , round(p.valorapagar * nvl(p.fatorconversao,1),2) valorapagar
+                     , round(p.valortotalcomdesconto * nvl(p.fatorconversao,1),2) valortotalcomdesconto
+                     , p.situacaovencimento ||' - '||pck_pedidos_fav.fnc_situacaopagamentoped(p.idpedido) situacaoboleto
+                     , p.situacaoentrega
+                from classificacoespedidos cp
+                   , vw_pedidos_fav_new p
+                where cp.idpedido = p.idpedido(+)
+                  and p.idusuario = 5495
+                  and p.idpedido = 7028740
+                  
+                  and (:P167_ATENDENTE is null or p.idusuario = :P167_ATENDENTE)
+                  
+                  and trunc(p.dataemissao) between to_date(:P167_DATAINICIO,'DD/MM/RRRR') and to_date(:P167_DATAFIM,'DD/MM/RRRR')
+                  
+                  and :P167_TIPORELATORIO = 'D'
+                  
+                  and p.idsituacaoentrega >= 20000
+                  
+                  and ( :P167_FORMAENTREGA = 0 or exists ( select 1
+                                                             from classificacoespedidos c
+                                                             where c.idcaracteristicapedido = 13
+                                                               and c.idvalorcaracteristica = :P167_FORMAENTREGA
+                                                               and c.idpedido = p.idpedido ))
+                  
+                  and (:P167_IDPAIS is null or p.idpais   = :P167_IDPAIS)
+                  
+                  and (
+                       :P167_FILTRARFAVORITA is null
+                
+                    or (
+                           :P167_FILTRARFAVORITA = 'C'
+                       and p.idfilialfavorita in (
+                              select ff.idfilialfavorita
+                              from filiaisfavorita ff
+                              where ff.ativo = 'S'
+                                and ff.tipofilial = 'C'
+                       )
+                    )
+                
+                    or (
+                           :P167_FILTRARFAVORITA = 'T'
+                    )
+                
+                    or (
+                           :P167_FILTRARFAVORITA = 'S'
+                       and p.idfilialfavorita in (
+                              select to_number(column_value)
+                              from apex_string.split(:P167_SELECTFILTROFAVORITA, ':')
+                       )
+                    )
+                )
+                
+                and (
+                       :P167_FILTRARROMANCE = 'T'
+                
+                    or (
+                           :P167_FILTRARROMANCE = 'S'
+                       and p.idfilialromance in (
+                              select to_number(column_value)
+                              from apex_string.split(:P167_SELECTFILTROROMANCE, ':')
+                       )
+                    )
+                )
+                                                                               
+                  and ( :P167_TIPO = 'Z'
+                       or p.tipopedido = :P167_TIPO )
+                
+                  and nvl(p.valortotal,0) > 0
+                  
+                  and ( ( :P167_CANCELADO = 'S' and p.datacancelamento is not null and p.idsituacaoentrega != 50 )
+                     or ( :P167_CANCELADO = 'N' and p.datacancelamento is null ))  
+                
+                  and ( :P167_PEDIDOS_PONTOS = 'T' 
+                       or ( :P167_PEDIDOS_PONTOS = 'S' and exists ( select 1
+                                                                    from classificacoespedidos c
+                                                                    where c.idcaracteristicapedido = 8
+                                                                      and c.idvalorcaracteristica  = 16
+                                                                      and c.idpedido               = p.idpedido ) )
+                       or ( :P167_PEDIDOS_PONTOS = 'N' and not exists ( select 1
+                                                                        from classificacoespedidos c
+                                                                        where c.idcaracteristicapedido = 8
+                                                                          and c.idvalorcaracteristica  = 16
+                                                                          and c.idpedido               = p.idpedido ) ) )
+                /*
+                  and (:P167_CAMPANHA = 'T' or ( :P167_CAMPANHA = 'P' and exists ( select 1
+                                                                                     from classificacoespedidos c
+                                                                                     where c.idpedido    = p.idpedido
+                                                                                       and c.idcaracteristicapedido = 74 ) )
+                                            or ( :P167_CAMPANHA = 'V' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 78 ) ) 
+                                            or ( :P167_CAMPANHA = 'W' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 94 ) ) 
+                                            or ( :P167_CAMPANHA = 'B' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 96 ) )
+                                            or ( :P167_CAMPANHA = 'A' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 97 ))
+                                            or ( :P167_CAMPANHA = 'K' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 111 )))
+                  and ( (:P167_CANCELADO = 'S'  and  :P167_PEDIDONUMERO = 'N')
+                       or (cp.idcaracteristicapedido = 11 
+                          and ( :P167_PEDIDONUMERO = 'N'
+                           or ( :P167_PEDIDONUMERO = 1 and cp.idvalorcaracteristica = 1 )
+                           or ( :P167_PEDIDONUMERO = 2 and cp.idvalorcaracteristica = 2 )
+                           or ( :P167_PEDIDONUMERO = 3 and cp.idvalorcaracteristica >= 3 ) ) ) )
+                  and ( (:P167_LIMITEEXCEDENTELIBERADO = 'T') or (:P167_LIMITEEXCEDENTELIBERADO = 'S' and exists ( select 1
+                                                                                                                   from classificacoespedidos c
+                                                                                                                   where c.idcaracteristicapedido = 22
+                                                                                                                     and c.idpedido = p.idpedido ) )
+                                                              or (:P167_LIMITEEXCEDENTELIBERADO = 'N' and not exists ( select 1
+                                                                                                                       from classificacoespedidos c
+                                                                                                                       where c.idcaracteristicapedido = 22
+                                                                                                                         and c.idpedido = p.idpedido ) ) )  
+                  and ( :P167_PAGO = 'T' or (:P167_PAGO = 'S' and (p.valorapagar - p.valorpago) = 0) or (:P167_PAGO = 'N' and (p.valorapagar - p.valorpago) > 0) )                                                                                                       
+                order by p.dataemissao
+                
+                
+                */
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText: <b><h4><font color="green"> Relatório só leva em consideração pedidos que possuem valor e não estão como Carrinho abandonado!</h4></b></font>
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from dual
+                 where :P167_TIPORELATORIO = 'D'
+                   and V('APP_USER') = 'MAICONAIMI'
+                ```
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 136813852962122812
+        }
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column DATAENTREGA (
+            type: plainText
+            heading {
+                heading: Entrega
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column DATAVENCIMENTO (
+            type: plainText
+            heading {
+                heading: Vencimento(s)
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column EDICAOREVISTA (
+            type: plainText
+            heading {
+                heading: "Edição "
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column FILIALROMANCE (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column IDPEDIDO (
+            type: link
+            heading {
+                heading: NrPedido
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 68
+                    items: {
+                        P68_IDPEDIDO: #IDPEDIDO#
+                    }
+                    action: resetPagination
+                }
+                linkText: #IDPEDIDO#
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column IDUSUARIO (
+            type: hidden
+            heading {
+                heading: Cod. Usuário
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NOMEUSUARIO (
+            type: plainText
+            heading {
+                heading: Atendente
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column SITUACAOBOLETO (
+            type: plainText
+            heading {
+                heading: Vencimento/Boleto
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column SITUACAOENTREGA (
+            type: plainText
+            heading {
+                heading: Situação Entrega
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column TIPOPEDIDO (
+            type: plainText
+            heading {
+                heading: Tipo de Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Valor A Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column VALORTOTALCOMDESCONTO (
+            type: plainText
+            heading {
+                heading: Valor com Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column VENDEDORA (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 3430778 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATAEMISSAO (
+                sequence: 7
+            )
+
+            displayColumn DATAENTREGA (
+                sequence: 8
+            )
+
+            displayColumn DATAVENCIMENTO (
+                sequence: 9
+            )
+
+            displayColumn EDICAOREVISTA (
+                sequence: 1
+            )
+
+            displayColumn FILIALROMANCE (
+                sequence: 2
+            )
+
+            displayColumn IDPEDIDO (
+                sequence: 15
+            )
+
+            displayColumn IDUSUARIO (
+                sequence: 6
+            )
+
+            displayColumn NOMEUSUARIO (
+                sequence: 5
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 3
+            )
+
+            displayColumn SITUACAOBOLETO (
+                sequence: 13
+            )
+
+            displayColumn SITUACAOENTREGA (
+                sequence: 14
+            )
+
+            displayColumn TIPOPEDIDO (
+                sequence: 16
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 11
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 10
+            )
+
+            displayColumn VALORTOTALCOMDESCONTO (
+                sequence: 12
+            )
+
+            displayColumn VENDEDORA (
+                sequence: 4
+            )
+
+        )
+
+    )
+
+    region emissão-resumido (
+        name: Emissão Resumido
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select count(*) quantidadepedidos
+                     , sum(( select count(distinct ip.idkitvenda)
+                               from itenspedidos ip
+                               where ip.idpedido = pp.idpedido
+                               and  idkitvenda is not null )) quantidadekits
+                     , round(sum(pp.valortotal  * nvl(pp.fatorconversao,1)),2) valortotal
+                     , round(sum(pp.valorapagar * nvl(pp.fatorconversao,1)),2) valorapagar
+                     , round(sum(pp.valortotalcomdesconto * nvl(pp.fatorconversao,1)),2) valortotalcomdesconto
+                     , pp.idusuario
+                     , pck_util_fav.fnc_nomeusuario_e_pais(pp.idusuario) nomeusuario
+                     , count(distinct trunc(pp.dataemissao) )  qtddias
+                from 
+                ( select distinct p.* 
+                  from classificacoespedidos cp
+                     , vw_pedidos_fav_new p
+                  where cp.idpedido = p.idpedido(+)
+                   -- and p.idusuario is not null
+                    and p.idsituacaoentrega >= 20000
+                    and (:P167_ATENDENTE is null or p.idusuario = :P167_ATENDENTE)
+                    and trunc(p.dataemissao) between to_date(:P167_DATAINICIO,'DD/MM/RRRR') and to_date(:P167_DATAFIM,'DD/MM/RRRR')
+                    and :P167_TIPORELATORIO = 'R'
+                    and ( :P167_FORMAENTREGA = 0 or exists ( select 1
+                                                             from classificacoespedidos c
+                                                             where c.idcaracteristicapedido = 13
+                                                               and c.idvalorcaracteristica = :P167_FORMAENTREGA
+                                                               and c.idpedido = p.idpedido ))
+                    and (:P167_IDPAIS is null or p.idpais   = :P167_IDPAIS)
+                    and (
+                       :P167_FILTRARFAVORITA is null
+                
+                    or (
+                           :P167_FILTRARFAVORITA = 'C'
+                       and p.idfilialfavorita in (
+                              select ff.idfilialfavorita
+                              from filiaisfavorita ff
+                              where ff.ativo = 'S'
+                                and ff.tipofilial = 'C'
+                       )
+                    )
+                
+                    or (
+                           :P167_FILTRARFAVORITA = 'T'
+                    )
+                
+                    or (
+                           :P167_FILTRARFAVORITA = 'S'
+                       and p.idfilialfavorita in (
+                              select to_number(column_value)
+                              from apex_string.split(:P167_SELECTFILTROFAVORITA, ':')
+                       )
+                    )
+                )
+                
+                and (
+                       :P167_FILTRARROMANCE = 'T'
+                
+                    or (
+                           :P167_FILTRARROMANCE = 'S'
+                       and p.idfilialromance in (
+                              select to_number(column_value)
+                              from apex_string.split(:P167_SELECTFILTROROMANCE, ':')
+                       )
+                    )
+                )
+                    and ( :P167_TIPO = 'Z'
+                       or p.tipopedido = :P167_TIPO )
+                    and nvl(p.valortotal,0) > 0
+                    and ( ( :P167_CANCELADO = 'S' and p.datacancelamento is not null and p.idsituacaoentrega != 50 )
+                       or ( :P167_CANCELADO = 'N' and p.datacancelamento is null ) )
+                    and ( :P167_PEDIDOS_PONTOS = 'T' 
+                       or ( :P167_PEDIDOS_PONTOS = 'S' and exists ( select 1
+                                                                    from classificacoespedidos c
+                                                                    where c.idcaracteristicapedido = 8
+                                                                      and c.idvalorcaracteristica  = 16
+                                                                      and c.idpedido               = p.idpedido ) )
+                       or ( :P167_PEDIDOS_PONTOS = 'N' and not exists ( select 1
+                                                                        from classificacoespedidos c
+                                                                        where c.idcaracteristicapedido = 8
+                                                                          and c.idvalorcaracteristica  = 16
+                                                                          and c.idpedido               = p.idpedido ) ) )
+                    and (:P167_CAMPANHA = 'T' or ( :P167_CAMPANHA = 'P' and exists ( select 1
+                                                                                     from classificacoespedidos c
+                                                                                     where c.idpedido    = p.idpedido
+                                                                                       and c.idcaracteristicapedido = 74 ) )
+                                            or ( :P167_CAMPANHA = 'V' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 78 ) ) 
+                                            or ( :P167_CAMPANHA = 'W' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 94 ) )
+                                           or ( :P167_CAMPANHA = 'B' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 96 ) )
+                                           or ( :P167_CAMPANHA = 'A' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 97 ))
+                                           or ( :P167_CAMPANHA = 'K' and exists ( select 1
+                                                                                   from classificacoespedidos c
+                                                                                   where c.idpedido    = p.idpedido
+                                                                                     and c.idcaracteristicapedido = 111 )))
+                    and ( (:P167_CANCELADO = 'S'  and  :P167_PEDIDONUMERO = 'N')
+                         or (cp.idcaracteristicapedido = 11 
+                            and ( :P167_PEDIDONUMERO = 'N'
+                             or ( :P167_PEDIDONUMERO = 1 and cp.idvalorcaracteristica = 1 )
+                             or ( :P167_PEDIDONUMERO = 2 and cp.idvalorcaracteristica = 2 )
+                             or ( :P167_PEDIDONUMERO = 3 and cp.idvalorcaracteristica >= 3 ) ) ) ) 
+                     and ( (:P167_LIMITEEXCEDENTELIBERADO = 'T') or (:P167_LIMITEEXCEDENTELIBERADO = 'S' and exists ( select 1
+                                                                                                                     from classificacoespedidos c
+                                                                                                                     where c.idcaracteristicapedido = 22
+                                                                                                                     and c.idpedido = p.idpedido ) )
+                                                                or (:P167_LIMITEEXCEDENTELIBERADO = 'N' and not exists ( select 1
+                                                                                                                         from classificacoespedidos c
+                                                                                                                         where c.idcaracteristicapedido = 22
+                                                                                                                         and c.idpedido = p.idpedido ) ) ) 
+                      and ( :P167_PAGO = 'T' or (:P167_PAGO = 'S' and (p.valorapagar - p.valorpago) = 0) or (:P167_PAGO = 'N' and (p.valorapagar - p.valorpago) > 0) )  ) pp
+                  group by pp.idusuario
+                order by 5
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText: <b><h4><font color="green"> Relatório só leva em consideração pedidos que possuem valor!</h4></b></font>
+        }
+        serverSideCondition {
+            type: item=value
+            item: P167_TIPORELATORIO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToYOfZ
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 56923965833101205
+        }
+
+        column IDUSUARIO (
+            type: hidden
+            heading {
+                heading: Cod. Usuario
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NOMEUSUARIO (
+            type: plainText
+            heading {
+                heading: Usuário
+                alignment: center
+            }
+            layout {
+                sequence: 1
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column QTDDIAS (
+            type: plainText
+            heading {
+                heading: Qtd Dias
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CQ
+            }
+        )
+
+        column QUANTIDADEKITS (
+            type: plainText
+            heading {
+                heading: Qtd Kits
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CP
+            }
+        )
+
+        column QUANTIDADEPEDIDOS (
+            type: plainText
+            heading {
+                heading: Qtd Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CO
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Valor A Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column VALORTOTALCOMDESCONTO (
+            type: plainText
+            heading {
+                heading: Valor Com Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CR
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 569406 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn APXWS_CC_001 (
+                sequence: 8
+            )
+
+            displayColumn IDIDIDIOMA (
+                sequence: 4
+            )
+
+            displayColumn NOMEUSUARIO (
+                sequence: 1
+            )
+
+            displayColumn QTDDIAS (
+                sequence: 7
+            )
+
+            displayColumn QUANTIDADEKITS (
+                sequence: 6
+            )
+
+            displayColumn QUANTIDADEPEDIDOS (
+                sequence: 5
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 3
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 2
+            )
+
+            displayColumn VALORTOTALCOMDESCONTO (
+                sequence: 9
+            )
+
+            computation APXWS_CC_001 (
+                identifier: C01
+                source {
+                    expression: C  /  CO
+                    dataType: number
+                }
+                label {
+                    column: Ticket Médio
+                }
+                appearance {
+                    formatMask: FML999G999G999G999G990D00
+                }
+            )
+
+            aggregate (
+                column: VALORTOTAL
+            )
+
+            aggregate (
+                column: VALORAPAGAR
+            )
+
+            aggregate (
+                column: COUNT(*)
+            )
+
+            aggregate (
+                column: QUANTIDADEPEDIDOS
+            )
+
+            aggregate (
+                function: average
+                column: APXWS_CC_001
+            )
+
+        )
+
+    )
+
+    region opções (
+        name: "Opções "
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P167_ATENDENTE (
+        type: selectList
+        label {
+            label: Atendente
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomeusuario(u.idusuario) display_value
+                     , u.idusuario return_value
+                from usuarios u
+                where exists ( select 1
+                               from roman.usuariosgruposatendimento ug
+                               where ug.usuario = u.usuario 
+                                 and ug.idgrupoatendimento = 4 )
+                  and exists ( select 1
+                               from pedidos p
+                               where p.idusuario = u.idusuario )
+                order by 1
+                ```
+            nullDisplayValue: " - Todos -"
+        }
+        layout {
+            sequence: 40
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_CAMPANHA (
+        type: selectList
+        label {
+            label: Campanha
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Prospecção;P,Venda Ativa;V,WhastApp;W,Belém Pronta Entrega;B,Todas;T,Ativa WhatsApp;A,Pedido Syngoo;K
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 160
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_CANCELADO (
+        type: radioGroup
+        label {
+            label: Cancelado
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 120
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: até
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_FILTRARFAVORITA (
+        type: radioGroup
+        label {
+            label: Filial Favorita
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Call Center;C,Todas;T,Selecionar;S
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 70
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_FILTRARROMANCE (
+        type: radioGroup
+        label {
+            label: Empresa Romance
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Todas;T,Selecionar;S
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 90
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_FORMAENTREGA (
+        type: selectList
+        label {
+            label: Forma Entrega
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.descricao showvalue
+                     , f.idformaentrega returnvalue 
+                from favorita.formasentregas f
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Todas -"
+            nullReturnValue: 0
+        }
+        layout {
+            sequence: 50
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_IDFILIALFAVORITA (
+        type: popupLov
+        label {
+            label: Origem
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sharedComponent
+            lov: @lov-filiaisfavorita
+            displayExtraValues: false
+        }
+        layout {
+            sequence: 60
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 20
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_IDPAIS (
+        type: selectList
+        label {
+            label: Pais
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.nome sv
+                     , p.idpais rv
+                from catal.paises p
+                ```
+            displayExtraValues: false
+            nullDisplayValue: " - Todos -"
+        }
+        layout {
+            sequence: 30
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_LIMITEEXCEDENTELIBERADO (
+        type: radioGroup
+        label {
+            label: Limite Excedente Libera.
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            nullDisplayValue: Todos
+            nullReturnValue: T
+        }
+        layout {
+            sequence: 190
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_PAGO (
+        type: radioGroup
+        label {
+            label: Pagos
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            nullDisplayValue: Todos
+            nullReturnValue: T
+        }
+        layout {
+            sequence: 130
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_PEDIDONUMERO (
+        type: radioGroup
+        label {
+            label: Pedido Número
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Não Filtrar;N,1º Pedido;1,2º Pedido;2,3º Pedido ou mais;3
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 170
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_PEDIDOS_PONTOS (
+        type: radioGroup
+        label {
+            label: Ped. Pontos
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            nullDisplayValue: Todos
+            nullReturnValue: T
+        }
+        layout {
+            sequence: 140
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_SELECTFILTROFAVORITA (
+        type: plugin/select
+        label {
+            label: Selecionar Filial
+            alignment: left
+        }
+        settings {
+            selectListType: multiValueSelectList
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nomefilialfavorita d
+                     , f.idfilialfavorita r
+                from vw_filiaisfavorita f
+                where exists (
+                    select 1
+                    from usuariosfiliaisfavorita u
+                    where u.idfilialfavorita = f.idfilialfavorita
+                      and u.consultar = 'S'
+                      and u.idusuario = :P0_IDUSUARIO
+                )
+                order by 2
+                ```
+        }
+        layout {
+            sequence: 80
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P167_SELECTFILTROROMANCE (
+        type: plugin/select
+        label {
+            label: "Selecionar empresa "
+            alignment: left
+        }
+        settings {
+            selectListType: multiValueSelectList
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select w.nome display_value
+                     , w.idfilial return_value
+                from roman.vw_filiais w
+                where w.ativo = 'S'
+                  and w.tipofilial = 'D'
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 100
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P167_TIPO (
+        type: selectList
+        label {
+            label: Tipo
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Pedido;P,Troca;T,Venda Direta;V,Romance Casa;R,Todos;Z
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 150
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P167_TIPORELATORIO (
+        type: radioGroup
+        label {
+            label: Relatório
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Detalhado;D,Resumido;R
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 180
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Buscar
+        layout {
+            sequence: 200
+            region: @opções
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction selecionar (
+        name: Selecionar
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P167_FILTRARFAVORITA
+        }
+        clientSideCondition {
+            type: item=value
+            item: P167_FILTRARFAVORITA
+            value: S
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P167_SELECTFILTROFAVORITA
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P167_SELECTFILTROFAVORITA
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    dynamicAction selecionar-romane (
+        name: Selecionar Romane
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P167_FILTRARROMANCE
+        }
+        clientSideCondition {
+            type: item=value
+            item: P167_FILTRARROMANCE
+            value: S
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P167_SELECTFILTROROMANCE
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P167_SELECTFILTROROMANCE
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    branch (
+        name: buscar pedidos
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 167
+                items: {
+                    P167_DATAINICIO: &P167_DATAINICIO.
+                    P167_DATAFIM: &P167_DATAFIM.
+                    P167_ATENDENTE: &P167_ATENDENTE.
+                    P167_TIPORELATORIO: &P167_TIPORELATORIO.
+                    P167_IDFILIALFAVORITA: &P167_IDFILIALFAVORITA.
+                    P167_TIPO: &P167_TIPO.
+                    P167_CANCELADO: &P167_CANCELADO.
+                    P167_CAMPANHA: &P167_CAMPANHA.
+                    P167_PEDIDOS_PONTOS: &P167_PEDIDOS_PONTOS.
+                    P167_FORMAENTREGA: &P167_FORMAENTREGA.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @buscar
+        }
+    )
+
+)
+

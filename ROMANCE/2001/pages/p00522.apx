@@ -1,0 +1,1007 @@
+page 522 (
+    name: Débitos da Romance para Gerar Tarefa
+    title: Débitos da Romance para Gerar Tarefa
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region filtro (
+        name: Filtro
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region notas-para-gerar-tarefas (
+        name: Notas para Gerar Tarefas
+        type: tabform
+        source {
+            sqlQuery:
+                ```sql
+                select nv.idnotavenda
+                     , v.idpessoa
+                     , v.idvendedora
+                     , nv.numeronota
+                     , roman.pck_romance.fnc_nomevendedora(v.idvendedora) consultora
+                     , pck_util.fnc_retornatelefones(v.idpessoa)Telefone
+                     , roman.pck_romance.fnc_nomerepresentante(nv.idrepresentante) distribuidor
+                     , nv.datanota
+                     , nv.dataenviadocobranca
+                     , nvl(( select s.descricao
+                             from catal.situacoespromissorias s
+                             where s.idsituacaopromis = nv.idsituacaopromissoria ),'-') situacaopromissoria
+                     , nv.valortotalnota
+                     , nv.valortotalvenda
+                     , nv.valortotalvendalqd
+                     , nv.valorpago
+                     , nv.saldo
+                     , round(nv.saldo*nv.fatorconversao,2) Saldo2
+                   --  , roman.pck_romance.fnc_cpfvendedora(v.idvendedora) cpf
+                     , (select nvl(p.documentoestrangeiro,cpf)
+                        from catal.pessoas p
+                        where p.idpessoa = v.idpessoa)Documento
+                     , ( select max(data)
+                         from roman.notastarefasgeradas nf
+                         where nf.idnotavenda = nv.idnotavenda) ultimatarefa
+                     , nvl(( select max (cn.dataclassificado)
+                             from roman.classificacoesnotasvendas cn
+                             where cn.idnotavenda = nv.idnotavenda
+                               and cn.idcaracteristicanotavenda = 42 ),null) dataenviadaspc
+                from roman.notasvendas nv
+                   , catal.vendedoras v
+                where v.idvendedora = nv.idvendedora
+                  and nv.enviadocobranca = 'S'
+                  and nv.saldo > 0
+                  and ( :P522_RESPCOBRANCA = 'A'
+                   or ( :P522_RESPCOBRANCA = 'S' and nv.responsavelcobranca is not null )
+                   or ( :P522_RESPCOBRANCA = 'N' and nv.responsavelcobranca is null ) )
+                  and ( :P522_PROMISSORIARECEBIDA = 'A'
+                   or ( :P522_PROMISSORIARECEBIDA = 'S' and nv.idsituacaopromissoria is not null )
+                   or ( :P522_PROMISSORIARECEBIDA = 'N' and nv.idsituacaopromissoria is null ) )
+                  and ( :P522_ASSINATURA_ELETRONICA = 'A'
+                   or ( :P522_ASSINATURA_ELETRONICA = 'S' and exists ( select 1
+                                                                       from classificacoesnotasvendas cn
+                                                                       where cn.idcaracteristicanotavenda = 35
+                                                                         and cn.idnotavenda               = nv.idnotavenda ) )
+                   or ( :P522_ASSINATURA_ELETRONICA = 'N' and not exists ( select 1
+                                                                           from classificacoesnotasvendas cn
+                                                                           where cn.idcaracteristicanotavenda = 35
+                                                                             and cn.idnotavenda               = nv.idnotavenda ) ) )
+                  and ( :P522_IDFILIAL is null or nv.idfilial = :P522_IDFILIAL )
+                  and ( :P522_IDREPRESENTANTE is null or nv.idrepresentante = :P522_IDREPRESENTANTE )
+                  and ( :P522_TIPO_DATA is null
+                     or ( :P522_TIPO_DATA = 'N' and trunc(nv.datanota) between to_date(:P522_DATAINICIO) and to_date(:P522_DATAFIM) )
+                     or ( :P522_TIPO_DATA = 'C' and trunc(nv.dataenviadocobranca) between to_date(:P522_DATAINICIO) and to_date(:P522_DATAFIM) ) )
+                  and not exists ( select 1
+                                   from classificacoesnotasvendas cn
+                                   where cn.idnotavenda = nv.idnotavenda
+                                     and cn.idcaracteristicanotavenda = 30 )
+                  and ( :P522_TAREFA_GERADA is null
+                     or ( :P522_TAREFA_GERADA = 'S' and exists ( select 1
+                                                                 from favorita.tarefas t
+                                                                 where t.idtipotarefa in (35,53,55,52)
+                                                                   and t.datainclusao < sysdate-30
+                                                                   and t.idpessoa = v.idpessoa )
+                                                    and not exists ( select 1
+                                                                     from favorita.tarefas t
+                                                                     where t.idtipotarefa in (35,53,55,52)
+                                                                       and t.datainclusao > (sysdate-30)
+                                                                       and t.idpessoa = v.idpessoa ) )
+                     or ( :P522_TAREFA_GERADA = 'N' and not exists ( select 1
+                                                                     from favorita.tarefas t
+                                                                     where t.idtipotarefa in (35,53,55,52)
+                                                                       and t.idpessoa = v.idpessoa ) ) )
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        reportLayout {
+            numberOfRows: 50
+        }
+        componentAppearance {
+            template: @/standard
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        messages {
+            whenNoDataFound: Nenhum dado encontrado, verifique os filtros!
+        }
+        download {
+            csvExportEnabled: true
+        }
+
+        column CHECK$01 (
+            reportColumnQueryId: 20
+            derivedColumn: Y
+            type: rowSelector
+            heading {
+                heading: &nbsp;
+                alignment: center
+            }
+            layout {
+                sequence: 1
+                columnAlignment: center
+            }
+        )
+
+        column CONSULTORA (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 6
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DATAENVIADASPC (
+            reportColumnQueryId: 19
+            derivedColumn: N
+            heading {
+                heading: Data Enviada ao SPC
+                alignment: center
+            }
+            layout {
+                sequence: 12
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+        )
+
+        column DATAENVIADOCOBRANCA (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Enviado p/ Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 11
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            sorting {
+                defaultSequence: 1
+                direction: desc
+            }
+        )
+
+        column DATANOTA (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            heading {
+                heading: Data da Nota
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DISTRIBUIDOR (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DOCUMENTO (
+            reportColumnQueryId: 17
+            derivedColumn: N
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDNOTAVENDA (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 2
+            }
+        )
+
+        column IDPESSOA (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 3
+            }
+        )
+
+        column IDVENDEDORA (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 4
+            }
+        )
+
+        column NUMERONOTA (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Nr Nota
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SALDO (
+            reportColumnQueryId: 15
+            derivedColumn: N
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 18
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column SALDO2 (
+            reportColumnQueryId: 16
+            derivedColumn: N
+            heading {
+                heading: Saldo em Real
+                alignment: center
+            }
+            layout {
+                sequence: 19
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1 
+                             from vw_filiais f 
+                             where f.idfilial = :P522_IDFILIAL
+                               and f.ididioma != 1)
+                    ```
+            }
+        )
+
+        column SITUACAOPROMISSORIA (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Sit. Promissória
+                alignment: center
+            }
+            layout {
+                sequence: 13
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column TELEFONE (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Telefone
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column ULTIMATAREFA (
+            reportColumnQueryId: 18
+            derivedColumn: N
+            heading {
+                heading: Ultima Tarefa Gerada
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VALORPAGO (
+            reportColumnQueryId: 14
+            derivedColumn: N
+            heading {
+                heading: Pago
+                alignment: center
+            }
+            layout {
+                sequence: 17
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VALORTOTALNOTA (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Total Nota
+                alignment: center
+            }
+            layout {
+                sequence: 14
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VALORTOTALVENDA (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: Total Venda
+                alignment: center
+            }
+            layout {
+                sequence: 15
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+        column VALORTOTALVENDALQD (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            heading {
+                heading: Total Venda Liqda
+                alignment: center
+            }
+            layout {
+                sequence: 16
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            sorting {
+                sortable: false
+            }
+            advanced {
+                computeSum: true
+            }
+        )
+
+    )
+
+    pageItem P522_ASSINATURA_ELETRONICA (
+        type: radioGroup
+        label {
+            label: Ass. Eletrônica
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N,Ambos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 60
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P522_ATENDENTE (
+        type: selectList
+        label {
+            label: Atendente
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomepessoa(idpessoa) d
+                     , idusuario
+                from usuarios u
+                where u.ativo = 'S'
+                  and u.idgerente = 80
+                ```
+        }
+        layout {
+            sequence: 100
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P522_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P522_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: Data da Nota de
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P522_IDFILIAL (
+        type: selectList
+        label {
+            label: Empresa
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and f.idgrupo is not null
+                  and exists ( select 1
+                               from notasvendas nv
+                               where nv.idfilial = f.idfilial )
+                ```
+        }
+        layout {
+            sequence: 40
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P522_IDREPRESENTANTE (
+        type: popupLov
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(idrepresentante)||' ('||decode(ativo,'S','Ativo','N','Inativo')||')' d
+                     , idrepresentante r
+                from representantes r
+                where :P522_IDFILIAl is null or exists ( select 1
+                                                         from gerentes g
+                                                         where g.idfilial = :P522_IDFILIAL )
+                order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P522_IDFILIAL
+        }
+        layout {
+            sequence: 50
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P522_PROMISSORIARECEBIDA (
+        type: radioGroup
+        label {
+            label: Prom. Recebida?
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N,Ambos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 70
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P522_RESPCOBRANCA (
+        type: radioGroup
+        label {
+            label: Resp. Cobrança
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N,Ambos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 80
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P522_TAREFA_GERADA (
+        type: radioGroup
+        label {
+            label: Tarefa Gerada
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 90
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P522_TIPO_DATA (
+        type: radioGroup
+        label {
+            label: Pesquisar Por
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Data da Nota;N,Data Envio Cobrança;C
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtro
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Buscar
+        layout {
+            sequence: 110
+            region: @filtro
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button gerar-tarefas (
+        buttonName: GERAR_TAREFAS
+        label: Gerar Tarefas
+        layout {
+            sequence: 10
+            region: @notas-para-gerar-tarefas
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process gera-tarefas-de-cobrança (
+        name: Gera Tarefas de Cobrança
+        type: executeCode
+        editableRegion: @notas-para-gerar-tarefas
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidusuario  number := :P522_ATENDENTE; 
+                  vidpessoa   number;
+                  vtelefone   varchar2(30) := null;
+                  vcodigoarea number;
+                  vidtarefa   number;
+                  vtipotarefa number;
+                  --
+                  vidfilial   number := :P522_IDFILIAL;
+                  vididioma   number;
+                  --
+                  vidgrupoatendimento number;
+                  --
+                begin
+                  --
+                  select f.ididioma
+                  into vididioma
+                  from vw_filiais f
+                  where f.idfilial = vidfilial;
+                  --
+                  vidpessoa := :IDPESSOA;
+                  --
+                  for i in ( select translate(t.telefone,'0123456789AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvXxYyWwZz_-,.  Ññ~ !@#$%?&*()/??','0123456789') telefone
+                             from telefonespessoas t
+                             where t.idpessoa = vidpessoa
+                             order by t.idtelefonepessoa desc )
+                  loop
+                    --
+                    vtelefone := i.telefone;
+                    vcodigoarea := substr(to_number(i.telefone),0,2);
+                    --
+                  end loop;
+                  --
+                  if vtelefone is not null then
+                    --
+                    select favorita.seq_idtarefa.nextval
+                    into vidtarefa
+                    from dual;
+                    --
+                    if :P522_ASSINATURA_ELETRONICA = 'S' then
+                      vtipotarefa := 52;
+                    else
+                      vtipotarefa := 35;
+                    end if;
+                    --
+                    if vididioma = 4 then
+                      vtipotarefa := 53;
+                      vidgrupoatendimento := 55;
+                    elsif vididioma = 2 then
+                      vtipotarefa := 55;
+                      vcodigoarea := 598;
+                      vidgrupoatendimento := 55;
+                    elsif vididioma = 11 then
+                      vidgrupoatendimento := 89;
+                    elsif vididioma = 6 then
+                      vidgrupoatendimento := 78;
+                    else
+                      vidgrupoatendimento := 3;
+                    end if;
+                    --
+                    insert into favorita.tarefas ( idtarefa            , datainclusao    , idsituacao
+                                                 , observacao          , idtipotarefa    , idpessoa
+                                                 , idgrupoatendimento  , telefone        , codigoarea 
+                                                 , idusuario           , idpais )
+                    values ( vidtarefa,   sysdate,  0
+                           , roman.pck_romance.fnc_retornatelefones(:IDVENDEDORA) , vtipotarefa  , vidpessoa
+                           , vidgrupoatendimento , vtelefone , vcodigoarea
+                           , vidusuario  , vididioma ); 
+                    --
+                    insert into notastarefasgeradas 
+                    values (SEQ_IDNOTATAREFAGERADA.nextval, :IDNOTAVENDA, vidtarefa, sysdate);
+                    --
+                    commit;
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Tarefas geradas com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 1585703575170339338
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERAR_TAREFAS
+        }
+    )
+
+    branch (
+        name: Go To Page 522
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 522
+                items: {
+                    P522_IDFILIAL: &P522_IDFILIAL.
+                    P522_IDREPRESENTANTE: &P522_IDREPRESENTANTE.
+                    P522_PROMISSORIARECEBIDA: &P522_PROMISSORIARECEBIDA.
+                    P522_ATENDENTE: &P522_ATENDENTE.
+                    P522_ASSINATURA_ELETRONICA: &P522_ASSINATURA_ELETRONICA.
+                    P522_DATAINICIO: &P522_DATAINICIO.
+                    P522_DATAFIM: &P522_DATAFIM.
+                    P522_TIPO_DATA: &P522_TIPO_DATA.
+                    P522_RESPCOBRANCA: &P522_RESPCOBRANCA.
+                    P522_TAREFA_GERADA: &P522_TAREFA_GERADA.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: BUSCAR
+        }
+    )
+
+)
+

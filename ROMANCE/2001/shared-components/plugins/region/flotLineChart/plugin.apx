@@ -1,0 +1,355 @@
+plugin flotLineChart (
+    name: Flot Line Chart
+    staticId: COM.ORACLE.APEX.FLOT.LINE
+    type: region
+    component {
+        standardAttributes: [
+            regionSourceIsSqlQuery
+            pageItemsToSubmitAttr
+            noDataFoundMessageAttr
+        ]
+    }
+    source {
+        plsqlCode:
+            ```plsql
+            function render 
+            (
+                p_region                in  apex_plugin.t_region,
+                p_plugin                in  apex_plugin.t_plugin,
+                p_is_printer_friendly   in  boolean 
+            )
+            return apex_plugin.t_region_render_result
+            is
+                -- Assign readable names to plugin attributes. Omit data attributes, they'll be handled in ajax function.
+                -- Dimensions
+                c_min_height            constant number         := nvl(p_region.attribute_18, 100);
+                c_max_height            constant number         := nvl(p_region.attribute_19, 500);
+            
+                -- Series display configuration
+                c_data_points           constant varchar2(200)  := p_region.attribute_06;
+                c_show_data_points      constant boolean        := c_data_points <> 'NONE';
+                c_interpolation         constant varchar2(200)  := p_region.attribute_21;
+                c_show_area             constant boolean        := p_region.attribute_22 is not null;
+            
+                -- Axis titles
+                c_x_axis_title          constant varchar2(200)  := p_region.attribute_08;
+                c_y_axis_title          constant varchar2(200)  := p_region.attribute_09;
+            
+                -- Tooltip configuration
+                c_show_tooltip          constant boolean        := p_region.attribute_10 is not null;
+                c_series_tooltip        constant boolean        := instr(':' || p_region.attribute_10 || ':', ':SERIES:') > 0;
+                c_x_tooltip             constant boolean        := instr(':' || p_region.attribute_10 || ':', ':X:') > 0;
+                c_y_tooltip             constant boolean        := instr(':' || p_region.attribute_10 || ':', ':Y:') > 0;
+                c_custom_tooltip        constant boolean        := instr(':' || p_region.attribute_10 || ':', ':CUSTOM:') > 0;
+            
+                -- Legend
+                c_show_legend           constant boolean        := p_region.attribute_12 is not null;
+            
+                -- Colors
+                c_color_scheme          constant varchar2(200)  := p_region.attribute_13;
+                l_colors                varchar2(200)           := p_region.attribute_14;
+            
+                -- X type checking
+                c_is_time_data          constant boolean        := p_region.attribute_17 = 'TIMESTAMP' OR p_region.attribute_17 = 'DATE';
+            
+                -- Aspect ratios
+                c_min_ar                constant number         := nvl( apex_plugin_util.get_attribute_as_number( p_plugin.attribute_02, 'Min Aspect Ratio' ), 1.333 );
+                c_max_ar                constant number         := nvl( apex_plugin_util.get_attribute_as_number( p_plugin.attribute_01, 'Max Aspect Ratio' ), 3 );
+            
+                -- Function constants
+                c_rgb_list_regex        constant varchar2(200)  := '^#[0-9a-fA-F]{6}(,#[0-9a-fA-F]{6})*$';
+            begin
+                -- Add placeholder div
+                sys.htp.p (
+                    '<div class="a-FlotLine" id="' || p_region.static_id || '_container">' ||
+                        '<div class="a-FlotLine-desc"></div>' ||
+                        '<div class="a-FlotLine-chart" id="' || p_region.static_id || '_chart"></div>' ||
+                    '</div>');
+            
+                -- Color scheme
+                case c_color_scheme
+                    when 'MODERN' then
+                        l_colors := '#FF3B30,#FF9500,#FFCC00,#4CD964,#34AADC,#007AFF,#5856D6,#FF2D55,#8E8E93,#C7C7CC';
+                    when 'MODERN2' then
+                        l_colors := '#1ABC9C,#2ECC71,#4AA3DF,#9B59B6,#3D566E,#F1C40F,#E67E22,#E74C3C';
+                    when 'SOLAR' then
+                        l_colors := '#B58900,#CB4B16,#DC322F,#D33682,#6C71C4,#268BD2,#2AA198,#859900';
+                    when 'METRO' then
+                        l_colors := '#E61400,#19A2DE,#319A31,#EF9608,#8CBE29,#A500FF,#00AAAD,#FF0094,#9C5100,#E671B5';
+                    else
+                        null;
+                end case;
+            
+                -- Build the initial chart. Data will be loaded with ajax.
+                apex_javascript.add_onload_code (
+                    p_code => 'com_oracle_apex_flot_line(' ||
+                        apex_javascript.add_value(p_region.static_id) ||
+                        '{' ||
+                            apex_javascript.add_attribute('chartRegionId',  p_region.static_id || '_chart') ||
+                            apex_javascript.add_attribute('isTimeData',     c_is_time_data) || 
+                            apex_javascript.add_attribute('showDataPoints', c_show_data_points) || 
+                            apex_javascript.add_attribute('fill',           c_show_area) || 
+                            apex_javascript.add_attribute('interpolation',  c_interpolation) || 
+                            apex_javascript.add_attribute('dataPoints',     c_data_points) || 
+                            apex_javascript.add_attribute('xAxisTitle',     c_x_axis_title) || 
+                            apex_javascript.add_attribute('yAxisTitle',     c_y_axis_title) || 
+                            apex_javascript.add_attribute('showTooltip',    c_show_tooltip) || 
+                            apex_javascript.add_attribute('tooltipSeries',  c_series_tooltip) || 
+                            apex_javascript.add_attribute('tooltipX',       c_x_tooltip) || 
+                            apex_javascript.add_attribute('tooltipY',       c_y_tooltip) || 
+                            apex_javascript.add_attribute('tooltipCustom',  c_custom_tooltip) || 
+                            apex_javascript.add_attribute('showLegend',     c_show_legend) || 
+                            apex_javascript.add_attribute('colors',         l_colors) || 
+                            apex_javascript.add_attribute('minHeight',      c_min_height) || 
+                            apex_javascript.add_attribute('maxHeight',      c_max_height) || 
+                            apex_javascript.add_attribute('minAR',          c_min_ar) ||
+                            apex_javascript.add_attribute('maxAR',          c_max_ar) ||
+                            apex_javascript.add_attribute('noDataFoundMessage', p_region.no_data_found_message) || 
+                            apex_javascript.add_attribute('pageItems',      apex_plugin_util.page_item_names_to_jquery(p_region.ajax_items_to_submit)) ||
+                            apex_javascript.add_attribute('ajaxIdentifier', apex_plugin.get_ajax_identifier, false, false) ||
+                        '});' );
+                return null;
+            end;
+            
+            function ajax
+            (
+                p_region    in  apex_plugin.t_region,
+                p_plugin    in  apex_plugin.t_plugin 
+            )
+            return apex_plugin.t_region_ajax_result
+            is
+                -- It's better to have named variables instead of using the generic ones, 
+                -- makes the code more readable. 
+                c_has_multiple_series   constant boolean := ( p_region.attribute_03 = 'Y' );
+            
+                -- Column names
+                c_x_type                constant varchar2(200) := p_region.attribute_17;
+                c_x_column              constant varchar2(255) := coalesce(p_region.attribute_01, p_region.attribute_15, p_region.attribute_16);
+                c_y_column              constant varchar2(255) := p_region.attribute_02;
+                c_series_column         constant varchar2(255) := case when c_has_multiple_series then p_region.attribute_04 end;
+                c_tooltip_column        constant varchar2(255) := p_region.attribute_11;
+                c_link_target           constant varchar2(255) := p_region.attribute_20;
+            
+                -- Series name, for single series configuration
+                c_series_name           constant varchar2(200) := case when not c_has_multiple_series then p_region.attribute_05 end;
+                c_use_sql_color         constant boolean       := p_region.attribute_13 = 'COLUMN';
+            
+                -- Column numbers for fetching
+                l_x_column_no           pls_integer;
+                l_y_column_no           pls_integer;
+                l_series_column_no      pls_integer;
+                l_tooltip_column_no     pls_integer;
+                l_link_column_no        pls_integer;
+                l_column_value_list     apex_plugin_util.t_column_value_list2;
+            
+                -- Holders for row data
+                l_x_number              number;
+                l_x_timestamp           timestamp;
+                l_x_date                date;
+                l_y                     number;
+                l_series                varchar2(4000);
+                l_color                 varchar2(4000);
+                l_tooltip               varchar2(4000);
+                l_link                  varchar2(4000);
+            
+                -- Date utils
+                c_epoch                 constant timestamp     := to_date('01-01-1970 00:00:00', 'DD-MM-YYYY HH24:MI:SS');
+                l_millis                number;
+            begin
+                apex_plugin_util.print_json_http_header;
+            
+                sys.htp.prn('{');
+            
+                -- First, we must get the color mapping if the color scheme requires it.
+                if c_use_sql_color then
+                    l_column_value_list := apex_plugin_util.get_data2 (
+                        p_sql_statement     => p_region.attribute_23,
+                        p_min_columns       => 2,
+                        p_max_columns       => 2,
+                        p_component_name    => p_region.name );
+            
+                    sys.htp.prn('"colors":[');
+                    for l_row_num in 1 .. l_column_value_list(1).value_list.count loop
+                        -- Series, optional
+                        l_series := apex_plugin_util.get_value_as_varchar2 (
+                            p_data_type => l_column_value_list(1).data_type,
+                            p_value     => l_column_value_list(1).value_list(l_row_num) );
+                        l_color := apex_plugin_util.get_value_as_varchar2 (
+                            p_data_type => l_column_value_list(2).data_type,
+                            p_value     => l_column_value_list(2).value_list(l_row_num) );
+                        
+                    if l_row_num > 1 then
+                        sys.htp.prn(',');            
+                    end if;
+                        sys.htp.prn('{');
+                        sys.htp.prn(
+                            apex_javascript.add_attribute('series', l_series) ||
+                            apex_javascript.add_attribute('color',  l_color, false, false) );
+                        sys.htp.prn('}');
+                    end loop;
+                    sys.htp.prn('],');
+            
+                    l_series := null;
+                end if;
+            
+                -- Then, we get the actual data points.
+                l_column_value_list := apex_plugin_util.get_data2 (
+                    p_sql_statement     => 'SELECT * FROM (' || p_region.source || ') ORDER BY "' || c_x_column || '" ASC',
+                    p_min_columns       => 2,
+                    p_max_columns       => 5,
+                    p_component_name    => p_region.name );
+            
+                -- Get the actual column # for faster access and also verify that the data type
+                -- of the column matches with what we are looking for
+                l_x_column_no := apex_plugin_util.get_column_no (
+                            p_attribute_label       => 'x column',
+                            p_column_alias          => c_x_column,
+                            p_column_value_list     => l_column_value_list,
+                            p_is_required           => true,
+                            p_data_type             => case c_x_type  
+                                                        when 'NUMBER' then apex_plugin_util.c_data_type_number
+                                                        when 'DATE' then apex_plugin_util.c_data_type_date
+                                                        when 'TIMESTAMP' then apex_plugin_util.c_data_type_timestamp end );
+            
+                l_y_column_no := apex_plugin_util.get_column_no (
+                    p_attribute_label       => 'y column',
+                    p_column_alias          => c_y_column,
+                    p_column_value_list     => l_column_value_list,
+                    p_is_required           => true,
+                    p_data_type             => apex_plugin_util.c_data_type_number );
+            
+                l_series_column_no := apex_plugin_util.get_column_no (
+                    p_attribute_label       => 'series column',
+                    p_column_alias          => c_series_column,
+                    p_column_value_list     => l_column_value_list,
+                    p_is_required           => false,
+                    p_data_type             => apex_plugin_util.c_data_type_varchar2 );
+            
+                l_tooltip_column_no := apex_plugin_util.get_column_no (
+                    p_attribute_label       => 'tooltip column',
+                    p_column_alias          => c_tooltip_column,
+                    p_column_value_list     => l_column_value_list,
+                    p_is_required           => false,
+                    p_data_type             => apex_plugin_util.c_data_type_varchar2 );
+            
+                sys.htp.prn('"data":[');
+            
+                -- Fetch data
+                for l_row_num in 1 .. l_column_value_list(1).value_list.count loop
+                    begin
+                        apex_plugin_util.set_component_values (
+                            p_column_value_list => l_column_value_list,
+                            p_row_num => l_row_num 
+                        );
+            
+                        -- X may be TIMESTAMP, DATE or NUMBER, required
+                        case c_x_type
+                            when 'TIMESTAMP' then
+                                l_x_timestamp := l_column_value_list(l_x_column_no).value_list(l_row_num).timestamp_value;
+                                l_x_number := extract(day from (l_x_timestamp - c_epoch)) * 86400000 + 
+                                    extract(hour from (l_x_timestamp - c_epoch)) * 3600000 +
+                                    extract(minute from (l_x_timestamp - c_epoch)) * 60000 +
+                                    extract(second from (l_x_timestamp - c_epoch)) * 1000;
+                            when 'DATE' then
+                                l_x_date := l_column_value_list(l_x_column_no).value_list(l_row_num).date_value;
+                                l_x_number := extract(day from (l_x_date - c_epoch)) * 86400000 + 
+                                    extract(hour from (l_x_date - c_epoch)) * 3600000 +
+                                    extract(minute from (l_x_date - c_epoch)) * 60000 +
+                                    extract(second from (l_x_date - c_epoch)) * 1000;
+                            when 'NUMBER' then
+                                l_x_number := l_column_value_list(l_x_column_no).value_list(l_row_num).number_value;
+                        end case;
+            
+                        -- Y is a number, required
+                        l_y := l_column_value_list(l_y_column_no).value_list(l_row_num).number_value;
+            
+                        -- Series, optional
+                        if l_series_column_no is not null then
+                            l_series := apex_plugin_util.get_value_as_varchar2 (
+                                p_data_type => l_column_value_list(l_series_column_no).data_type,
+                                p_value     => l_column_value_list(l_series_column_no).value_list(l_row_num) );
+                        end if;
+            
+                        -- Tooltip, optional
+                        if l_tooltip_column_no is not null then
+                            l_tooltip := apex_plugin_util.get_value_as_varchar2 (
+                                p_data_type => l_column_value_list(l_tooltip_column_no).data_type,
+                                p_value     => l_column_value_list(l_tooltip_column_no).value_list(l_row_num) );
+                        end if;
+            
+                        -- Link, optional
+                        if c_link_target is not null then
+                            l_link := wwv_flow_utilities.prepare_url (
+                                apex_plugin_util.replace_substitutions (
+                                    p_value  => c_link_target,
+                                    p_escape => false ) );
+                        end if;
+            
+                        -- Print an object representing this data point
+                        if l_row_num > 1 then
+                            sys.htp.prn(',');            
+                        end if;
+                        sys.htp.prn(
+                            '{' ||
+                                apex_javascript.add_attribute('series',  nvl(l_series, c_series_name)) ||
+                                apex_javascript.add_attribute('tooltip', l_tooltip) ||
+                                apex_javascript.add_attribute('link',    l_link) ||
+                                apex_javascript.add_attribute('x',       l_x_number) ||
+                                apex_javascript.add_attribute('y',       l_y, false, false ) ||
+                            '}' );
+            
+                        apex_plugin_util.clear_component_values;
+                    exception when others then
+                        apex_plugin_util.clear_component_values;
+                        raise;
+                    end;
+                end loop;
+                sys.htp.prn(']');
+                sys.htp.prn('}');
+            
+                return null;
+            end;
+            ```
+    }
+    callbacks {
+        apiInterface: function
+        renderProcedureName: render
+        ajaxProcedureName: ajax
+    }
+    advanced {
+        filePrefix: #IMAGE_PREFIX#plugins/com.oracle.apex.flot_line/2.0/
+    }
+    css {
+        fileUrls: #PLUGIN_FILES#com.oracle.apex.flot_line.css
+    }
+    javaScript {
+        fileUrls: [
+            #IMAGE_PREFIX#libraries/jquery-flot/0.8.3/excanvas.min.js
+            #IMAGE_PREFIX#libraries/jquery-flot/0.8.3/jquery.flot.min.js
+            #IMAGE_PREFIX#libraries/jquery-flot/0.8.3/jquery.flot.resize.min.js
+            #IMAGE_PREFIX#libraries/jquery-flot/0.8.3/jquery.flot.symbol.min.js
+            #IMAGE_PREFIX#libraries/jquery-flot/0.8.3/jquery.flot.time.min.js
+            #IMAGE_PREFIX#libraries/jquery-flot/0.8.3/jquery.flot.axislabels.js
+            #PLUGIN_FILES#interpolation.js
+            #PLUGIN_FILES#com.oracle.apex.flot_line.js
+        ]
+    }
+    information {
+        version: 5.0.2
+        aboutUrl: http://apex.oracle.com/plugins
+        helpText: Flot Line Chart is a pure JavaScript plotting library for jQuery, with a focus on simple usage, attractive looks and interactive features.
+    }
+
+    standardAttributeConfig (
+        name: regionSourceIsSqlQuery
+        validation {
+            required: true
+        }
+        sqlQuery {
+            minColumns: 2
+            maxColumns: 5
+        }
+    )
+
+)
+

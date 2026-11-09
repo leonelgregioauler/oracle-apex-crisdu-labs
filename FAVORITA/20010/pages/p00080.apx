@@ -1,0 +1,655 @@
+page 80 (
+    name: Inadimplência
+    title: Inadimplência
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region inadimplência-por-distribuidor (
+        name: Inadimplência por Distribuidor
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distribuidor
+                     , (total_pagar) total_pagar
+                     , ((t.total_pagar) - (valor_pago_emdia) - (pago_30dias) - (pago_42dias) - (pago_90dias) )   "Saldo Devedor até 90 dias"
+                     , round ( ((t.total_pagar) - (valor_pago_emdia) - (pago_30dias) - (pago_42dias) - (pago_90dias)) / (t.total_pagar) *100 ,2) "% Saldo Devedor até 90 dias"
+                from (
+                      select p.idrepresentante 
+                           , roman.pck_romance.fnc_nomerepresentante(p.idrepresentante) distribuidor
+                           , count(1) Qtd_Vencimentos 
+                           , sum(nvl(v.valorpagar,0) * nvl(p.fatorconversao,1)) total_pagar 
+                           , sum( nvl(pg.valorpago,0) * nvl(p.fatorconversao,1)) total_pago
+                           , sum( case  
+                                    when nvl(pg.datapagamento,pg.databaixa) <= v.datavencimento 
+                                      then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                    else 
+                                      0 
+                                  end )  valor_pago_emdia
+                           , sum( case 
+                                    when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 1 and v.datavencimento + 30 
+                                      then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                    else 
+                                      0 
+                                  end ) pago_30dias
+                           , sum( case  
+                                    when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 31 and v.datavencimento + 42 
+                                      then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                    else 
+                                      0 
+                                  end ) pago_42dias
+                           , sum( case 
+                                    when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 43 and v.datavencimento + 90 
+                                      then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                    else 
+                                      0 
+                                  end ) pago_90dias
+                       from favorita.vencimentospedidos v                 
+                          , favorita.pedidos p                            
+                          , filiaisfavorita f                             
+                          , (select sum(valorpago) valorpago             
+                                  , min(trunc(datapagamento)) datapagamento
+                                  , min(trunc(databaixa)) databaixa   
+                                  , idvencimentopedido                    
+                               from pagamentospedidos                     
+                              where idsituacao = 20                       
+                              group by idvencimentopedido ) pg
+                      where v.idpedido = p.idpedido 
+                        and p.idfilialromance is not null
+                        and p.idfilialromance not in (1216,1258,1220,1063,200)                                     
+                        and p.datacancelamento is null                            
+                        and v.situacaovencimento = 'V'         
+                        and p.idfilialromance = :P80_IDFILIAL              
+                        and p.idfilialfavorita = f.idfilialfavorita                   
+                        and v.idvencimentopedido = pg.idvencimentopedido(+)    
+                        and v.valorpagar > 0                                          
+                        and v.datavencimento between add_months(trunc(sysdate)-1,-12) and trunc(sysdate-1)
+                        and not exists ( select 1
+                                           from representantes r
+                                           where r.idrepresentante = p.idrepresentante
+                                             and r.ativo = 'N')
+                      group by p.idrepresentante ) t
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P80_IDFILIAL
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 3059078728931036916
+        }
+
+        column "% Saldo Devedor até 90 dias" (
+            type: plainText
+            heading {
+                heading: % Saldo Devedor Até 90 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Saldo Devedor até 90 dias" (
+            type: plainText
+            heading {
+                heading: Saldo Devedor Até 90 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column TOTAL_PAGAR (
+            type: plainText
+            heading {
+                heading: Total Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 30600751 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn "% Saldo Devedor até 90 dias" (
+                sequence: 4
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 1
+            )
+
+            displayColumn "Saldo Devedor até 90 dias" (
+                sequence: 3
+            )
+
+            displayColumn TOTAL_PAGAR (
+                sequence: 2
+            )
+
+            sort (
+                column: DISTRIBUIDOR
+                sort {
+                    sequence: 1
+                }
+            )
+
+            highlight ir-condition (
+                name: Azul
+                condition {
+                    column: "% Saldo Devedor até 90 dias"
+                    operator: <
+                    value: 9
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #99CCFF
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Vermelho
+                condition {
+                    column: "% Saldo Devedor até 90 dias"
+                    operator: >=
+                    value: 14
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #FF7755
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-3 (
+                name: Verde
+                condition {
+                    column: "% Saldo Devedor até 90 dias"
+                    operator: between
+                    from: 9
+                    to: 13.99999000
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #99FF99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    region inadimplência-por-franquia (
+        name: Inadimplência por Franquia
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select t.idfilialromance
+                     , t.franquia
+                     , (total_pagar) total_pagar
+                     , ((t.total_pagar) - (valor_pago_emdia) - (pago_30dias) - (pago_42dias) - (pago_90dias) )   "Saldo Devedor até 90 dias"
+                     , round ( ((t.total_pagar) - (valor_pago_emdia) - (pago_30dias) - (pago_42dias) - (pago_90dias)) / (t.total_pagar) *100 ,2) "% Saldo Devedor até 90 dias"
+                from (
+                      select p.idfilialromance 
+                           , favorita.pck_util_fav.fnc_nomefilialromance(p.idfilialromance) franquia
+                           , count(1) Qtd_Vencimentos 
+                           , sum(nvl(v.valorpagar,0) * nvl(p.fatorconversao,1)) total_pagar 
+                           , sum( nvl(pg.valorpago,0) * nvl(p.fatorconversao,1)) total_pago
+                           , sum( case  
+                                    when nvl(pg.datapagamento,pg.databaixa) <= v.datavencimento 
+                                      then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                    else 
+                                      0 
+                                  end )  valor_pago_emdia
+                           , sum( case 
+                                    when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 1 and v.datavencimento + 30 
+                                      then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                    else 
+                                      0 
+                                  end ) pago_30dias
+                           , sum( case  
+                                    when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 31 and v.datavencimento + 42 
+                                      then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                    else 
+                                      0 
+                                  end ) pago_42dias
+                           , sum( case 
+                                    when nvl(pg.datapagamento,pg.databaixa) between v.datavencimento + 43 and v.datavencimento + 90 
+                                      then nvl(pg.valorpago,0) * nvl(p.fatorconversao,1) 
+                                    else 
+                                      0 
+                                  end ) pago_90dias
+                       from favorita.vencimentospedidos v                 
+                          , favorita.pedidos p                            
+                          , filiaisfavorita f                             
+                          , (select sum(valorpago) valorpago             
+                                  , min(trunc(datapagamento)) datapagamento
+                                  , min(trunc(databaixa)) databaixa   
+                                  , idvencimentopedido                    
+                               from pagamentospedidos                     
+                              where idsituacao = 20                       
+                              group by idvencimentopedido ) pg
+                      where v.idpedido = p.idpedido 
+                        and p.idfilialromance is not null
+                        and p.idfilialromance not in (1216,1258,1220,1063,200)                                     
+                        and p.datacancelamento is null                            
+                        and v.situacaovencimento = 'V'                       
+                        and p.idfilialfavorita = f.idfilialfavorita                   
+                        and v.idvencimentopedido = pg.idvencimentopedido(+)    
+                        and v.valorpagar > 0                                          
+                        and v.datavencimento between add_months(trunc(sysdate)-1,-12) and trunc(sysdate-1)
+                        and not exists ( select 1
+                                           from representantes r
+                                           where r.idrepresentante = p.idrepresentante
+                                             and r.ativo = 'N')
+                      group by p.idfilialromance ) t
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 3059077901405036908
+        }
+
+        column "% Saldo Devedor até 90 dias" (
+            type: plainText
+            heading {
+                heading: % Saldo Devedor Até 90 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column FRANQUIA (
+            type: link
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            link {
+                target: {
+                    page: 80
+                    items: {
+                        P80_IDFILIAL: #IDFILIALROMANCE#
+                    }
+                    action: resetPagination
+                }
+                linkText: #FRANQUIA#
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column IDFILIALROMANCE (
+            type: hidden
+            heading {
+                heading: Idfilialromance
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Saldo Devedor até 90 dias" (
+            type: plainText
+            heading {
+                heading: Saldo Devedor Até 90 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column TOTAL_PAGAR (
+            type: plainText
+            heading {
+                heading: Total Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 30595202 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "% Saldo Devedor até 90 dias" (
+                sequence: 5
+            )
+
+            displayColumn FRANQUIA (
+                sequence: 2
+            )
+
+            displayColumn IDFILIALROMANCE (
+                sequence: 1
+            )
+
+            displayColumn "Saldo Devedor até 90 dias" (
+                sequence: 4
+            )
+
+            displayColumn TOTAL_PAGAR (
+                sequence: 3
+            )
+
+            sort (
+                column: FRANQUIA
+                sort {
+                    sequence: 1
+                }
+            )
+
+            highlight ir-condition (
+                name: Azul
+                condition {
+                    column: "% Saldo Devedor até 90 dias"
+                    operator: <
+                    value: 9
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #99CCFF
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Vermelho
+                condition {
+                    column: "% Saldo Devedor até 90 dias"
+                    operator: >=
+                    value: 14
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #FF7755
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-3 (
+                name: Verde
+                condition {
+                    column: "% Saldo Devedor até 90 dias"
+                    operator: between
+                    from: 9
+                    to: 13.99990000
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    background: #99FF99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    region legenda (
+        name: Legenda
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <b><h3> Aparecerão distribuidores inativos com débitos dentro do período de um ano. <br><br>
+                Relatório contém débitos de distribuidores e de suas empreendedoras.<br><br> 
+                
+                IDENTIFICAÇÃO DAS CORES:<br>
+                <font color="blue"> AZUL = Abaixo de 8,99% </font><br>
+                <font color="green"> VERDE = Média entre 9,00% e 13,99% </font><br>
+                <font color="red"> Vermelho = Média acima de 14,00% </font>
+                </h3></b>
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-expanded
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P80_IDFILIAL (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @inadimplência-por-distribuidor
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+)
+

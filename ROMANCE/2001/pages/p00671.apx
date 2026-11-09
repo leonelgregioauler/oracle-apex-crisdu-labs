@@ -1,0 +1,4654 @@
+page 671 (
+    name: Relatório de Pagamentos
+    title: Relatório de Acordos
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: FILTROS
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent15
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region relatório-de-pagamentos-completo (
+        name: Relatório de Pagamentos (Completo)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select * 
+                from (
+                select nm.idnegociacaoparceiro
+                     , nm.idnegociacaoparceiro link
+                     , nm.datanegociacao
+                     , roman.pck_romance.fnc_nomefilial(nm.idfilial) Franquia
+                     , roman.pck_romance.fnc_nomevendedora(nm.idvendedora) Consultora
+                     , roman.pck_romance.fnc_nomerepresentante(nm.idrepresentante) Distribuidor
+                     , decode(nm.formapagamento,'C','Cartão de Credito','D','Deposito','B','Boleto','P','Pix','G','Giro de Pago','T','Giro Tigo') formapgto
+                     , nvl(r.pagovigenteroman,0)  pagovigenter
+                     , nvl(r.pagovigenteroman  * ( select nvl(vf.fatorconversao,1)  from roman.vw_filiais vf where vf.idfilial = nm.idfilial),0) pagovigenterconv
+                     , nvl(f.pagovigentefav,0)  pagovigentef
+                     , nvl(f.pagovigentefav  * ( select nvl(vf.fatorconversao,1)  from roman.vw_filiais vf where vf.idfilial = nm.idfilial),0) pagovigentefavconv
+                     , nvl(f.saldofav,0) saldofav
+                     , nvl(f.saldofav  * ( select nvl(vf.fatorconversao,1)  from roman.vw_filiais vf where vf.idfilial = nm.idfilial),0) saldofavconv
+                     , nvl(r.saldoroman,0) saldoroman
+                     , nvl(r.saldoroman  * ( select nvl(vf.fatorconversao,1)  from roman.vw_filiais vf where vf.idfilial = nm.idfilial),0) saldoromanconv
+                     --, nvl(r.pagodis,0) PagoTablet
+                     --, nvl(r.pagodis * ( select nvl(vf.fatorconversao,1)  from roman.vw_filiais vf where vf.idfilial = nm.idfilial),0) PagoTabletconv
+                     --
+                     , case 
+                         when nm.origem = 'B' then 'Cobrança Interna'
+                         when nm.origem = 'A' then 'Plataforma Déb. Romance'
+                         when nm.origem = 'C' then 'Cobraki'
+                       end canal_negociacao
+                     --
+                     , case
+                         when 'S' = ( select v.spc
+                                      from catal.vendedoras v
+                                      where v.idvendedora = nm.idvendedora
+                                        and v.spc = 'S' ) then 'Sim'
+                         else 'Não'  
+                       end enviada  
+                     --
+                     , ( select max(pn.datapagamento) 
+                         from roman.pagamentosnegociacoesparceiros pn 
+                         where pn.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                         and (:P671_DATAINI is not null and trunc(pn.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') 
+                          or  :P671_DATAINI is not null and pn.datapagamento is null and trunc(pn.databaixa) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR')) ) dtpagamento
+                     --
+                     , ( select nvl(pe.documentoestrangeiro,roman.pck_romance.fnc_cpfvendedora(nm.idvendedora)) 
+                         from catal.pessoas pe
+                            , catal.vendedoras vv
+                         where pe.idpessoa = vv.idpessoa
+                           and vv.idvendedora = nm.idvendedora) Documento
+                     --      
+                     , ( select count(p.numeroparcela)
+                         from roman.pagamentosnegociacoesparceiros p
+                         where p.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                           and p.situacao = 'Q' )||'/'||( select max(p.numeroparcela)from roman.pagamentosnegociacoesparceiros p where p.idnegociacaoparceiro = nm.idnegociacaoparceiro ) qtdparcelas
+                     --
+                     , to_number( ( select count(dc.iddocumentonegociacao) qtd
+                                    from roman.documentosnegociacao dc
+                                    where dc.idnegociacaoparceiro = nm.idnegociacaoparceiro ) ) qtd_documentos
+                     --
+                     , nvl( ( select sum(p.valorjuros)
+                              from roman.pagamentosnegociacoesparceiros p
+                              where p.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                                and p.situacao = 'Q' ),0 ) acres_pag
+                     , nvl( ( select y.tarifa
+                              from ( select sum(x.tarifa) tarifa
+                                          , x.idnegociacaoparceiro
+                                     from ( select case
+                                                     when substr(to_char(p.canalpagamento),
+                                                          instr(to_char(p.canalpagamento),'6',1),2) = 61 then 0.45
+                                                   else 0.95
+                                                   end tarifa
+                                                 , p.idnegociacaoparceiro
+                                            from roman.pagamentosnegociacoesparceiros p
+                                            where p.situacao = 'Q'
+                                              and p.canalpagamento is not null) x
+                                            group by x.idnegociacaoparceiro) y
+                              where y.idnegociacaoparceiro = nm.idnegociacaoparceiro),0) taxa
+                     --
+                     , nvl(r.valororiginal,0) r_valororiginal
+                     , nvl(nvl(r.valororiginal,0) * ( select nvl(vf.fatorconversao,1)  from roman.vw_filiais vf where vf.idfilial = r.idfilial_r),0) r_valororiginal_conv 
+                     --
+                     , nvl(r.valoratualizado,0)     r_valoratualizado
+                     , nvl(nvl(r.valoratualizado,0) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf where vf.idfilial = r.idfilial_r),0) r_valoratualizado_conv
+                     --
+                     , nvl(r.juro,0) r_juro
+                     , nvl(nvl(r.juro,0) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf where vf.idfilial = r.idfilial_r),0) r_juro_conv
+                     --
+                     , nvl(r.valordesconto,0) r_valordesconto
+                     , nvl(nvl(r.valordesconto,0) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf where vf.idfilial = r.idfilial_r),0) r_valordesconto_conv
+                     --
+                     , nvl(r.valorfinal,0) r_valorfinal
+                     , nvl(nvl(r.valorfinal,0) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf where vf.idfilial = r.idfilial_r),0) r_valorfinal_conv
+                     --
+                     , nvl(r.r_valorpagoneg,0) r_valorpag
+                     , nvl(nvl(r.r_valorpagoneg,0) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf where vf.idfilial = r.idfilial_r),0) r_valorpago_conv
+                     --
+                     , nvl(f.valororiginal,0) f_valororiginal
+                     , nvl(nvl(f.valororiginal,0) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf where vf.idfilial = f.idfilial_f),0) f_valororiginal_conv
+                     --
+                     , nvl(f.valoratualizado,0) f_valoratualizado
+                     , nvl(nvl(f.valoratualizado,0) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf where vf.idfilial = f.idfilial_f),0) f_valoratualizado_conv
+                     --
+                     , nvl(f.juro,0) f_juro
+                     , nvl(nvl(f.juro,0) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf where vf.idfilial = f.idfilial_f),0) f_juro_conv
+                     --
+                     , nvl(f.valordesconto,0) f_valordesconto
+                     , nvl(nvl(f.valordesconto,0) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf where vf.idfilial = f.idfilial_f),0) f_valordesconto_conv 
+                     --
+                     , nvl(f.valorfinal,0)  f_valorfinal
+                     , nvl(nvl(f.valorfinal,0) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf where vf.idfilial = f.idfilial_f),0) f_valorfinal_conv 
+                     --
+                     , nvl(f.valorpagoneg,0) f_valorpago
+                     , nvl(nvl(f.valorpagoneg,0) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf where vf.idfilial = f.idfilial_f),0) f_valorpago_conv
+                     --
+                     , nvl( ( select sum(p.valorparcela)  -- Total pago na negociação
+                              from roman.pagamentosnegociacoesparceiros p
+                              where p.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                                and p.situacao = 'Q' ),0) totalpago
+                      , nvl( ( select sum(p.valorparcela)   
+                              from roman.pagamentosnegociacoesparceiros p
+                              where p.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                                and p.situacao = 'Q' ),0) * ( select nvl(vf.fatorconversao,1)  from roman.vw_filiais vf where vf.idfilial = nvl(r.idfilial_r,f.idfilial_f))  totalpagoconv 
+                      --           
+                      , nvl( ( select sum(p.valorparcela)  -- Total pago na negociação dentro do período filtrado
+                               from roman.pagamentosnegociacoesparceiros p
+                               where p.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                                 and p.situacao = 'Q' 
+                                 and (trunc(p.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') or  p.datapagamento is null and trunc(p.databaixa) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR'))),0) totalpagovigente                                               
+                      , nvl( ( select sum(p.valorparcela)
+                               from roman.pagamentosnegociacoesparceiros p
+                               where p.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                                 and p.situacao = 'Q' 
+                                 and (trunc(p.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') or  p.datapagamento is null and trunc(p.databaixa) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR'))),0) * ( select nvl(vf.fatorconversao,1) 
+                                                                                                                                                                                                                                                                                                 from roman.vw_filiais vf                                                                                                                                                                                                                                                                                                                                          where vf.idfilial = nvl(r.idfilial_r,f.idfilial_f)) totalpagovigenteconv  
+                      --    
+                      , nvl((nvl(r.valorfinal,0) + nvl(f.valorfinal,0)),0) valor_final_neg
+                      , nvl((nvl(r.valorfinal,0) + nvl(f.valorfinal,0)),0) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf where vf.idfilial = nvl(r.idfilial_r,f.idfilial_f)) valor_final_neg_conv
+                      --
+                      , nvl( ( select n.saldo
+                               from roman.negociacoesparceiros n
+                               where n.idnegociacaoparceiro = nm.idnegociacaoparceiro ),0 ) saldo
+                      
+                      , nvl(nvl( ( select n.saldo
+                                   from roman.negociacoesparceiros n
+                                   where n.idnegociacaoparceiro = nm.idnegociacaoparceiro ),0 ) * ( select nvl(vf.fatorconversao,1) from roman.vw_filiais vf  where vf.idfilial = nm.idfilial),0) saldoconv 
+                      --
+                      , ( select max(m.dataenvio)
+                           from roman.mensagenssms m
+                              , catal.pessoas p 
+                              , catal.vendedoras v
+                              , roman.documentosnegociacao d 
+                           where m.idpessoa = p.idpessoa
+                             and p.idpessoa = v.idpessoa
+                             and v.idvendedora = d.idvendedora 
+                             and d.idnegociacaoparceiro = nm.idnegociacaoparceiro ) sms
+                      --     
+                      , ( select u.usuario 
+                           from catal.usuarios u 
+                              , roman.negociacoesparceiros n
+                           where n.idusuarioresponsavel = u.idusuario
+                             and n.idnegociacaoparceiro = nm.idnegociacaoparceiro ) responsavel
+                      --
+                      , decode((select 1
+                                  from catal.vendedoras v
+                                     , catal.representantes r
+                                 where v.idpessoa = r.idpessoa
+                                   and v.idvendedora = nm.idvendedora),1,'Distribuidor','Consultora') origem_negociacao
+                from roman.negociacoesparceiros nm
+                -- INICIO VALORES ROMANCE
+                    , (select distinct (n.idnegociacaoparceiro) idneg
+                            , n.idfilial idfilial_r
+                            , sum(nvl(d.valororiginal,0)) valororiginal
+                            , sum(nvl(d.valoratualizado,0)) valoratualizado
+                            , sum(nvl((d.valoratualizado - d.valororiginal),0)) juro
+                            , sum(nvl(d.valordesconto,0)) valordesconto
+                            , sum(d.valoratualizado - d.valordesconto) valorfinal
+                            , sum(nvl(d.valorpago,0)) r_valorpagoneg 
+                            , sum(d.valoratualizado - d.valordesconto) - sum(nvl(d.valorpago,0))  saldoroman
+                            , nvl( ( select sum(p.valorparcela)  
+                                     from roman.pagamentosnegociacoesparceiros p
+                                     where p.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                       and p.situacao = 'Q' 
+                                       and (trunc(p.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') 
+                                            or  p.datapagamento is null and trunc(p.databaixa) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR'))),0) pagovigenteroman  
+                           /* , ( select sum(pn.valorpago)
+                                from roman.pagamentosnotasvendas pn
+                                   , roman.documentosnegociacao d
+                                   , roman.notasvendas nv
+                                where pn.idnotavenda = d.idnotavenda
+                                    and nv.idnotavenda = pn.idnotavenda
+                                    and d.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                    and pn.origem = 'R'
+                                    and pn.valorpago > 0
+                                    and nv.enviadocobranca = 'S'
+                                    and trunc(pn.datapagamento) > trunc(nv.dataenviadocobranca) 
+                                    and not exists ( select 1 
+                                             from roman.codigosliberacoescobranca c 
+                                             where c.idnotavenda = nv.idnotavenda ) )  pagodis */ -- (Osiel) - Retirada a coluna do relatório por solicitação da Alexia durante homologação. 
+                       from roman.negociacoesparceiros n
+                          , roman.documentosnegociacao d
+                          , ( select case
+                                       when ddd.idpedido is not null then  'F'
+                                       when ddd.idnotavenda is not null  then 'R'
+                                       when ddd.idpepinorepres is not null then 'P'
+                                       when ddd.idboleto is not null  then 'B'
+                                     end carteira
+                                   , ddd.idnegociacaoparceiro
+                                   , ddd.idrepresentante
+                                   , ddd.iddocumentonegociacao
+                                from roman.documentosnegociacao ddd ) xx
+                        where n.idnegociacaoparceiro = d.idnegociacaoparceiro
+                          and d.iddocumentonegociacao = xx.iddocumentonegociacao
+                          and n.tiponegociacao       is null
+                          and nvl(n.idusuarioresponsavel,0) not in (172,549,5755)
+                          and xx.carteira in ('R','P')
+                          and (:P671_FILTRAR = 'S')
+                          and ( :P671_TIPODATA is null or ( :P671_TIPODATA = 'N' and n.datanegociacao between to_date(:P671_DATAINI||' 00:00:01','DD/MM/RRRR HH24:MI:SS') and to_date(:P671_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') )
+                           or ( :P671_TIPODATA = 'V' and exists ( select 1
+                                                                  from pagamentosnegociacoesparceiros pp
+                                                                  where pp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                    and pp.datavencimento   between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') ) )
+                           or ( :P671_TIPODATA = 'P' and exists ( select 1
+                                                                    from pagamentosnegociacoesparceiros pp
+                                                                    where pp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                      and (trunc(pp.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') 
+                                                                           or  pp.datapagamento is null and trunc(pp.databaixa) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR')) ) ) )
+                           and ( :P671_FRANQUIA      is null or n.idfilial = :P671_FRANQUIA )
+                           and ( :P671_DISTRIBUIDOR  is null or n.idrepresentante = :P671_DISTRIBUIDOR )
+                           and ( :P671_CONSULTORA    is null or n.idvendedora = :P671_CONSULTORA )
+                           and ( :P671_IDRESPONSAVEL is null or n.idusuarioresponsavel = :P671_IDRESPONSAVEL )
+                           and ( :P671_IDPAIS        is null or n.idpais = :P671_IDPAIS)
+                           and ( :P671_FORMA_PGTO = 'A' or n.formapagamento = :P671_FORMA_PGTO )
+                           and ( :P671_SITUACAO   = 'T'
+                            or ( :P671_SITUACAO   = 'Q' and nvl(( select sum(pnp.valorparcela)
+                                                                  from pagamentosnegociacoesparceiros pnp
+                                                                  where pnp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                    and pnp.situacao             = 'Q'
+                                                                    and pnp.baixarealizada       = 'S' ),0) > 0 )
+                            or ( :P671_SITUACAO   = 'E' and nvl(( select sum(pnp.valorparcela)
+                                                                  from pagamentosnegociacoesparceiros pnp
+                                                                  where pnp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                    and pnp.situacao             = 'E' ),0) > 0 )
+                            or ( :P671_SITUACAO   = 'A' and n.valornegociacao > nvl(( select sum(pnp.valorparcela)
+                                                                                      from pagamentosnegociacoesparceiros pnp
+                                                                                      where pnp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                                        and pnp.situacao             = 'Q'
+                                                                                        and pnp.baixarealizada       = 'S' ),0) ) 
+                            or ( :P671_SITUACAO   = 'V' and nvl(( select sum(pnp.valorparcela)
+                                                                  from pagamentosnegociacoesparceiros pnp
+                                                                  where pnp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                    and pnp.situacao             = 'V' ),0) > 0 ))
+                           and (:P671_CANAL = 'T' 
+                              or (:P671_CANAL = 'A' and n.origem = :P671_CANAL )
+                              or (:P671_CANAL = 'B' and n.origem = :P671_CANAL )
+                              or (:P671_CANAL = 'C' and n.origem = :P671_CANAL ) )
+                            /*  or (:P671_CANAL = 'R' and exists ( select sum(pn.valorpago)
+                                                                 from roman.pagamentosnotasvendas pn
+                                                                    , roman.documentosnegociacao d
+                                                                    , roman.notasvendas nv
+                                                                 where pn.idnotavenda = d.idnotavenda
+                                                                   and nv.idnotavenda = pn.idnotavenda
+                                                                   and d.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                   and pn.origem = 'R'
+                                                                   and pn.valorpago > 0
+                                                                   and nv.enviadocobranca = 'S'
+                                                                   and (trunc(pn.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') ) ) ) ) */
+                        group by n.idnegociacaoparceiro, n.idfilial) r
+                -- INICIO VALORES FAVORITA
+                    , ( select distinct (n.idnegociacaoparceiro) idneg
+                             , n.idfilial idfilial_f
+                             , sum(nvl(d.valororiginal,0)) valororiginal
+                             , sum(nvl(d.valoratualizado,0)) valoratualizado
+                             , sum(nvl((d.valoratualizado - d.valororiginal),0)) juro
+                             , sum(nvl(d.valordesconto,0)) valordesconto
+                             , sum(d.valoratualizado - d.valordesconto) valorfinal
+                             , sum(nvl(d.valorpago,0)) valorpagoneg --Ajustado
+                             , nvl( ( select sum(p.valorparcela)  
+                                      from roman.pagamentosnegociacoesparceiros p
+                                      where p.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                        and p.situacao = 'Q' 
+                                        and (trunc(p.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR')  or  p.datapagamento is null and trunc(p.databaixa) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR'))),0)  pagovigentefav 
+                             , sum(d.valoratualizado - d.valordesconto) - sum(nvl(d.valorpago,0))  saldofav
+                        from roman.negociacoesparceiros n
+                           , roman.documentosnegociacao d
+                           , ( select case
+                                        when ddd.idpedido is not null then  'F'
+                                        when ddd.idnotavenda is not null  then 'R'
+                                        when ddd.idpepinorepres is not null then 'P'
+                                        when ddd.idboleto is not null  then 'B'
+                                      end carteira
+                                    , ddd.idnegociacaoparceiro
+                                    , ddd.idrepresentante
+                                    , ddd.iddocumentonegociacao
+                               from roman.documentosnegociacao ddd) xx
+                        where n.idnegociacaoparceiro = d.idnegociacaoparceiro
+                          and n.tiponegociacao is null
+                          and nvl(n.idusuarioresponsavel,0) not in (172,549,5755)
+                          and d.iddocumentonegociacao = xx.iddocumentonegociacao
+                          and xx.carteira in ('F','B')
+                          and (:P671_FILTRAR = 'S')
+                          and ( :P671_TIPODATA is null or ( :P671_TIPODATA = 'N' and n.datanegociacao between to_date(:P671_DATAINI||' 00:00:01','DD/MM/RRRR HH24:MI:SS') and to_date(:P671_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') )
+                           or ( :P671_TIPODATA = 'V' and exists ( select 1
+                                                                  from pagamentosnegociacoesparceiros pp
+                                                                  where pp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                    and pp.datavencimento between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') ) )
+                           or ( :P671_TIPODATA = 'P' and exists ( select 1
+                                                                  from pagamentosnegociacoesparceiros pp
+                                                                  where pp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                    and (trunc(pp.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR')
+                                                                           or  pp.datapagamento is null and trunc(pp.databaixa) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') )) ) )
+                           and ( :P671_FRANQUIA      is null or n.idfilial = :P671_FRANQUIA )
+                           and ( :P671_DISTRIBUIDOR  is null or n.idrepresentante = :P671_DISTRIBUIDOR )
+                           and ( :P671_CONSULTORA    is null or n.idvendedora = :P671_CONSULTORA )
+                           and ( :P671_IDRESPONSAVEL is null or n.idusuarioresponsavel = :P671_IDRESPONSAVEL )
+                           and ( :P671_IDPAIS        is null or n.idpais = :P671_IDPAIS)
+                           and ( :P671_FORMA_PGTO = 'A' or n.formapagamento = :P671_FORMA_PGTO )
+                           and ( :P671_SITUACAO = 'T'
+                            or ( :P671_SITUACAO = 'Q' and nvl(( select sum(pnp.valorparcela)
+                                                                from pagamentosnegociacoesparceiros pnp
+                                                                where pnp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                  and pnp.situacao             = 'Q'
+                                                                  and pnp.baixarealizada       = 'S' ),0) > 0 )
+                            or ( :P671_SITUACAO = 'E' and nvl(( select sum(pnp.valorparcela)
+                                                                from pagamentosnegociacoesparceiros pnp
+                                                                where pnp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                  and pnp.situacao             = 'E' ),0) > 0 )
+                            or ( :P671_SITUACAO = 'A' and n.valornegociacao > nvl(( select sum(pnp.valorparcela)
+                                                                                    from pagamentosnegociacoesparceiros pnp
+                                                                                    where pnp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                                      and pnp.situacao             = 'Q'
+                                                                                      and pnp.baixarealizada       = 'S' ),0) ) 
+                            or ( :P671_SITUACAO = 'V' and nvl(( select sum(pnp.valorparcela)
+                                                                 from pagamentosnegociacoesparceiros pnp
+                                                                 where pnp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                   and pnp.situacao             = 'V' ),0) > 0 ))
+                           and (:P671_CANAL   = 'T'  
+                              or (:P671_CANAL = 'A' and n.origem = :P671_CANAL )
+                              or (:P671_CANAL = 'B' and n.origem = :P671_CANAL )
+                              or (:P671_CANAL = 'C' and n.origem = :P671_CANAL ) ) 
+                            /*  or (:P671_CANAL = 'R' and exists ( select sum(pn.valorpago)
+                                                                 from roman.pagamentosnotasvendas pn
+                                                                    , roman.documentosnegociacao d
+                                                                    , roman.notasvendas nv
+                                                                 where pn.idnotavenda = d.idnotavenda
+                                                                   and nv.idnotavenda = pn.idnotavenda
+                                                                   and d.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                   and pn.origem = 'R'
+                                                                   and pn.valorpago > 0
+                                                                   and nv.enviadocobranca = 'S'
+                                                                   and (trunc(pn.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') ) ) ) ) */
+                      group by n.idnegociacaoparceiro, idfilial ) f  
+                -- FIM VALORES FAVORITA
+                where nm.idnegociacaoparceiro = r.idneg(+)
+                  and nm.idnegociacaoparceiro = f.idneg(+)
+                  and nm.tiponegociacao       is null
+                  and nvl(nm.idusuarioresponsavel,0) not in (172,549,5755)
+                  and (:P671_FILTRAR = 'S')
+                      and ( :P671_TIPODATA is null or ( :P671_TIPODATA = 'N' and nm.datanegociacao between to_date(:P671_DATAINI||' 00:00:01','DD/MM/RRRR HH24:MI:SS') and to_date(:P671_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') )
+                       or ( :P671_TIPODATA = 'V' and exists ( select 1
+                                                              from pagamentosnegociacoesparceiros pp
+                                                              where pp.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                                                                and pp.datavencimento between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') ) )
+                       or ( :P671_TIPODATA = 'P' and exists ( select 1
+                                                              from pagamentosnegociacoesparceiros pp
+                                                              where pp.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                                                                and (trunc(pp.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR')
+                                                                       or  pp.datapagamento is null and trunc(pp.databaixa) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR')) )) )
+                       and ( :P671_FRANQUIA      is null or nm.idfilial = :P671_FRANQUIA )
+                       and ( :P671_DISTRIBUIDOR  is null or nm.idrepresentante = :P671_DISTRIBUIDOR )
+                       and ( :P671_CONSULTORA    is null or nm.idvendedora = :P671_CONSULTORA )
+                       and ( :P671_IDRESPONSAVEL is null or nm.idusuarioresponsavel = :P671_IDRESPONSAVEL )
+                       and ( :P671_IDPAIS        is null or nm.idpais = :P671_IDPAIS)
+                       and ( :P671_FORMA_PGTO = 'A' or nm.formapagamento = :P671_FORMA_PGTO )
+                       and ( :P671_SITUACAO   = 'T'
+                        or ( :P671_SITUACAO   = 'Q' and nvl(( select sum(pnp.valorparcela)
+                                                              from pagamentosnegociacoesparceiros pnp
+                                                              where pnp.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                                                                and pnp.situacao             = 'Q'
+                                                                and pnp.baixarealizada       = 'S' ),0) > 0 )
+                         or ( :P671_SITUACAO  = 'E' and nvl(( select sum(pnp.valorparcela)
+                                                              from pagamentosnegociacoesparceiros pnp
+                                                              where pnp.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                                                                and pnp.situacao             = 'E' ),0) > 0 )
+                         or ( :P671_SITUACAO  = 'A' and nm.valornegociacao > nvl(( select sum(pnp.valorparcela)
+                                                                                   from pagamentosnegociacoesparceiros pnp
+                                                                                   where pnp.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                                                                                     and pnp.situacao             = 'Q'
+                                                                                     and pnp.baixarealizada       = 'S' ),0) ) 
+                         or ( :P671_SITUACAO  = 'V' and nvl(( select sum(pnp.valorparcela)
+                                                              from pagamentosnegociacoesparceiros pnp
+                                                              where pnp.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                                                                and pnp.situacao             = 'V' ),0) > 0 ))
+                        and (:P671_CANAL    = 'T'  or (:P671_CANAL = 'A' and nm.origem = :P671_CANAL ) 
+                            or (:P671_CANAL = 'B' and nm.origem = :P671_CANAL ) 
+                            or (:P671_CANAL = 'C' and nm.origem = :P671_CANAL ) ) )
+                           /* or (:P671_CANAL = 'R' and exists ( select 1
+                                                               from roman.pagamentosnotasvendas pn
+                                                                  , roman.documentosnegociacao d
+                                                                  , roman.notasvendas nv
+                                                               where pn.idnotavenda = d.idnotavenda
+                                                                 and nv.idnotavenda = pn.idnotavenda
+                                                                 and d.idnegociacaoparceiro = nm.idnegociacaoparceiro
+                                                                 and pn.origem = 'R'
+                                                                 and pn.valorpago > 0
+                                                                 and nv.enviadocobranca = 'S'
+                                                                 and trunc(pn.datapagamento) > trunc(nv.dataenviadocobranca) 
+                                                                 and not exists ( select 1 
+                                                                                  from roman.codigosliberacoescobranca c 
+                                                                                  where c.idnotavenda = nv.idnotavenda ) ) ) ) ) */ --(Osiel) -- Removido por solicitação da Alexia durante homologação.
+                where ( :P671_SPC  = 'A' or ( :P671_SPC = 'S' and enviada = 'Sim' ) or ( :P671_SPC = 'N' and enviada = 'Não' ) ) 
+                  and (:P671_ORIGEM_NEGOCIACAO = 'A' or (:P671_ORIGEM_NEGOCIACAO = 'C' and origem_negociacao = 'Consultora') or (:P671_ORIGEM_NEGOCIACAO = 'D' and origem_negociacao = 'Distribuidor'))
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent15
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P671_TIPORELATORIO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 103089880149409406
+        }
+
+        column ACRES_PAG (
+            type: plainText
+            heading {
+                heading: Acres Pag
+                alignment: center
+            }
+            layout {
+                sequence: 360
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BJ
+            }
+        )
+
+        column CANAL_NEGOCIACAO (
+            type: plainText
+            heading {
+                heading: Origem do Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column CONSULTORA (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: CG
+            }
+        )
+
+        column DATANEGOCIACAO (
+            type: plainText
+            heading {
+                heading: Data da Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column DOCUMENTO (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column DTPAGAMENTO (
+            type: plainText
+            heading {
+                heading: Data Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 630
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/rrrr HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: DS
+            }
+        )
+
+        column ENVIADA (
+            type: plainText
+            heading {
+                heading: Enviado(a) ao SPC
+                alignment: center
+            }
+            layout {
+                sequence: 510
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: DK
+            }
+        )
+
+        column FORMAPGTO (
+            type: plainText
+            heading {
+                heading: Forma Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 380
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column FRANQUIA (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column F_JURO (
+            type: plainText
+            heading {
+                heading: Valor Juros Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 240
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column F_JURO_CONV (
+            type: plainText
+            heading {
+                heading: Valor Juros Favorita (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 250
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DB
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column F_VALORATUALIZADO (
+            type: plainText
+            heading {
+                heading: Valor Atualizado Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 260
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AE
+            }
+        )
+
+        column F_VALORATUALIZADO_CONV (
+            type: plainText
+            heading {
+                heading: Valor Atualizado Favorita (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 270
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DA
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column F_VALORDESCONTO (
+            type: plainText
+            heading {
+                heading: Valor Desconto Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 280
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column F_VALORDESCONTO_CONV (
+            type: plainText
+            heading {
+                heading: Valor Desconto Favorita (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 290
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DC
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column F_VALORFINAL (
+            type: plainText
+            heading {
+                heading: Valor Final Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 300
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BB
+            }
+        )
+
+        column F_VALORFINAL_CONV (
+            type: plainText
+            heading {
+                heading: Valor Final Favorita (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 310
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DD
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column F_VALORORIGINAL (
+            type: plainText
+            heading {
+                heading: Valor Original Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AD
+            }
+        )
+
+        column F_VALORORIGINAL_CONV (
+            type: plainText
+            heading {
+                heading: Valor Original Favorita (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CZ
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column F_VALORPAGO (
+            type: plainText
+            heading {
+                heading: Pago Total Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 320
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DE
+            }
+        )
+
+        column F_VALORPAGO_CONV (
+            type: plainText
+            heading {
+                heading: Pago Total Favorita (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 330
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DF
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column IDNEGOCIACAOPARCEIRO (
+            type: plainText
+            heading {
+                heading: ID Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        column LINK (
+            type: link
+            heading {
+                heading: "Ver/Editar "
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 591
+                    items: {
+                        P591_IDNEGOCIACAOPARCEIRO: #LINK#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-view.png" class="apex-edit-view" alt="">
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BG
+            }
+        )
+
+        column ORIGEM_NEGOCIACAO (
+            type: plainText
+            heading {
+                heading: Origem Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 540
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: DL
+            }
+        )
+
+        column PAGOVIGENTEF (
+            type: plainText
+            heading {
+                heading: Pago Vigente Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 570
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DO
+            }
+        )
+
+        column PAGOVIGENTEFAVCONV (
+            type: plainText
+            heading {
+                heading: Pago Vigente Favorita (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 580
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DV
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column PAGOVIGENTER (
+            type: plainText
+            heading {
+                heading: Pago Vigente Romance
+                alignment: center
+            }
+            layout {
+                sequence: 550
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DN
+            }
+        )
+
+        column PAGOVIGENTERCONV (
+            type: plainText
+            heading {
+                heading: Pago Vigente Romance (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 560
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DT
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column QTDPARCELAS (
+            type: plainText
+            heading {
+                heading: Parcelas Pagas/Total
+                alignment: center
+            }
+            layout {
+                sequence: 350
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: BI
+            }
+        )
+
+        column QTD_DOCUMENTOS (
+            type: plainText
+            heading {
+                heading: Qtd. Documentos
+                alignment: center
+            }
+            layout {
+                sequence: 340
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AZ
+            }
+        )
+
+        column RESPONSAVEL (
+            type: plainText
+            heading {
+                heading: Marcação
+                alignment: center
+            }
+            layout {
+                sequence: 490
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: CQ
+            }
+        )
+
+        column R_JURO (
+            type: plainText
+            heading {
+                heading: Valor Juros Romance
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AB
+            }
+        )
+
+        column R_JURO_CONV (
+            type: plainText
+            heading {
+                heading: Valor Juros Romance (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CU
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column R_VALORATUALIZADO (
+            type: plainText
+            heading {
+                heading: Valor Atualizado Romance
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column R_VALORATUALIZADO_CONV (
+            type: plainText
+            heading {
+                heading: Valor Atualizado Romance (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CT
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column R_VALORDESCONTO (
+            type: plainText
+            heading {
+                heading: Valor Desconto Romance
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column R_VALORDESCONTO_CONV (
+            type: plainText
+            heading {
+                heading: Valor Desconto Romance (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CV
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column R_VALORFINAL (
+            type: plainText
+            heading {
+                heading: Valor Final Romance
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BA
+            }
+        )
+
+        column R_VALORFINAL_CONV (
+            type: plainText
+            heading {
+                heading: Valor Final Romance (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CW
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column R_VALORORIGINAL (
+            type: plainText
+            heading {
+                heading: Valor Original Romance
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AV
+            }
+        )
+
+        column R_VALORORIGINAL_CONV (
+            type: plainText
+            heading {
+                heading: Valor Original Romance (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CS
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column R_VALORPAG (
+            type: plainText
+            heading {
+                heading: Pago Total Romance
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CX
+            }
+        )
+
+        column R_VALORPAGO_CONV (
+            type: plainText
+            heading {
+                heading: Pago Total Romance (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CY
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo Total Acordo
+                alignment: center
+            }
+            layout {
+                sequence: 430
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CO
+            }
+        )
+
+        column SALDOCONV (
+            type: plainText
+            heading {
+                heading: Saldo Total Acordo (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 440
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CP
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column SALDOFAV (
+            type: plainText
+            heading {
+                heading: Saldo Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 590
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DP
+            }
+        )
+
+        column SALDOFAVCONV (
+            type: plainText
+            heading {
+                heading: Saldo Favorita (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 600
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DW
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column SALDOROMAN (
+            type: plainText
+            heading {
+                heading: Saldo Romance
+                alignment: center
+            }
+            layout {
+                sequence: 610
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DQ
+            }
+        )
+
+        column SALDOROMANCONV (
+            type: plainText
+            heading {
+                heading: Saldo Romance (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 620
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DU
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column SMS (
+            type: plainText
+            heading {
+                heading: Envio SMS
+                alignment: center
+            }
+            layout {
+                sequence: 500
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/rrrr HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: CR
+            }
+        )
+
+        column TAXA (
+            type: plainText
+            heading {
+                heading: Taxa
+                alignment: center
+            }
+            layout {
+                sequence: 370
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BK
+            }
+        )
+
+        column TOTALPAGO (
+            type: plainText
+            heading {
+                heading: Pago Total Acordo
+                alignment: center
+            }
+            layout {
+                sequence: 390
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BY
+            }
+        )
+
+        column TOTALPAGOCONV (
+            type: plainText
+            heading {
+                heading: Pago Total Acordo (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 400
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CF
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column TOTALPAGOVIGENTE (
+            type: plainText
+            heading {
+                heading: Valor Pago Vigente
+                alignment: center
+            }
+            layout {
+                sequence: 410
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BZ
+            }
+        )
+
+        column TOTALPAGOVIGENTECONV (
+            type: plainText
+            heading {
+                heading: Valor Pago Vigente (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 420
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CA
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column VALOR_FINAL_NEG (
+            type: plainText
+            heading {
+                heading: Valor Final Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 470
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DG
+            }
+        )
+
+        column VALOR_FINAL_NEG_CONV (
+            type: plainText
+            heading {
+                heading: Valor Final Negociação (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 480
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: DH
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 1031392 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ACRES_PAG (
+                sequence: 53
+            )
+
+            displayColumn CANAL_NEGOCIACAO (
+                sequence: 5
+            )
+
+            displayColumn CONSULTORA (
+                sequence: 9
+            )
+
+            displayColumn DATANEGOCIACAO (
+                sequence: 3
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 8
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 10
+            )
+
+            displayColumn DTPAGAMENTO (
+                sequence: 4
+            )
+
+            displayColumn ENVIADA (
+                sequence: 56
+            )
+
+            displayColumn FORMAPGTO (
+                sequence: 55
+            )
+
+            displayColumn FRANQUIA (
+                sequence: 7
+            )
+
+            displayColumn F_JURO (
+                sequence: 29
+            )
+
+            displayColumn F_JURO_CONV (
+                sequence: 30
+            )
+
+            displayColumn F_VALORATUALIZADO (
+                sequence: 31
+            )
+
+            displayColumn F_VALORATUALIZADO_CONV (
+                sequence: 32
+            )
+
+            displayColumn F_VALORDESCONTO (
+                sequence: 33
+            )
+
+            displayColumn F_VALORDESCONTO_CONV (
+                sequence: 34
+            )
+
+            displayColumn F_VALORFINAL (
+                sequence: 35
+            )
+
+            displayColumn F_VALORFINAL_CONV (
+                sequence: 36
+            )
+
+            displayColumn F_VALORORIGINAL (
+                sequence: 27
+            )
+
+            displayColumn F_VALORORIGINAL_CONV (
+                sequence: 28
+            )
+
+            displayColumn F_VALORPAGO (
+                sequence: 39
+            )
+
+            displayColumn F_VALORPAGO_CONV (
+                sequence: 40
+            )
+
+            displayColumn IDNEGOCIACAOPARCEIRO (
+                sequence: 2
+            )
+
+            displayColumn LINK (
+                sequence: 1
+            )
+
+            displayColumn ORIGEM_NEGOCIACAO (
+                sequence: 6
+            )
+
+            displayColumn PAGOVIGENTEF (
+                sequence: 37
+            )
+
+            displayColumn PAGOVIGENTEFAVCONV (
+                sequence: 38
+            )
+
+            displayColumn PAGOVIGENTER (
+                sequence: 21
+            )
+
+            displayColumn PAGOVIGENTERCONV (
+                sequence: 22
+            )
+
+            displayColumn QTDPARCELAS (
+                sequence: 45
+            )
+
+            displayColumn QTD_DOCUMENTOS (
+                sequence: 52
+            )
+
+            displayColumn RESPONSAVEL (
+                sequence: 58
+            )
+
+            displayColumn R_JURO (
+                sequence: 13
+            )
+
+            displayColumn R_JURO_CONV (
+                sequence: 14
+            )
+
+            displayColumn R_VALORATUALIZADO (
+                sequence: 15
+            )
+
+            displayColumn R_VALORATUALIZADO_CONV (
+                sequence: 16
+            )
+
+            displayColumn R_VALORDESCONTO (
+                sequence: 17
+            )
+
+            displayColumn R_VALORDESCONTO_CONV (
+                sequence: 18
+            )
+
+            displayColumn R_VALORFINAL (
+                sequence: 19
+            )
+
+            displayColumn R_VALORFINAL_CONV (
+                sequence: 20
+            )
+
+            displayColumn R_VALORORIGINAL (
+                sequence: 11
+            )
+
+            displayColumn R_VALORORIGINAL_CONV (
+                sequence: 12
+            )
+
+            displayColumn R_VALORPAG (
+                sequence: 23
+            )
+
+            displayColumn R_VALORPAGO_CONV (
+                sequence: 24
+            )
+
+            displayColumn SALDO (
+                sequence: 50
+            )
+
+            displayColumn SALDOCONV (
+                sequence: 51
+            )
+
+            displayColumn SALDOFAV (
+                sequence: 41
+            )
+
+            displayColumn SALDOFAVCONV (
+                sequence: 42
+            )
+
+            displayColumn SALDOROMAN (
+                sequence: 25
+            )
+
+            displayColumn SALDOROMANCONV (
+                sequence: 26
+            )
+
+            displayColumn SMS (
+                sequence: 57
+            )
+
+            displayColumn TAXA (
+                sequence: 54
+            )
+
+            displayColumn TOTALPAGO (
+                sequence: 48
+            )
+
+            displayColumn TOTALPAGOCONV (
+                sequence: 49
+            )
+
+            displayColumn TOTALPAGOVIGENTE (
+                sequence: 46
+            )
+
+            displayColumn TOTALPAGOVIGENTECONV (
+                sequence: 47
+            )
+
+            displayColumn VALOR_FINAL_NEG (
+                sequence: 43
+            )
+
+            displayColumn VALOR_FINAL_NEG_CONV (
+                sequence: 44
+            )
+
+            aggregate (
+                column: R_VALORORIGINAL
+            )
+
+            aggregate (
+                column: R_VALORATUALIZADO
+            )
+
+            aggregate (
+                column: R_JURO
+            )
+
+            aggregate (
+                column: R_VALORDESCONTO
+            )
+
+            aggregate (
+                column: F_VALORORIGINAL
+            )
+
+            aggregate (
+                column: F_VALORATUALIZADO
+            )
+
+            aggregate (
+                column: F_JURO
+            )
+
+            aggregate (
+                column: F_VALORDESCONTO
+            )
+
+            aggregate (
+                column: R_VALORORIGINAL_CONV
+            )
+
+            aggregate (
+                column: R_VALORATUALIZADO_CONV
+            )
+
+            aggregate (
+                column: R_JURO_CONV
+            )
+
+            aggregate (
+                column: R_VALORDESCONTO_CONV
+            )
+
+            aggregate (
+                column: F_VALORORIGINAL_CONV
+            )
+
+            aggregate (
+                column: F_VALORATUALIZADO_CONV
+            )
+
+            aggregate (
+                column: F_JURO_CONV
+            )
+
+            aggregate (
+                column: F_VALORDESCONTO_CONV
+            )
+
+            aggregate (
+                column: VALORPAGOVIGENTE_CONV
+            )
+
+            aggregate (
+                column: VALORPAGO_CONV
+            )
+
+            aggregate (
+                column: F_VALORFINAL
+            )
+
+            aggregate (
+                column: R_VALORFINAL
+            )
+
+            aggregate (
+                column: VALOR_FINAL_NEG
+            )
+
+            aggregate (
+                column: R_VALORFINAL_CONV
+            )
+
+            aggregate (
+                column: F_VALORFINAL_CONV
+            )
+
+            aggregate (
+                column: VALOR_FINAL_NEG_CONV
+            )
+
+            aggregate (
+                column: PAGOVIGENTER
+            )
+
+            aggregate (
+                column: PAGOVIGENTERCONV
+            )
+
+            aggregate (
+                column: R_VALORPAG
+            )
+
+            aggregate (
+                column: R_VALORPAGO_CONV
+            )
+
+            aggregate (
+                column: SALDOROMAN
+            )
+
+            aggregate (
+                column: SALDOROMANCONV
+            )
+
+            aggregate (
+                column: PAGOVIGENTEF
+            )
+
+            aggregate (
+                column: PAGOVIGENTEFAVCONV
+            )
+
+            aggregate (
+                column: F_VALORPAGO
+            )
+
+            aggregate (
+                column: F_VALORPAGO_CONV
+            )
+
+            aggregate (
+                column: SALDOFAV
+            )
+
+            aggregate (
+                column: SALDOFAVCONV
+            )
+
+            aggregate (
+                column: TOTALPAGOVIGENTE
+            )
+
+            aggregate (
+                column: TOTALPAGOVIGENTECONV
+            )
+
+            aggregate (
+                column: TOTALPAGO
+            )
+
+            aggregate (
+                column: TOTALPAGOCONV
+            )
+
+            aggregate (
+                column: SALDO
+            )
+
+            aggregate (
+                column: SALDOCONV
+            )
+
+            aggregate (
+                column: PAGOTABLET
+            )
+
+            aggregate (
+                column: PAGOTABLETCONV
+            )
+
+            aggregate (
+                column: ACRES_PAG
+            )
+
+            aggregate (
+                column: TAXA
+            )
+
+        )
+
+    )
+
+    region relatório-de-pagamentos-detalhado (
+        name: "Relatório de Pagamentos (Detalhado) "
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select * 
+                from ( select distinct (y.idnegociacaoparceiro)
+                            , y.idnegociacaoparceiro link
+                            , y.franquia
+                            , y.nome
+                            , y.Distribuidor
+                            , y.Documento
+                            , y.tipo_debito 
+                            , y.valororiginal
+                            , nvl(y.valororiginal * y.fatorconversao, 0) valororiginalconv 
+                            , y.valoratualizado
+                            , nvl(y.valoratualizado * y.fatorconversao, 0) valoratualizadoconv 
+                            , y.juro
+                            , nvl(y.juro * y.fatorconversao, 0) juroconv 
+                            , y.valordescontoneg 
+                            , nvl(y.valordescontoneg * y.fatorconversao,0)  valordescontonegconv
+                            , y.valorfinalneg 
+                            , nvl(y.valorfinalneg * y.fatorconversao, 0) valorfinalconv 
+                            , y.valorpagoneg
+                            , nvl(y.valorpagoneg * y.fatorconversao, 0) valorpagonegconv 
+                            , y.nmr_debito
+                            , y.datanegociacao
+                            , y.formapgto
+                            , y.vendedora
+                            , y.origem_negociacao
+                            , y.pagovigente 
+                            , nvl(y.pagovigente * y.fatorconversao, 0) pagovigenteconv
+                            , nvl(y.saldo,0) saldotitulo
+                            , nvl((y.saldo  * y.fatorconversao),0) saldotituloconv
+                            , y.dtpagamento
+                            , nvl( ( select sum(dc.valorfinal)
+                                     from roman.documentosnegociacao dc
+                                     where dc.idnegociacaoparceiro = y.idnegociacaoparceiro ),0) vlrfinalacordo
+                            --
+                            , nvl( ( select sum(dc.valorfinal)
+                                  from roman.documentosnegociacao dc
+                                  where dc.idnegociacaoparceiro = y.idnegociacaoparceiro ) *  y.fatorconversao,0 )  vlrfinalacordoconv
+                            --
+                            , nvl( ( select sum(pg.valorparcela) 
+                                     from roman.pagamentosnegociacoesparceiros pg
+                                     where pg.idnegociacaoparceiro =  y.idnegociacaoparceiro
+                                     and pg.situacao = 'A' ) ,0) Saldoacordo
+                            --
+                            , nvl( ( select sum(pg.valorparcela) 
+                                     from roman.pagamentosnegociacoesparceiros pg
+                                     where pg.idnegociacaoparceiro =  y.idnegociacaoparceiro
+                                     and pg.situacao = 'A' )  *  y.fatorconversao ,0) Saldoacordoconv
+                            --
+                            , nvl( ( select sum(pg.valorparcela) 
+                                     from roman.pagamentosnegociacoesparceiros pg
+                                     where pg.idnegociacaoparceiro =  y.idnegociacaoparceiro
+                                     and pg.situacao = 'Q' ) ,0) pagototalacordo
+                            --
+                            , nvl( ( select sum(pg.valorparcela) 
+                                     from roman.pagamentosnegociacoesparceiros pg
+                                     where pg.idnegociacaoparceiro =  y.idnegociacaoparceiro
+                                     and pg.situacao = 'Q' )  *  y.fatorconversao  ,0) pagototalacordoconv
+                      
+                            -- Considerar pagamentos realizados no tablet com data posterior a data de envio para cobrança e que não tenha código de liberação. 
+                          /*  , nvl( ( select sum(pn.valorpago)
+                                     from roman.pagamentosnotasvendas pn
+                                        , roman.documentosnegociacao d
+                                        , roman.notasvendas nv
+                                     where pn.idnotavenda = d.idnotavenda
+                                       and nv.idnotavenda = pn.idnotavenda
+                                       and d.idnegociacaoparceiro = y.idnegociacaoparceiro
+                                       and pn.origem = 'R'
+                                       and pn.valorpago > 0
+                                       and nv.enviadocobranca = 'S'
+                                       and trunc(pn.datapagamento) > trunc(nv.dataenviadocobranca) 
+                                       and not exists ( select 1 
+                                                        from roman.codigosliberacoescobranca c 
+                                                        where c.idnotavenda = nv.idnotavenda ) ),0)  pagodis */ --(Osiel) --Removido por solicitação da Alexia durante homologação. 
+                            --
+                           /* , nvl( ( select sum(pn.valorpago)
+                                     from roman.pagamentosnotasvendas pn
+                                        , roman.documentosnegociacao d
+                                        , roman.notasvendas nv
+                                     where pn.idnotavenda = d.idnotavenda
+                                       and nv.idnotavenda = pn.idnotavenda
+                                       and d.idnegociacaoparceiro = y.idnegociacaoparceiro
+                                       and pn.origem = 'R'
+                                       and pn.valorpago > 0
+                                       and nv.enviadocobranca = 'S'
+                                       and trunc(pn.datapagamento) > trunc(nv.dataenviadocobranca) 
+                                       and not exists ( select 1 
+                                                        from roman.codigosliberacoescobranca c 
+                                                        where c.idnotavenda = nv.idnotavenda ) ) *  y.fatorconversao ,0)  pagodisconv */ --(Osiel) --Removido por solicitação da Alexia durante homologação. 
+                
+                            --
+                            , case
+                                 when 'S' = ( select v.spc
+                                              from catal.vendedoras v
+                                              where v.idvendedora = y.vendedora
+                                                and v.spc = 'S' ) then 'Sim'
+                              else 'Não'  
+                              end enviada
+                            --
+                            , case
+                                 when y.tipo_debito = 'Nota' then ( select nv.datanota
+                                                                    from roman.notasvendas nv
+                                                                    where nv.idnotavenda = y.nmr_debito )
+                                 when y.tipo_debito = 'Pedido' then ( select ped.dataemissao
+                                                                     from favorita.pedidos ped
+                                                                     where ped.idpedido = y.nmr_debito )
+                                 when y.tipo_debito = 'Pepino' then ( select pp.datainclusao
+                                                                      from roman.pepinosrepresentantes pp
+                                                                      where pp.nrpedido = y.nmr_debito
+                                                                        and pp.idpepinosrepresentante = y.idpepinorepres )
+                                 when y.tipo_debito = 'Boleto' then ( select b.dataemissao
+                                                                      from catal.boletos b
+                                                                      where b.numero = y.nmr_debito
+                                                                        and b.idboleto = y.idboleto ) 
+                             end data_debito
+                             --
+                            , case
+                                 when y.tipo_debito = 'Nota' then ( select extract(year from nv.datanota)
+                                                                    from roman.notasvendas nv
+                                                                    where nv.idnotavenda = y.nmr_debito )
+                                 when y.tipo_debito = 'Pedido' then ( select extract(year from ped.dataemissao)
+                                                                      from favorita.pedidos ped
+                                                                      where ped.idpedido = y.nmr_debito )
+                                 when y.tipo_debito = 'Pepino' then ( select extract( year from pp.datainclusao) 
+                                                                      from roman.pepinosrepresentantes pp
+                                                                      where pp.nrpedido = y.nmr_debito
+                                                                        and pp.idpepinosrepresentante = y.idpepinorepres )
+                                 when y.tipo_debito = 'Boleto' then ( select extract( year from b.dataemissao)
+                                                                      from catal.boletos b
+                                                                      where b.numero = y.nmr_debito
+                                                                        and b.idboleto = y.idboleto ) 
+                              end ano_debito
+                            --
+                            , case 
+                                 when y.origem = 'B' then 'Cobrança Interna'
+                                 when y.origem = 'A' then 'Plataforma Déb. Romance'
+                                 when y.origem = 'C' then 'Cobraki' 
+                              end canal_negociacao
+                            --
+                            , case
+                                 when y.tipo_debito in ('Nota','Pepino') then 'Romance'
+                                 when y.tipo_debito in ('Pedido','Boleto') then 'Favorita'
+                              else 'Não'                                               
+                              end origem
+                            --
+                           , case
+                                when y.tipo_debito = 'Nota' then ( select max(ob.data) 
+                                                                   from roman.observacoesnotasvendas ob
+                                                                      , roman.documentosnegociacao d
+                                                                   where ob.idnotavenda = d.idnotavenda
+                                                                     and d.idnegociacaoparceiro = y.idnegociacaoparceiro )
+                                 when y.tipo_debito = 'Pedido' then ( select max(f.datahistorico) 
+                                                                      from favorita.vw_historicospedidos_fav f
+                                                                         , roman.documentosnegociacao d
+                                                                      where f.idpedido = d.idpedido
+                                                                       and d.idnegociacaoparceiro = y.idnegociacaoparceiro )
+                                 when y.tipo_debito = 'Pepino' then ( select max(op.data)
+                                                                      from roman.observacoespepinosrepres op 
+                                                                         , roman.documentosnegociacao d
+                                                                      where op.idpepinorepresentante = d.idpepinorepres
+                                                                        and d.idnegociacaoparceiro = y.idnegociacaoparceiro )
+                                 when y.tipo_debito = 'Boleto' then ( select max(h.data) 
+                                                                      from catal.historicos_boletos h
+                                                                         , roman.documentosnegociacao d
+                                                                      where h.idboleto = d.idboleto
+                                                                        and d.idnegociacaoparceiro = y.idnegociacaoparceiro ) 
+                             end registro
+                             --
+                             , ( select max(m.dataenvio)
+                                 from roman.mensagenssms m
+                                    , catal.pessoas p 
+                                    , catal.vendedoras v
+                                    , roman.documentosnegociacao d 
+                                 where m.idpessoa = p.idpessoa
+                                   and p.idpessoa = v.idpessoa
+                                   and v.idvendedora = d.idvendedora 
+                                   and d.idnegociacaoparceiro = y.idnegociacaoparceiro ) sms
+                              --
+                              , ( select u.usuario 
+                                  from catal.usuarios u 
+                                     , roman.negociacoesparceiros n
+                                  where n.idusuarioresponsavel = u.idusuario
+                                    and n.idnegociacaoparceiro = y.idnegociacaoparceiro ) responsavel     
+                       from ( select roman.pck_romance.fnc_nomefilial(n.idfilial) franquia
+                                   , roman.pck_romance.fnc_nomevendedora(n.idvendedora) nome 
+                                   , roman.pck_romance.fnc_nomerepresentante(n.idrepresentante) Distribuidor 
+                                   , nvl(d.valororiginal,0) valororiginal 
+                                   , nvl(d.valoratualizado,0) valoratualizado
+                                   , nvl((d.valoratualizado - d.valororiginal),0) juro
+                                   , nvl(d.valordesconto,0) valordescontoneg 
+                                   , nvl(d.valorfinal,0) valorfinalneg 
+                                   , nvl(d.valorpago,0) valorpagoneg 
+                                   , n.datanegociacao
+                                   , n.idnegociacaoparceiro
+                                   , d.idpepinorepres
+                                   , d.idboleto
+                                   , n.origem
+                                   , decode(n.formapagamento,'C','Cartão de Credito','D','Deposito','B','Boleto','P','Pix','G','Giro de Pago','T','Giro Tigo') formapgto
+                                   , n.idvendedora vendedora
+                                   , d.saldo
+                                   --
+                                   , ( select max(pn.datapagamento) 
+                                       from roman.pagamentosnegociacoesparceiros pn 
+                                       where pn.idnegociacaoparceiro = n.idnegociacaoparceiro 
+                                         and (:P671_DATAINI is not null and trunc(pn.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') 
+                                          or  :P671_DATAINI is not null and pn.datapagamento is null and trunc(pn.databaixa) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR')) ) dtpagamento
+                                   --
+                                   
+                                    , nvl( ( select sum(p.valorparcela) 
+                                             from roman.pagamentosnegociacoesparceiros p
+                                             where p.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                               and p.situacao = 'Q' 
+                                               and (trunc(p.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') 
+                                                  or  p.datapagamento is null and trunc(p.databaixa) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR'))),0) pagovigente 
+                                    --
+                                    , ( select vf.fatorconversao 
+                                        from roman.vw_filiais vf
+                                        where vf.idfilial = n.idfilial) fatorconversao 
+                                    --
+                                    , ( select nvl(pe.documentoestrangeiro,roman.pck_romance.fnc_cpfvendedora(vv.idvendedora)) 
+                                        from catal.pessoas pe
+                                           , catal.vendedoras vv
+                                        where pe.idpessoa = vv.idpessoa
+                                          and vv.idvendedora = n.idvendedora) Documento
+                                    --
+                                    , case
+                                         when x.carteira = 'F' then 'Pedido'
+                                         when x.carteira = 'R' then 'Nota'
+                                         when x.carteira = 'P' then 'Pepino'
+                                         when x.carteira = 'B' then 'Boleto'
+                                      end tipo_debito
+                                    --
+                                    , case 
+                                         when d.idnotavenda is not null then to_char(d.idnotavenda)
+                                         when d.idpepinorepres is not null then ( select pr.nrpedido
+                                                                                  from roman.pepinosrepresentantes pr
+                                                                                  where pr.idpepinosrepresentante = d.idpepinorepres )
+                                         when d.idpedido is not null then to_char(d.idpedido)
+                                         when d.idboleto is not null then ( select bt.numero
+                                                                            from catal.boletos bt
+                                                                            where bt.idboleto = d.idboleto )
+                                      end nmr_debito
+                                    --
+                                    , decode( (select 1
+                                               from catal.vendedoras v
+                                                  , catal.representantes r
+                                               where v.idpessoa = r.idpessoa
+                                                 and v.idvendedora = n.idvendedora),1,'Distribuidor','Consultora') origem_negociacao
+                
+                              from roman.documentosnegociacao d
+                                 , roman.negociacoesparceiros n
+                                 , roman.vw_filiais w
+                                 , ( select case
+                                               when ddd.idpedido       is not null then 'F'
+                                               when ddd.idnotavenda    is not null then 'R'
+                                               when ddd.idpepinorepres is not null then 'P'
+                                               when ddd.idboleto       is not null then 'B'
+                                            end carteira
+                                            , ddd.idnegociacaoparceiro
+                                            , ddd.idrepresentante
+                                            , ddd.iddocumentonegociacao
+                                     from roman.documentosnegociacao ddd) x
+                                     where d.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                       and d.iddocumentonegociacao = x.iddocumentonegociacao
+                                       and n.tiponegociacao  is null
+                                       and nvl(n.idusuarioresponsavel,0) not in (172,549,5755)
+                                       and (:P671_FILTRAR = 'S')
+                                       and ( :P671_TIPODATA is null
+                                          or ( :P671_TIPODATA = 'N' and n.datanegociacao between to_date(:P671_DATAINI||' 00:00:01','DD/MM/RRRR HH24:MI:SS') and to_date(:P671_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS') )
+                                          or ( :P671_TIPODATA = 'V' and exists ( select 1
+                                                                                 from pagamentosnegociacoesparceiros pp
+                                                                                 where pp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                                   and pp.datavencimento between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR') ) )
+                                          or ( :P671_TIPODATA = 'P' and exists ( select 1
+                                                                                 from pagamentosnegociacoesparceiros pp
+                                                                                 where pp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                                   and (trunc(pp.datapagamento) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR')
+                                                                                           or  pp.datapagamento is null and trunc(pp.databaixa) between to_date(:P671_DATAINI,'DD/MM/RRRR') and to_date(:P671_DATAFIM,'DD/MM/RRRR')) )) )
+                                       and ( :P671_FRANQUIA      is null or n.idfilial = :P671_FRANQUIA )
+                                       and ( :P671_DISTRIBUIDOR  is null or n.idrepresentante = :P671_DISTRIBUIDOR )
+                                       and ( :P671_CONSULTORA    is null or n.idvendedora = :P671_CONSULTORA )
+                                       and ( :P671_IDRESPONSAVEL is null or n.idusuarioresponsavel = :P671_IDRESPONSAVEL )
+                                       and ( :P671_IDPAIS        is null or n.idpais = :P671_IDPAIS)
+                                       and ( :P671_FORMA_PGTO     = 'A' or n.formapagamento = :P671_FORMA_PGTO )
+                                       and ( :P671_ORIGEMDEBITO   = 'A' 
+                                          or ( :P671_ORIGEMDEBITO = 'F' and d.idpedido is not null or d.idboleto is not null )
+                                          or ( :P671_ORIGEMDEBITO = 'R' and d.idnotavenda is not null or d.idpepinorepres is not null ) )
+                                       and ( :P671_SITUACAO   = 'T'
+                                          or ( :P671_SITUACAO = 'Q' and nvl( ( select sum(pnp.valorparcela)
+                                                                               from pagamentosnegociacoesparceiros pnp
+                                                                               where pnp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                                 and pnp.situacao  = 'Q'
+                                                                                 and pnp.baixarealizada  = 'S' ),0) > 0 )
+                                          or ( :P671_SITUACAO = 'E' and nvl( ( select sum(pnp.valorparcela)
+                                                                                 from pagamentosnegociacoesparceiros pnp
+                                                                                 where pnp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                                   and pnp.situacao  = 'E' ),0) > 0 )
+                                          or ( :P671_SITUACAO = 'A' and n.valornegociacao > nvl( ( select sum(pnp.valorparcela)
+                                                                                                   from pagamentosnegociacoesparceiros pnp
+                                                                                                   where pnp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                                                     and pnp.situacao = 'Q'
+                                                                                                     and pnp.baixarealizada = 'S' ),0) ) 
+                                          or ( :P671_SITUACAO = 'V' and nvl( ( select sum(pnp.valorparcela)
+                                                                               from pagamentosnegociacoesparceiros pnp
+                                                                               where pnp.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                                 and pnp.situacao  = 'V' ),0) > 0 )) 
+                
+                                       and (:P671_CANAL   = 'T' 
+                                          or (:P671_CANAL = 'A' and n.origem = :P671_CANAL )
+                                          or (:P671_CANAL = 'B' and n.origem = :P671_CANAL )
+                                          or (:P671_CANAL = 'C' and n.origem = :P671_CANAL ) ) ) y
+                                        /*  or (:P671_CANAL = 'R' and exists ( select 1
+                                                                             from roman.pagamentosnotasvendas pn
+                                                                                , roman.documentosnegociacao d
+                                                                                , roman.notasvendas nv
+                                                                             where pn.idnotavenda = d.idnotavenda
+                                                                               and nv.idnotavenda = pn.idnotavenda
+                                                                               and d.idnegociacaoparceiro = n.idnegociacaoparceiro
+                                                                               and pn.origem = 'R'
+                                                                               and pn.valorpago > 0
+                                                                               and nv.enviadocobranca = 'S'
+                                                                               and trunc(pn.datapagamento) > trunc(nv.dataenviadocobranca) 
+                                                                               and not exists ( select 1 
+                                                                                                from roman.codigosliberacoescobranca c 
+                                                                                                where c.idnotavenda = nv.idnotavenda ) ) )  ) ) y */
+                ) yy
+                where ( :P671_SPC  = 'A' or ( :P671_SPC = 'S'  and yy.enviada = 'Sim' ) or ( :P671_SPC = 'N'  and yy.enviada = 'Não' ) )
+                  and (:P671_ORIGEM_NEGOCIACAO = 'A' or (:P671_ORIGEM_NEGOCIACAO = 'C' and yy.origem_negociacao = 'Consultora') or (:P671_ORIGEM_NEGOCIACAO = 'D' and yy.origem_negociacao = 'Distribuidor'))
+                order by yy.idnegociacaoparceiro
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent15
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P671_TIPORELATORIO
+            value: D
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1108836815711584705
+        }
+
+        column ANO_DEBITO (
+            type: plainText
+            heading {
+                heading: Ano do Débito
+                alignment: center
+            }
+            layout {
+                sequence: 240
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AY
+            }
+        )
+
+        column CANAL_NEGOCIACAO (
+            type: plainText
+            heading {
+                heading: Origem do Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column DATANEGOCIACAO (
+            type: plainText
+            heading {
+                heading: Data da Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/rrrr HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AB
+            }
+        )
+
+        column DATA_DEBITO (
+            type: plainText
+            heading {
+                heading: Data do Débito
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/rrrr HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AX
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column DOCUMENTO (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column DTPAGAMENTO (
+            type: plainText
+            heading {
+                heading: "Data Pagamento "
+                alignment: center
+            }
+            layout {
+                sequence: 460
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/rrrr HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: CL
+            }
+        )
+
+        column ENVIADA (
+            type: plainText
+            heading {
+                heading: Enviado(a) ao SPC
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AW
+            }
+        )
+
+        column FORMAPGTO (
+            type: plainText
+            heading {
+                heading: Forma de Pagamento
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column FRANQUIA (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column IDNEGOCIACAOPARCEIRO (
+            type: plainText
+            heading {
+                heading: ID Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column JURO (
+            type: plainText
+            heading {
+                heading: Valor Juros
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AO
+            }
+        )
+
+        column JUROCONV (
+            type: plainText
+            heading {
+                heading: Valor Juros (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BS
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column LINK (
+            type: link
+            heading {
+                heading: "Ver/Editar "
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 591
+                    items: {
+                        P591_IDNEGOCIACAOPARCEIRO: #LINK#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-view.png" class="apex-edit-view" alt="">
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BW
+            }
+        )
+
+        column NMR_DEBITO (
+            type: plainText
+            heading {
+                heading: Nr do Débito
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AS
+            }
+        )
+
+        column NOME (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AL
+            }
+        )
+
+        column ORIGEM (
+            type: plainText
+            heading {
+                heading: Origem
+                alignment: center
+            }
+            layout {
+                sequence: 270
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: BN
+            }
+        )
+
+        column ORIGEM_NEGOCIACAO (
+            type: plainText
+            heading {
+                heading: Origem Negociação
+                alignment: center
+            }
+            layout {
+                sequence: 350
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: CB
+            }
+        )
+
+        column PAGOTOTALACORDO (
+            type: plainText
+            heading {
+                heading: Pago Total Acordo
+                alignment: center
+            }
+            layout {
+                sequence: 400
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CI
+            }
+        )
+
+        column PAGOTOTALACORDOCONV (
+            type: plainText
+            heading {
+                heading: Pago Total Acordo (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 410
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CO
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column PAGOVIGENTE (
+            type: plainText
+            heading {
+                heading: Pago Vigente
+                alignment: center
+            }
+            layout {
+                sequence: 360
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CD
+            }
+        )
+
+        column PAGOVIGENTECONV (
+            type: plainText
+            heading {
+                heading: Pago Vigente (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 370
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CM
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column REGISTRO (
+            type: plainText
+            heading {
+                heading: Registro
+                alignment: center
+            }
+            layout {
+                sequence: 280
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/rrrr HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: BO
+            }
+            comments {
+                comments: Maior data da observação da nota ou pedido.
+            }
+        )
+
+        column RESPONSAVEL (
+            type: plainText
+            heading {
+                heading: Marcação
+                alignment: center
+            }
+            layout {
+                sequence: 300
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: BQ
+            }
+        )
+
+        column SALDOACORDO (
+            type: plainText
+            heading {
+                heading: Saldo Acordo
+                alignment: center
+            }
+            layout {
+                sequence: 420
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CJ
+            }
+        )
+
+        column SALDOACORDOCONV (
+            type: plainText
+            heading {
+                heading: Saldo Acordo (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 430
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CP
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column SALDOTITULO (
+            type: plainText
+            heading {
+                heading: Saldo Título
+                alignment: center
+            }
+            layout {
+                sequence: 440
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CK
+            }
+        )
+
+        column SALDOTITULOCONV (
+            type: plainText
+            heading {
+                heading: Saldo Título (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 450
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CQ
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column SMS (
+            type: plainText
+            heading {
+                heading: Envio SMS
+                alignment: center
+            }
+            layout {
+                sequence: 290
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/rrrr HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: BP
+            }
+        )
+
+        column TIPO_DEBITO (
+            type: plainText
+            heading {
+                heading: Tipo do Débito
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AR
+            }
+        )
+
+        column VALORATUALIZADO (
+            type: plainText
+            heading {
+                heading: Valor Atualizado
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AN
+            }
+        )
+
+        column VALORATUALIZADOCONV (
+            type: plainText
+            heading {
+                heading: Valor Atualizado (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BF
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column VALORDESCONTONEG (
+            type: plainText
+            heading {
+                heading: Valor Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BT
+            }
+        )
+
+        column VALORDESCONTONEGCONV (
+            type: plainText
+            heading {
+                heading: Valor Desconto (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BU
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column VALORFINALCONV (
+            type: plainText
+            heading {
+                heading: Valor Final (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BI
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column VALORFINALNEG (
+            type: plainText
+            heading {
+                heading: Valor Final
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BV
+            }
+        )
+
+        column VALORORIGINAL (
+            type: plainText
+            heading {
+                heading: Valor Original
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AM
+            }
+        )
+
+        column VALORORIGINALCONV (
+            type: plainText
+            heading {
+                heading: Valor Original (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BE
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column VALORPAGONEG (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 250
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BJ
+            }
+        )
+
+        column VALORPAGONEGCONV (
+            type: plainText
+            heading {
+                heading: Valor Pago (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 260
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BK
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        column VENDEDORA (
+            type: plainText
+            heading {
+                heading: Vendedora
+                alignment: center
+            }
+            layout {
+                sequence: 320
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: BY
+            }
+        )
+
+        column VLRFINALACORDO (
+            type: plainText
+            heading {
+                heading: Valor Final Acordo
+                alignment: center
+            }
+            layout {
+                sequence: 380
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CH
+            }
+        )
+
+        column VLRFINALACORDOCONV (
+            type: plainText
+            heading {
+                heading: Valor Final Acordo (R$)
+                alignment: center
+            }
+            layout {
+                sequence: 390
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: CN
+            }
+            serverSideCondition {
+                type: expression
+                language: sql
+                sqlExpression:
+                    ```sql
+                    exists ( select 1
+                             from roman.negociacoesparceiros n
+                             where n.idpais = :P671_IDPAIS
+                               and n.idpais != 1 )
+                    ```
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 11088663 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100
+            }
+
+            displayColumn ANO_DEBITO (
+                sequence: 14
+            )
+
+            displayColumn CANAL_NEGOCIACAO (
+                sequence: 5
+            )
+
+            displayColumn DATANEGOCIACAO (
+                sequence: 3
+            )
+
+            displayColumn DATA_DEBITO (
+                sequence: 13
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 8
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 10
+            )
+
+            displayColumn DTPAGAMENTO (
+                sequence: 4
+            )
+
+            displayColumn ENVIADA (
+                sequence: 39
+            )
+
+            displayColumn FORMAPGTO (
+                sequence: 38
+            )
+
+            displayColumn FRANQUIA (
+                sequence: 7
+            )
+
+            displayColumn IDNEGOCIACAOPARCEIRO (
+                sequence: 2
+            )
+
+            displayColumn JURO (
+                sequence: 18
+            )
+
+            displayColumn JUROCONV (
+                sequence: 19
+            )
+
+            displayColumn LINK (
+                sequence: 1
+            )
+
+            displayColumn NMR_DEBITO (
+                sequence: 15
+            )
+
+            displayColumn NOME (
+                sequence: 9
+            )
+
+            displayColumn ORIGEM (
+                sequence: 11
+            )
+
+            displayColumn ORIGEM_NEGOCIACAO (
+                sequence: 6
+            )
+
+            displayColumn PAGOTOTALACORDO (
+                sequence: 32
+            )
+
+            displayColumn PAGOTOTALACORDOCONV (
+                sequence: 33
+            )
+
+            displayColumn PAGOVIGENTE (
+                sequence: 28
+            )
+
+            displayColumn PAGOVIGENTECONV (
+                sequence: 29
+            )
+
+            displayColumn REGISTRO (
+                sequence: 41
+            )
+
+            displayColumn RESPONSAVEL (
+                sequence: 42
+            )
+
+            displayColumn SALDOACORDO (
+                sequence: 36
+            )
+
+            displayColumn SALDOACORDOCONV (
+                sequence: 37
+            )
+
+            displayColumn SALDOTITULO (
+                sequence: 34
+            )
+
+            displayColumn SALDOTITULOCONV (
+                sequence: 35
+            )
+
+            displayColumn SMS (
+                sequence: 40
+            )
+
+            displayColumn TIPO_DEBITO (
+                sequence: 12
+            )
+
+            displayColumn VALORATUALIZADO (
+                sequence: 20
+            )
+
+            displayColumn VALORATUALIZADOCONV (
+                sequence: 21
+            )
+
+            displayColumn VALORDESCONTONEG (
+                sequence: 22
+            )
+
+            displayColumn VALORDESCONTONEGCONV (
+                sequence: 23
+            )
+
+            displayColumn VALORFINALCONV (
+                sequence: 25
+            )
+
+            displayColumn VALORFINALNEG (
+                sequence: 24
+            )
+
+            displayColumn VALORORIGINAL (
+                sequence: 16
+            )
+
+            displayColumn VALORORIGINALCONV (
+                sequence: 17
+            )
+
+            displayColumn VALORPAGONEG (
+                sequence: 30
+            )
+
+            displayColumn VALORPAGONEGCONV (
+                sequence: 31
+            )
+
+            displayColumn VLRFINALACORDO (
+                sequence: 26
+            )
+
+            displayColumn VLRFINALACORDOCONV (
+                sequence: 27
+            )
+
+            aggregate (
+                column: VALORORIGINAL
+            )
+
+            aggregate (
+                column: VALORATUALIZADO
+            )
+
+            aggregate (
+                column: JURO
+            )
+
+            aggregate (
+                column: VALORORIGINAL_CONV
+            )
+
+            aggregate (
+                column: VALORATUALIZADO_CONV
+            )
+
+            aggregate (
+                column: JURO_CONV
+            )
+
+            aggregate (
+                column: VALORDESCONTO_CONV
+            )
+
+            aggregate (
+                column: VALORFINAL_CONV
+            )
+
+            aggregate (
+                column: VALORORIGINALCONV
+            )
+
+            aggregate (
+                column: JUROCONV
+            )
+
+            aggregate (
+                column: VALORATUALIZADOCONV
+            )
+
+            aggregate (
+                column: VALORDESCONTONEG
+            )
+
+            aggregate (
+                column: VALORDESCONTONEGCONV
+            )
+
+            aggregate (
+                column: VALORFINALNEG
+            )
+
+            aggregate (
+                column: VALORFINALCONV
+            )
+
+            aggregate (
+                column: VLRFINALACORDO
+            )
+
+            aggregate (
+                column: VLRFINALACORDOCONV
+            )
+
+            aggregate (
+                column: PAGOVIGENTE
+            )
+
+            aggregate (
+                column: PAGOVIGENTECONV
+            )
+
+            aggregate (
+                column: VALORPAGONEG
+            )
+
+            aggregate (
+                column: VALORPAGONEGCONV
+            )
+
+            aggregate (
+                column: PAGOTOTALACORDO
+            )
+
+            aggregate (
+                column: PAGOTOTALACORDOCONV
+            )
+
+            aggregate (
+                column: SALDOTITULO
+            )
+
+            aggregate (
+                column: SALDOTITULOCONV
+            )
+
+            aggregate (
+                column: SALDOACORDO
+            )
+
+            aggregate (
+                column: SALDOACORDOCONV
+            )
+
+            aggregate (
+                column: PAGODIS
+            )
+
+            aggregate (
+                column: PAGODISCONV
+            )
+
+        )
+
+    )
+
+    pageItem P671_CANAL (
+        type: radioGroup
+        label {
+            label: <b>Origem do Pagamento:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Cobrança Interna;B,Cobraki;C,Débitos Romance;A,Todos;T
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_CONSULTORA (
+        type: popupLov
+        label {
+            label: <b>Consultora:</b>
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(p.nomepessoa)||' CPF: '||p.cpf d
+                     , v.idvendedora r
+                from vendedoras v
+                   , pessoas p
+                where p.idpessoa = v.idpessoa
+                  and ( :P671_DISTRIBUIDOR is null or v.idrepresentante = :P671_DISTRIBUIDOR  )
+                  and ( :P671_FRANQUIA is null or v.idfilial = :P671_FRANQUIA )
+                  and ( :P671_IDPAIS = 1)
+                union
+                select initcap(p.nomepessoa)||' Doc. Estran.: '||p.documentoestrangeiro d
+                     , v.idvendedora r
+                from vendedoras v
+                   , pessoas p
+                where p.idpessoa = v.idpessoa
+                  and ( :P671_DISTRIBUIDOR is null or v.idrepresentante = :P671_DISTRIBUIDOR  )
+                  and ( :P671_FRANQUIA is null or v.idfilial = :P671_FRANQUIA )
+                  and ( :P671_IDPAIS != 1)
+                order by 1
+                
+                ```
+        }
+        layout {
+            sequence: 130
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: <b>Até:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        default {
+            type: expression
+            plsqlExpression: trunc(LAST_DAY(SYSDATE))
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_DATAINI (
+        type: datePickerJquery
+        label {
+            label: <b>De:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        default {
+            type: expression
+            plsqlExpression: trunc(SYSDATE,'MM')
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_DISTRIBUIDOR (
+        type: popupLov
+        label {
+            label: <b>Distribuidor:</b>
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(r.idrepresentante)||' - '||decode(r.ativo,'S','Ativo','N','Inativo') d
+                     , r.idrepresentante r
+                from representantes r
+                   , gerentes g
+                where r.idgerente = g.idgerente
+                  and ( :P671_FRANQUIA is null or g.idfilial = :P671_FRANQUIA )
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 120
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_FILTRAR (
+        type: hidden
+        layout {
+            sequence: 150
+            region: @filtros
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_FORMA_PGTO (
+        type: radioGroup
+        label {
+            label: <b>Forma Pagto:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Cartão Crédito;C,Depósito;D,Boleto;B,PIX;P,Giro de Pago;G,Giro Tigo;T,Todos;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_FRANQUIA (
+        type: selectList
+        label {
+            label: <b>Franquia:</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'D'
+                  and ( :P671_IDPAIS is null or f.ididioma = :P671_IDPAIS)
+                ```
+        }
+        cascadingLov {
+            parentItems: P671_IDPAIS
+        }
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_IDPAIS (
+        type: radioGroup
+        label {
+            label: <b>País:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Brasil;1,Paraguai;4,Uruguay;2,Chile;6
+            nullDisplayValue: Todos
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_IDRESPONSAVEL (
+        type: selectList
+        label {
+            label: <b>Responsável Cob.:</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(nomepessoa) d
+                     , u.idusuario r
+                from pessoas p
+                   , usuarios u
+                where p.idpessoa = u.idpessoa
+                  and u.idgerente = 80
+                  and u.ativo = 'S'
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 140
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_ORIGEMDEBITO (
+        type: radioGroup
+        label {
+            label: <b>Origem Débito:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Ambos;A,Favorita;F,Romance;R
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_ORIGEM_NEGOCIACAO (
+        type: selectList
+        label {
+            label: <b>Origem Negociação:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Ambos;A,Consultora;C,Distribuidor;D
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 160
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_SITUACAO (
+        type: radioGroup
+        label {
+            label: <b>Situação:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Valor em Aberto;A,Valor em Espera;E,Valor Pago;Q,Todos;T,Valor Vencido;V
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_SPC (
+        type: radioGroup
+        label {
+            label: <b>Enviado SPC:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N,Ambas ;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: A
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_TIPODATA (
+        type: radioGroup
+        label {
+            label: <b>Tipo de Data:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Negociação;N,Vencimento;V,Pagamento;P
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P671_TIPORELATORIO (
+        type: radioGroup
+        label {
+            label: Tipo de Relatório
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Detalhado;D,Completo;R
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: static
+            staticValue: R
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: belowBox
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--warning
+                t-Button--iconRight
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction origem-débito (
+        name: Origem Débito
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P671_TIPORELATORIO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P671_TIPORELATORIO
+            value: D
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P671_ORIGEMDEBITO
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P671_ORIGEMDEBITO
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    branch (
+        name: Go To Page 671
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 671
+                items: {
+                    P671_FILTRAR: S
+                    P671_CONSULTORA: &P671_CONSULTORA.
+                    P671_DISTRIBUIDOR: &P671_DISTRIBUIDOR.
+                    P671_FRANQUIA: &P671_FRANQUIA.
+                    P671_IDRESPONSAVEL: &P671_IDRESPONSAVEL.
+                    P671_DATAINI: &P671_DATAINI.
+                    P671_DATAFIM: &P671_DATAFIM.
+                    P671_FORMA_PGTO: &P671_FORMA_PGTO.
+                    P671_TIPODATA: &P671_TIPODATA.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

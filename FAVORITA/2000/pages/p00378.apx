@@ -1,0 +1,300 @@
+page 378 (
+    name: Enviar Promissória para Cobrança
+    title: Enviar Promissória para Cobrança
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region receber-promissória (
+        name: Receber Promissória
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P378_NUMEROPEDIDO (
+        type: textField
+        label {
+            label: Pedido
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @receber-promissória
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button voltar (
+        buttonName: VOLTAR
+        label: Voltar
+        layout {
+            sequence: 10
+            region: @receber-promissória
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 204
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction informa-o-pedido (
+        name: Informa o pedido
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P378_NUMEROPEDIDO
+        }
+        clientSideCondition {
+            type: itemIsNotNull
+            item: P378_NUMEROPEDIDO
+        }
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: RECEBERPROMISSORIA
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction posicionar-o-cursor-no-campo (
+        name: Posicionar o cursor no campo
+        execution {
+            sequence: 20
+        }
+        when {
+            event: ready
+        }
+
+        action native-set-focus (
+            action: setFocus
+            affectedElements {
+                selectionType: items
+                items: P378_NUMEROPEDIDO
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    validation validação-suprema (
+        name: Validação Suprema
+        execution {
+            sequence: 1
+        }
+        validation {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  --
+                  vexiste  number := 0;
+                  --
+                Begin
+                  --
+                  -- Verifica se pedido esta cancelado
+                  --
+                  begin
+                    --
+                    select 1
+                    into vexiste
+                    from pedidos p
+                    where p.numeropedido = SUBSTR(:P378_NUMEROPEDIDO,9,7)
+                      and exists ( select 1
+                                   from favorita.classificacoespedidos cp
+                                   where cp.idpedido = p.idpedido
+                                     and cp.idcaracteristicapedido = 25);
+                    --
+                    exception
+                      when others then
+                        vexiste := 0;
+                    --
+                  end;
+                  --
+                  if vexiste = 1 then
+                    --
+                    return 'Pedido Cancelado';
+                    --
+                  end if;
+                  --
+                  -- Verifica se pedido e da filial
+                  --
+                  begin
+                    --
+                   select 1
+                   into vexiste
+                   from pedidos p
+                   where p.numeropedido      = SUBSTR(:P378_NUMEROPEDIDO,9,7)
+                     and p.idfilialromance   != ( select roman.pck_romance.fnc_filialgerente(u.idgerente)
+                	   					          from usuarios u 
+                							      where u.idusuario = :P0_IDUSUARIO);
+                    --
+                    exception
+                      when others then
+                        vexiste := 0;
+                    --
+                  end;
+                  --
+                  if vexiste = 1 then
+                    --
+                    return 'Pedido Não pertence a filial';
+                    --
+                  end if;
+                  --
+                  -- Verifica Esta na situação correta
+                  --
+                  begin
+                    --
+                   select 1
+                   into vexiste
+                   from pedidos p
+                   where p.numeropedido      = SUBSTR(:P378_NUMEROPEDIDO,9,7)
+                     and p.idsituacaoentrega < 50000;
+                    exception
+                      when others then
+                        vexiste := 0;
+                    --
+                  end;
+                  --
+                  if vexiste = 1 then
+                    --
+                    return 'Pedido ainda não entregue ao distribuidor, verifique a se faltou algum passo do recebimento';
+                    --
+                  end if;
+                  --
+                  -- Verifica se ja foi entregue
+                  --
+                  begin
+                    --
+                   select 1
+                   into vexiste
+                   from pedidos p
+                   where p.numeropedido      = SUBSTR(:P378_NUMEROPEDIDO,9,7)
+                     and exists ( select 1
+                                  from classificacoespedidos c
+                                  where c.idpedido = p.idpedido
+                                    and c.idcaracteristicapedido = 70 );
+                    exception
+                      when others then
+                        vexiste := 0;
+                    --
+                  end;
+                  --
+                  if vexiste = 1 then
+                    --
+                    return 'Pedido ja foi enviado para a cobrança';
+                    --
+                  end if;
+                  --
+                
+                end;
+                ```
+        }
+    )
+
+    process enviar-promissória-para-cobrança (
+        name: Enviar Promissória para Cobrança
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  --
+                  pck_movimentarpedidos_fav.prc_enviarpromissoriaparacob(pnumeropedido => :P378_NUMEROPEDIDO,
+                                                                         pidusuario => :P0_IDUSUARIO);
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Promissória enviada com sucesso!
+        }
+        error {
+            errorMessage: Erro ao receber a promissória
+        }
+        advanced {
+            executionMappingIdentifier: 901321853289094693
+        }
+        serverSideCondition {
+            type: request=Value
+            value: RECEBERPROMISSORIA
+        }
+    )
+
+    branch (
+        name: Go To Page 378
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 378
+                items: {
+                    P378_NUMEROPEDIDO:
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

@@ -1,0 +1,1199 @@
+page 643 (
+    name: Histórico das Ligações
+    title: Histórico das Ligações
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent15
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region ligações-consolidadas (
+        name: Ligações Consolidadas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select trunc(l.data_ligacao)                   as data                         --> Deve indicar o dia que o registro telefonico aconteceu
+                     , r.regiao                                as regiao                       --> Indica para qual região foi feita a ligação
+                     , p.coluna_20                             as tipo_de_tarefa               --> Indica o tipo de tarefa para qual a ligação foi feita
+                     , count(*)                                as quantidade_de_ligacoes       --> Quantidade total de ligações realizadas no dia 
+                     , count( distinct p.coluna_19)            as quantidade_de_tarefas        --> Indica quantas tarefa foram atendidas para as ligações realizadas
+                     , sum(c.efetivo)                          as quantidade_ligacoes_efetiva  --> Indica quantas das ligações foram efetivas
+                     , sum(c.conversao_pre+conversao_auditada) as Promessas                    --> Indica a quantidade de promessas
+                  from beecobranca.log_prospects_fones     l
+                     , beecobranca.prospects_original      p
+                     , beedialer.controle_status_sistemas  c
+                     , (select ddd, min(regiao_geografica) regiao from beedialer.ddds_estados group by ddd) r
+                 where r.ddd(+)           = l.ddd
+                   and p.cod_campanha     = l.cod_campanha
+                   and p.codigo           = l.cod_prospect
+                   and c.codigo           = l.cod_status
+                   and l.data_ligacao     between to_date(:P643_datainicio||' 00:00:00','DD/MM/RRRR HH24:MI:SS') and to_date(:P643_datafim||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                 group by trunc(l.data_ligacao)
+                        , r.regiao
+                        , p.coluna_20
+                 order by trunc(l.data_ligacao)
+                        , r.regiao
+                
+                
+                
+                /*
+                    Maicon Aimi - 9144009 26/09/2024
+                    Essa era query usanda anteriormente no relatório, deixado temporariamente para servir como historico, 
+                
+                
+                SELECT 
+                    l.DATA_LIGACAO "DATA"
+                    , hc.QTD "HC ATIVOS"
+                    , l.REGIAO "REGIÃO"
+                    , l.TIPO_TAREFA "TIPO DE TAREFA"
+                    , l.TAREFAS
+                    , l.LIGACOES "LIGAÇÕES"
+                    , l.EFETIVO "CONTATOS EFETIVOS"
+                    , CASE
+                        WHEN l.EFETIVO > 0 THEN ROUND((l.EFETIVO / l.LIGACOES) * 100,2)
+                        ELSE 0
+                      END "% EFETIVO/LIGAÇÕES"
+                    , l.CONVERSAO "PROMESSAS"
+                    , CASE
+                        WHEN l.CONVERSAO > 0 THEN ROUND((l.CONVERSAO / l.EFETIVO) * 100,2)
+                        ELSE 0
+                      END "% CONVERSÃO/EFETIVO"
+                    , ROUND(tm.TICKET_MEDIO,2) "TICKET MÉDIO"
+                FROM (SELECT x.DATA_LIGACAO
+                            , COUNT(DISTINCT x.IDTAREFA) TAREFAS
+                            , x.REGIAO
+                            , x.TIPO_TAREFA
+                            , COUNT(1) LIGACOES
+                            , SUM(x.EFETIVO) EFETIVO
+                            , SUM(x.CONVERSAO) CONVERSAO
+                        FROM
+                            (SELECT TRUNC(lpf.DATA_LIGACAO) DATA_LIGACAO
+                                   , PO.COLUNA_19 IDTAREFA
+                                   , de.REGIAO_GEOGRAFICA REGIAO
+                                   , po.COLUNA_20 TIPO_TAREFA
+                                   , 1 LIGACOES
+                                   , CSS.EFETIVO 
+                                   , CSS.CONVERSAO_PRE+CSS.CONVERSAO_AUDITADA CONVERSAO
+                             FROM    BEECOBRANCA.LOG_PROSPECTS_FONES lpf
+                                   , BEECOBRANCA.PROSPECTS_ORIGINAL  PO
+                                   , BEEDIALER.CONTROLE_STATUS_SISTEMAS CSS
+                                   , (SELECT de.DDD, MIN(REGIAO_GEOGRAFICA) REGIAO_GEOGRAFICA 
+                                      FROM BEEDIALER.DDDS_ESTADOS de GROUP BY de.DDD) de
+                             WHERE lpf.COD_CAMPANHA = po.COD_CAMPANHA 
+                               AND lpf.COD_PROSPECT = po.CODIGO
+                               AND lpf.COD_STATUS   = css.CODIGO
+                               AND lpf.DDD          = de.DDD
+                               AND lpf.DATA_LIGACAO BETWEEN TO_DATE(:P643_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') 
+                                                        AND TO_DATE(:P643_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                            ) x
+                        GROUP BY
+                            x.DATA_LIGACAO
+                            , x.REGIAO
+                            , x.TIPO_TAREFA) l
+                    ,(SELECT 
+                            TRUNC(lpf.DATA_LIGACAO) DATA_LIGACAO
+                            , po.COLUNA_20 TIPO_TAREFA
+                            , de.REGIAO_GEOGRAFICA REGIAO
+                            , COUNT(DISTINCT cda.DOCUMENTO) QTD
+                        FROM BEECOBRANCA.LOG_PROSPECTS_FONES lpf
+                           , BEECOBRANCA.PROSPECTS_ORIGINAL  po
+                           , BEECOBRANCA.CLIENTES_DOCUMENTOS_ACERTO cda
+                           , (SELECT de.DDD, MIN(REGIAO_GEOGRAFICA) REGIAO_GEOGRAFICA 
+                                FROM BEEDIALER.DDDS_ESTADOS de GROUP BY de.DDD) de
+                        WHERE lpf.COD_CAMPANHA = po.COD_CAMPANHA 
+                          AND lpf.COD_PROSPECT = po.CODIGO
+                          AND po.COD_CAMPANHA = cda.COD_CAMPANHA 
+                          AND po.CODIGO       = cda.COD_PROSPECT
+                          AND lpf.DDD         = de.DDD
+                          AND lpf.DATA_LIGACAO BETWEEN TO_DATE(:P643_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') 
+                                                   AND TO_DATE(:P643_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                        GROUP BY
+                            TRUNC(lpf.DATA_LIGACAO)
+                            , po.COLUNA_20
+                            , de.REGIAO_GEOGRAFICA
+                    ) hc 
+                    ,( SELECT
+                            x.DATA_LIGACAO
+                            , COUNT(DISTINCT x.IDTAREFA) TAREFAS
+                            , x.REGIAO
+                            , x.TIPO_TAREFA
+                            , AVG(VALOR) TICKET_MEDIO
+                        FROM
+                            (
+                                SELECT
+                                    TRUNC(p.DATA_ULTIMO_RESGATE) DATA_LIGACAO
+                                    , PO.COLUNA_19 IDTAREFA
+                                    , de.REGIAO_GEOGRAFICA REGIAO
+                                    , po.COLUNA_20 TIPO_TAREFA
+                                    , SUM(cp.VALOR) VALOR
+                                FROM  BEECOBRANCA.PROSPECTS p
+                                   ,  BEECOBRANCA.PROSPECTS_ORIGINAL po
+                                   ,  BEECOBRANCA.CLIENTES_PRODUTOS cp
+                                   ,  BEEDIALER.CONTROLE_STATUS_SISTEMAS CSS
+                                   ,  (SELECT de.DDD, MIN(REGIAO_GEOGRAFICA) REGIAO_GEOGRAFICA 
+                                         FROM BEEDIALER.DDDS_ESTADOS de GROUP BY de.DDD) de
+                                WHERE po.COD_CAMPANHA = p.COD_CAMPANHA 
+                                  AND po.CODIGO       = p.CODIGO
+                                  AND cp.COD_CAMPANHA = po.COD_CAMPANHA 
+                                  AND cp.COD_PROSPECT = po.CODIGO
+                                  AND p.COD_STATUS    = css.CODIGO
+                                  AND p.DDD_FINAL     = de.DDD
+                                  AND css.CONVERSAO_PRE+css.CONVERSAO_AUDITADA > 0
+                                  AND p.DATA_ULTIMO_RESGATE BETWEEN TO_DATE(:P643_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') 
+                                                                AND TO_DATE(:P643_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                                GROUP BY 
+                                    TRUNC(p.DATA_ULTIMO_RESGATE)
+                                    , PO.COLUNA_19 
+                                    , de.REGIAO_GEOGRAFICA
+                                    , po.COLUNA_20
+                            ) x
+                        GROUP BY
+                            x.DATA_LIGACAO
+                            , x.REGIAO
+                            , x.TIPO_TAREFA
+                    ) tm 
+                where hc.DATA_LIGACAO = l.DATA_LIGACAO 
+                  and hc.TIPO_TAREFA  = l.TIPO_TAREFA 
+                  AND hc.REGIAO       = l.REGIAO    
+                  and tm.DATA_LIGACAO = l.DATA_LIGACAO 
+                  and tm.TIPO_TAREFA  = l.TIPO_TAREFA 
+                  AND tm.REGIAO       = l.REGIAO
+                ORDER BY 1,3,4
+                */
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent15
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <div style="font-family: Arial, sans-serif; font-size: 12px; color: #4a4a4a; text-align: left; padding: 5px; border: 1px solid #b3b3b3; background-color: #f2f2f2; margin-bottom: 30px;">
+                  <ul style="list-style-type: disc; padding-left: 5px;">
+                    <li style="line-height: 1.5;"><strong>Ligações:</strong> Total de ligações realizadas no dia, incluindo as que não foram atendidas.</li>
+                    <li style="line-height: 1.5;"><strong>Tarefas:</strong> Total de tarefas relacionadas às ligações feitas no dia.</li>
+                    <li style="line-height: 1.5;"><strong>Contatos Efetivos:</strong> Total de ligações atendidas pelo contato.</li>
+                    <li style="line-height: 1.5;"><strong>Promessas:</strong> Total de ligações que resultaram em promessas de negociação.</li>
+                  </ul>
+                </div>
+                
+                ```
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P643_FILTRAR = 'S' and :P643_TIPORELATORIO = 'C'
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado, verifique os filtros.
+        }
+        advanced {
+            savedReportMappingIdentifier: 3074051939374378838
+        }
+
+        column DATA (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column PROMESSAS (
+            type: plainText
+            heading {
+                heading: Promessas
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column QUANTIDADE_DE_LIGACOES (
+            type: plainText
+            heading {
+                heading: Ligações
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column QUANTIDADE_DE_TAREFAS (
+            type: plainText
+            heading {
+                heading: Tarefas
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column QUANTIDADE_LIGACOES_EFETIVA (
+            type: plainText
+            heading {
+                heading: Contatos Efetivos
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column REGIAO (
+            type: plainText
+            heading {
+                heading: Região
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column TIPO_DE_TAREFA (
+            type: plainText
+            heading {
+                heading: Tipo de Tarefa
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 30740748 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn APXWS_CC_001 (
+                sequence: 8
+            )
+
+            displayColumn APXWS_CC_002 (
+                sequence: 9
+            )
+
+            displayColumn DATA (
+                sequence: 1
+            )
+
+            displayColumn PROMESSAS (
+                sequence: 7
+            )
+
+            displayColumn QUANTIDADE_DE_LIGACOES (
+                sequence: 4
+            )
+
+            displayColumn QUANTIDADE_DE_TAREFAS (
+                sequence: 5
+            )
+
+            displayColumn QUANTIDADE_LIGACOES_EFETIVA (
+                sequence: 6
+            )
+
+            displayColumn REGIAO (
+                sequence: 2
+            )
+
+            displayColumn TIPO_DE_TAREFA (
+                sequence: 3
+            )
+
+            computation APXWS_CC_001 (
+                identifier: C01
+                source {
+                    expression: ( P * 100) /  N
+                    dataType: number
+                }
+                label {
+                    column: % Ligações/Efetivos
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+            )
+
+            computation APXWS_CC_002 (
+                identifier: C02
+                source {
+                    expression: ( R * 100) /  O
+                    dataType: number
+                }
+                label {
+                    column: % Tarefas/Promessas
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+            )
+
+            aggregate (
+                column: TAREFAS
+            )
+
+            aggregate (
+                column: LIGAÇÕES
+            )
+
+            aggregate (
+                column: CONTATOS EFETIVOS
+            )
+
+            aggregate (
+                column: PROMESSAS
+            )
+
+            aggregate (
+                column: QUANTIDADE_DE_LIGACOES
+            )
+
+            aggregate (
+                column: QUANTIDADE_DE_TAREFAS
+            )
+
+            aggregate (
+                column: QUANTIDADE_LIGACOES_EFETIVA
+            )
+
+            controlBreak (
+                column: REGIAO
+                layout {
+                    sequence: 1
+                }
+                advanced {
+                    enabled: false
+                }
+            )
+
+        )
+
+    )
+
+    region ligações-detalhadas (
+        name: Ligações Detalhadas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT distinct l.DATA_LIGACAO DATA
+                     , l.HORA_LIGACAO "HORÁRIO"
+                     , l.OPERADOR
+                     , tl.TEMPO "TEMPO LOGADO"
+                     , tp.TEMPO PAUSAS
+                     , l.REGIAO "REGIÃO"
+                     , l.TIPO_TAREFA "TIPO DE TAREFA"
+                     , tml.TEMPO_LIGACOES "TEMPO TOTAL TAREFA"
+                --     , tm.TEMPO_LIGACOES "TEMPO TOTAL TAREFA"
+                     , l.IDTAREFA "NR TAREFA"
+                     , l.NOME
+                     , l.CPF
+                     , l.TELEFONE
+                     , l.FINALIZACAO "FINALIZAÇÃO"
+                     , tm.VLR_PROMESSAS "R$ TOTAL PROMESSA"
+                     , tm.QTD_EFETIVO "CONTATOS EFETIVOS"
+                     , CASE
+                         WHEN tm.QTD_EFETIVO > 0 THEN ROUND((tm.QTD_PROMESSAS / tm.QTD_EFETIVO) * 100,2)
+                         ELSE 0
+                       END "%CONVERSÃO"
+                FROM (  SELECT TRUNC(lpf.DATA_LIGACAO) DATA_LIGACAO
+                              , TO_CHAR(lpf.DATA_LIGACAO,'HH24:MI') HORA_LIGACAO
+                              , lpf.COD_USUARIO
+                              , lpf.COD_PROSPECT
+                              , pes.NOME OPERADOR
+                              , de.REGIAO_GEOGRAFICA REGIAO
+                              , po.COLUNA_20 TIPO_TAREFA
+                              , PO.COLUNA_19 IDTAREFA 
+                              , p.NOME
+                              , p.CPF
+                              , lpf.DDD||lpf.FONE TELEFONE
+                              , css.NOME FINALIZACAO
+                          FROM  BEECOBRANCA.LOG_PROSPECTS_FONES lpf
+                              , BEECOBRANCA.PROSPECTS_ORIGINAL po
+                              , BEECOBRANCA.PROSPECTS p
+                              , BEEADMIN.USUARIOS u
+                              , BEEPEOPLE.VW_PESSOAS pes
+                              , BEEDIALER.CONTROLE_STATUS_SISTEMAS CSS
+                              , (SELECT de.DDD
+                                      , MIN(REGIAO_GEOGRAFICA) REGIAO_GEOGRAFICA 
+                                 FROM   BEEDIALER.DDDS_ESTADOS de 
+                                 GROUP BY de.DDD) de
+                          WHERE  lpf.DATA_LIGACAO BETWEEN TO_DATE(:P643_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') 
+                                                      AND TO_DATE(:P643_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                            AND  lpf.COD_CAMPANHA = po.COD_CAMPANHA 
+                            AND  lpf.COD_PROSPECT = po.CODIGO
+                            AND  po.COD_CAMPANHA  = p.COD_CAMPANHA 
+                            AND  po.CODIGO        = p.CODIGO
+                            AND  lpf.COD_USUARIO  = u.CODIGO
+                            AND  u.COD_PESSOA     = pes.CODIGO 
+                            AND  u.EMPRESA        = pes.EMPRESA
+                            AND  lpf.COD_STATUS   = css.CODIGO
+                            AND  lpf.DDD          = de.DDD) l    
+                    ,(  SELECT u.CODIGO COD_USUARIO
+                             , cf.DATA
+                             , BEEADMIN.RETORNA_SEGUNDOS_EM_HORAS(SUM((NVL(cf.DATA_SAIDA_EFETIVA,cf.DATA_SAIDA_PREVISTA) - cf.DATA_ENTRADA_EFETIVA) * 86400)) TEMPO
+                        FROM   BEEPEOPLE.CONTROLE_FREQUENCIA cf
+                             , BEEADMIN.USUARIOS u
+                        WHERE  cf.DATA BETWEEN TO_DATE(:P643_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') 
+                                           AND TO_DATE(:P643_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                          AND cf.DATA_ENTRADA_EFETIVA IS NOT NULL
+                          AND cf.COD_PESSOA = u.COD_PESSOA 
+                          AND cf.EMPRESA = u.EMPRESA
+                        GROUP BY u.CODIGO
+                               , cf.DATA) tl
+                   ,(   SELECT cu.COD_USUARIO
+                             , TRUNC(cu.DATA_INICIO) DATA
+                             , BEEADMIN.RETORNA_SEGUNDOS_EM_HORAS(SUM((cu.DATA_TERMINO - cu.DATA_INICIO) * 86400)) TEMPO
+                         FROM  BEEPEOPLE.COMPROMISSOS_USUARIOS cu
+                         WHERE cu.DATA_INICIO BETWEEN TO_DATE(:P643_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') 
+                                                  AND TO_DATE(:P643_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                           AND cu.DATA_TERMINO IS NOT NULL
+                          GROUP BY cu.COD_USUARIO
+                                 , TRUNC(cu.DATA_INICIO)) tp 
+                   ,(   SELECT x.DATA_LIGACAO
+                             , x.COD_USUARIO
+                             , x.QTD QTD_PROMESSAS
+                             , x.VALOR VLR_PROMESSAS
+                             , ( SELECT COUNT(1)
+                                 FROM   BEECOBRANCA.LOG_PROSPECTS_FONES lpf
+                                      , BEEDIALER.CONTROLE_STATUS_SISTEMAS css
+                                 WHERE  lpf.COD_USUARIO = x.COD_USUARIO
+                                   AND  lpf.COD_STATUS = css.CODIGO
+                                   AND  lpf.DATA_LIGACAO BETWEEN x.DATA_LIGACAO AND x.DATA_LIGACAO + 1 - (1/86400)
+                                   AND  css.EFETIVO = 1) QTD_EFETIVO
+                             , ( SELECT BEEADMIN.RETORNA_SEGUNDOS_EM_HORAS(SUM(lpf.TEMPO_LIGACAO)) TEMPO
+                                 FROM   BEECOBRANCA.LOG_PROSPECTS_FONES lpf
+                                 WHERE  lpf.COD_USUARIO = x.COD_USUARIO
+                                   AND  lpf.DATA_LIGACAO BETWEEN x.DATA_LIGACAO AND x.DATA_LIGACAO + 1 - (1/86400)) TEMPO_LIGACOES
+                        FROM ( SELECT TRUNC(p.DATA_ULTIMO_RESGATE) DATA_LIGACAO
+                                    , p.COD_USUARIO
+                                    , COUNT(DISTINCT po.COLUNA_19) QTD
+                                    , SUM(cp.VALOR) VALOR
+                                FROM  BEECOBRANCA.PROSPECTS p
+                                    , BEECOBRANCA.PROSPECTS_ORIGINAL po
+                                    , BEECOBRANCA.CLIENTES_PRODUTOS cp
+                                    , BEEDIALER.CONTROLE_STATUS_SISTEMAS CSS
+                                WHERE po.COD_CAMPANHA = p.COD_CAMPANHA 
+                                  AND po.CODIGO       = p.CODIGO
+                                  AND cp.COD_CAMPANHA = po.COD_CAMPANHA 
+                                  AND cp.COD_PROSPECT = po.CODIGO
+                                  AND p.COD_STATUS    = css.CODIGO
+                                  AND css.CONVERSAO_PRE+css.CONVERSAO_AUDITADA > 0
+                                  AND p.DATA_ULTIMO_RESGATE BETWEEN TO_DATE(:P643_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') 
+                                                                AND TO_DATE(:P643_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                                GROUP BY TRUNC(p.DATA_ULTIMO_RESGATE)
+                                       , p.COD_USUARIO ) x
+                                       ) tm
+                   --
+                   ,(   SELECT x.DATA_LIGACAO
+                             , x.COD_USUARIO
+                             , x.COD_PROSPECT
+                             , ( SELECT BEEADMIN.RETORNA_SEGUNDOS_EM_HORAS(SUM(lpf.TEMPO_LIGACAO)) TEMPO
+                                 FROM   BEECOBRANCA.LOG_PROSPECTS_FONES lpf
+                                 WHERE  lpf.COD_USUARIO  = x.COD_USUARIO
+                                 AND    lpf.Cod_Prospect = x.COD_PROSPECT
+                                   AND  lpf.DATA_LIGACAO BETWEEN x.DATA_LIGACAO AND x.DATA_LIGACAO + 1 - (1/86400)) TEMPO_LIGACOES
+                        FROM ( SELECT TRUNC(p.DATA_ULTIMO_RESGATE) DATA_LIGACAO
+                                    , p.COD_USUARIO
+                                    , po.CODIGO COD_PROSPECT
+                                FROM  BEECOBRANCA.PROSPECTS p
+                                    , BEECOBRANCA.PROSPECTS_ORIGINAL po
+                                    , BEECOBRANCA.CLIENTES_PRODUTOS cp
+                                    , BEEDIALER.CONTROLE_STATUS_SISTEMAS CSS
+                                WHERE po.COD_CAMPANHA = p.COD_CAMPANHA 
+                                  AND po.CODIGO       = p.CODIGO
+                                  AND cp.COD_CAMPANHA = po.COD_CAMPANHA 
+                                  AND cp.COD_PROSPECT = po.CODIGO
+                                  AND p.COD_STATUS    = css.CODIGO
+                                  AND css.CONVERSAO_PRE+css.CONVERSAO_AUDITADA > 0
+                                  AND p.DATA_ULTIMO_RESGATE BETWEEN TO_DATE(:P643_DATAINICIO||' 00:00:00','DD/MM/RRRR HH24:MI:SS') 
+                                                                AND TO_DATE(:P643_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                                 ) x
+                                       ) tml
+                   --                       
+                WHERE l.COD_USUARIO   = tl.COD_USUARIO (+)
+                  AND l.DATA_LIGACAO  = tl.DATA (+) 
+                  AND l.COD_USUARIO   = tp.COD_USUARIO (+)
+                  AND l.DATA_LIGACAO  = tp.DATA (+)
+                  AND l.DATA_LIGACAO  = tm.DATA_LIGACAO (+)  
+                  AND l.COD_USUARIO   = tm.COD_USUARIO  (+)
+                  AND l.DATA_LIGACAO  = tml.DATA_LIGACAO (+)  
+                  AND l.COD_USUARIO   = tml.COD_USUARIO  (+)
+                  AND l.COD_PROSPECT  = tml.COD_PROSPECT (+)
+                ORDER BY 3, 1, 2
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent15
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: :P643_FILTRAR = 'S' and :P643_TIPORELATORIO = 'D'
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado, verifique os filtros.
+        }
+        advanced {
+            savedReportMappingIdentifier: 3074050178298378820
+        }
+
+        column %CONVERSÃO (
+            type: plainText
+            heading {
+                heading: %conversão
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column "CONTATOS EFETIVOS" (
+            type: plainText
+            heading {
+                heading: Contatos Efetivos
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column DATA (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column FINALIZAÇÃO (
+            type: plainText
+            heading {
+                heading: Finalização
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column HORÁRIO (
+            type: plainText
+            heading {
+                heading: Horário
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column NOME (
+            type: plainText
+            heading {
+                heading: Nome
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "NR TAREFA" (
+            type: plainText
+            heading {
+                heading: Nr Tarefa
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column OPERADOR (
+            type: plainText
+            heading {
+                heading: Operador
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column PAUSAS (
+            type: plainText
+            heading {
+                heading: Pausas
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "R$ TOTAL PROMESSA" (
+            type: plainText
+            heading {
+                heading: R$ Total Promessa
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column REGIÃO (
+            type: plainText
+            heading {
+                heading: Região
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column TELEFONE (
+            type: plainText
+            heading {
+                heading: Telefone
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column "TEMPO LOGADO" (
+            type: plainText
+            heading {
+                heading: Tempo Logado
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "TEMPO TOTAL TAREFA" (
+            type: plainText
+            heading {
+                heading: Tempo Total Tarefa
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "TIPO DE TAREFA" (
+            type: plainText
+            heading {
+                heading: Tipo De Tarefa
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 32554300 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn %CONVERSÃO (
+                sequence: 16
+            )
+
+            displayColumn "CONTATOS EFETIVOS" (
+                sequence: 15
+            )
+
+            displayColumn CPF (
+                sequence: 11
+            )
+
+            displayColumn DATA (
+                sequence: 1
+            )
+
+            displayColumn FINALIZAÇÃO (
+                sequence: 13
+            )
+
+            displayColumn HORÁRIO (
+                sequence: 2
+            )
+
+            displayColumn NOME (
+                sequence: 10
+            )
+
+            displayColumn "NR TAREFA" (
+                sequence: 9
+            )
+
+            displayColumn OPERADOR (
+                sequence: 3
+            )
+
+            displayColumn PAUSAS (
+                sequence: 5
+            )
+
+            displayColumn "R$ TOTAL PROMESSA" (
+                sequence: 14
+            )
+
+            displayColumn REGIÃO (
+                sequence: 6
+            )
+
+            displayColumn TELEFONE (
+                sequence: 12
+            )
+
+            displayColumn "TEMPO LOGADO" (
+                sequence: 4
+            )
+
+            displayColumn "TEMPO TOTAL TAREFA" (
+                sequence: 8
+            )
+
+            displayColumn "TIPO DE TAREFA" (
+                sequence: 7
+            )
+
+        )
+
+    )
+
+    pageItem P643_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P643_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P643_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P643_TIPORELATORIO (
+        type: radioGroup
+        label {
+            label: Tipo do Relatório
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Detalhado;D,Consolidado;C
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 643
+                items: {
+                    P643_DATAINICIO: &P643_DATAINICIO.
+                    P643_DATAFIM: &P643_DATAFIM.
+                    P643_TIPORELATORIO: &P643_TIPORELATORIO.
+                    P643_FILTRAR: S
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

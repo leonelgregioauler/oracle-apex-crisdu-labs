@@ -1,0 +1,685 @@
+page 331 (
+    name: Confirmar Análise de Pedido
+    title: Escolha de Remessa
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region escolha-de-remessa (
+        name: Escolha de Remessa
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P331_DATAEMISSAOREMESSA (
+        type: selectList
+        label {
+            label: Emissão
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select to_char(c.dataemissao,'DD/MM/RRRR') display_value
+                 , c.dataemissao return_value
+                from comprastransferencias c
+                where c.idcompratransferencia = :P331_IDCOMPRATRANSFERENCIA
+                  and :P331_IDCOMPRATRANSFERENCIA is not null
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        cascadingLov {
+            parentItems: P331_IDCOMPRATRANSFERENCIA
+        }
+        layout {
+            sequence: 40
+            region: @escolha-de-remessa
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        source {
+            used: always
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from comprastransferencias c
+                where idfilialromancedestino = :P331_IDFILIALROMANCE
+                   or exists ( select 1
+                               from atendimentosfiliaisrmc a
+                               where a.idfilialfavoritaorigem = c.idfilialfavoritadestino
+                                 and a.idfilialdestino        = :P331_IDFILIALROMANCE )
+                  and idsituacao in (0,3,5)
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P331_IDCOMPRATRANSFERENCIA (
+        type: selectList
+        label {
+            label: Disponíveis
+            alignment: left
+        }
+        lov {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                -- Created on 24/08/2020 by MAX.BERKEUER 
+                declare 
+                  --
+                  vid_pedido number := :P331_IDPEDIDO;
+                  vid_forma_entrega number;
+                  vconsulta varchar2(2727);
+                  vid_tipo_remessa number;
+                  --
+                begin
+                  --
+                  /*Busca a forma de entrega*/
+                  select cl.idvalorcaracteristica,
+                         case
+                           when cl.idvalorcaracteristica = 2 then
+                             7
+                           when cl.idvalorcaracteristica = 4 then
+                             10
+                           when cl.idvalorcaracteristica = 5 then
+                             8
+                         end       
+                  into vid_forma_entrega,
+                       vid_tipo_remessa
+                  from pedidos p,
+                       classificacoespedidos cl
+                  where p.idpedido = cl.idpedido
+                  and cl.idcaracteristicapedido = 13
+                  and p.idpedido = vid_pedido;
+                  --
+                  if vid_forma_entrega in (2,4,5) then /*Forma de entrega correios, total exp*/
+                    --
+                    vconsulta := '
+                select numero||'' - ''|| pck_util_fav.fnc_retornatipocomptransrem(c.idtipocomptransrem,:P0_IDIDIOMA)
+                             ||'' - ''||decode(analiseconcluida,''S'',''Concluida'',''Em Analise'')
+                             ||'' - ''|| case
+                                           when to_char(c.dataembarque,''HH24'') < 12 then
+                                             ''Manhã''
+                                           else
+                                             ''Tarde''
+                                         end
+                             ||'' - ''||roman.pck_romance.fnc_nomepostoavancado(c.idpostoavancadodestino)
+                             ||'' - ''||pck_util_fav.fnc_nomefilialfavorita(c.idfilialfavoritaorigem) 
+                             ||'' - ''||c.dataembarque display_value,
+                       idcompratransferencia return_value
+                from comprastransferencias c
+                where c.idtipocomptransrem = '||vid_tipo_remessa||'
+                and c.idsituacao = 0 /*Filtra remessa em andamento*/
+                order by c.dataembarque 
+                    ';
+                    --
+                  else
+                    --
+                    vconsulta := '
+                select numero||'' - ''|| pck_util_fav.fnc_retornatipocomptransrem(c.idtipocomptransrem,:P0_IDIDIOMA)
+                             ||''(''  ||decode(identificacaointerna,''N'',''Normal'',''A'',''Antecipada'',''T'',''Pronta Entrega Tarde'',''M'',''Pronta Entrega Manhã'')
+                             ||'') - ''||decode(analiseconcluida,''S'',''Concluida'',''Em Analise'')
+                             ||'' - ''||roman.pck_romance.fnc_nomepostoavancado(c.idpostoavancadodestino)
+                             ||'' - ''||pck_util_fav.fnc_nomefilialfavorita(c.idfilialfavoritaorigem) display_value
+                 , idcompratransferencia return_value
+                from comprastransferencias c
+                where ( idfilialromancedestino = :P331_IDFILIALROMANCE
+                      or exists ( select 1
+                                  from atendimentosfiliaisrmc a
+                                  where a.idfilialfavoritaorigem = c.idfilialfavoritadestino
+                                    and a.idfilialdestino        = :P331_IDFILIALROMANCE )
+                      or exists ( select 1
+                                  from atendimentosfiliaisrmc a
+                                  where a.idfilialdestino = :P331_IDFILIALROMANCE
+                                  and a.idfilialfavoritaorigem = c.idfilialfavoritaorigem
+                                  and c.idfilialromancedestino = 200  )
+                      or exists ( select 1
+                                  from classificacoespedidos c
+                                  where c.idcaracteristicapedido = 13
+                                   and c.idvalorcaracteristica  in (2,5)
+                                   and c.idpedido               = :P331_IDPEDIDO ) 
+                      and (:P331_IDPOSTOAVANCADO is null or idpostoavancadodestino = :P331_IDPOSTOAVANCADO ) )
+                  and idtipocomptransrem = ( select idvalorcaracteristica
+                                                 from classificacoespedidos cp
+                                                 where cp.idpedido = :P331_IDPEDIDO
+                                                   and cp.idcaracteristicapedido = 19 ) 
+                  and idsituacao in (0,1,2)
+                order by idsemanaentrega, c.dataemissao, identificacaointerna desc, idpostoavancadodestino desc    
+                    ';
+                    --
+                  end if;
+                  --
+                  --dbms_output.put_line(vconsulta);
+                  --
+                  return vconsulta;
+                  --
+                end;
+                ```
+            displayExtraValues: false
+        }
+        cascadingLov {
+            parentItems: [
+                P331_IDFILIALROMANCE
+                P331_IDPOSTOAVANCADO
+                P331_IDPEDIDO
+            ]
+        }
+        layout {
+            sequence: 20
+            region: @escolha-de-remessa
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        source {
+            used: always
+        }
+        default {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare 
+                  vidcompra number;
+                begin
+                  --
+                  select idcompratransferencia
+                  into vidcompra
+                  from comprastransferencias cc
+                  where idcompratransferencia = ( select min(c.idcompratransferencia)
+                                                  from comprastransferencias c
+                                                  where ( idfilialromancedestino = :P331_IDFILIALROMANCE
+                                                        or exists ( select 1
+                                                                    from atendimentosfiliaisrmc a
+                                                                    where a.idfilialfavoritaorigem = c.idfilialfavoritadestino
+                                                                      and a.idfilialdestino        = :P331_IDFILIALROMANCE ) )
+                                                    and exists ( select 1
+                                                                 from classificacoespedidos cp
+                                                                 where cp.idpedido = :P331_IDPEDIDO
+                                                                   and cp.idcaracteristicapedido = 19
+                                                                   and cp.idvalorcaracteristica = c.idtipocomptransrem ) 
+                                                    and ( :P331_IDPOSTOAVANCADO is null or idpostoavancadodestino = :P331_IDPOSTOAVANCADO )
+                                                    and idsituacao in (0,3,5) );
+                  --
+                  return(vidcompra);
+                  --
+                exception
+                  when others then
+                     return(null);
+                end;
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P331_IDFILIALFAVORITA (
+        type: numberField
+        label {
+            label: Filial Favorita
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 60
+            region: @escolha-de-remessa
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P331_IDFILIALROMANCE (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 80
+            region: @escolha-de-remessa
+            slot: regionBody
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P331_IDPEDIDO (
+        type: displayOnly
+        label {
+            label: Nr Pedido
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @escolha-de-remessa
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P331_IDPOSTOAVANCADO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 90
+            region: @escolha-de-remessa
+            slot: regionBody
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P331_ORIGEM (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 70
+            region: @escolha-de-remessa
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P331_QTDPEDIDOS (
+        type: selectList
+        label {
+            label: Qtd Pedidos
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nvl(count(1),0) display_value
+                 , nvl(count(1),0) return_value
+                from pedidosremessasct p 
+                where p.idcompratransferencia = :P331_IDCOMPRATRANSFERENCIA
+                  and :P331_IDCOMPRATRANSFERENCIA is not null
+                group by p.idcompratransferencia
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        cascadingLov {
+            parentItems: P331_IDCOMPRATRANSFERENCIA
+        }
+        layout {
+            sequence: 50
+            region: @escolha-de-remessa
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        source {
+            used: always
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from comprastransferencias c
+                where idfilialromancedestino = :P331_IDFILIALROMANCE
+                   or exists ( select 1
+                               from atendimentosfiliaisrmc a
+                               where a.idfilialfavoritaorigem = c.idfilialfavoritadestino
+                                 and a.idfilialdestino        = :P331_IDFILIALROMANCE )
+                  and idsituacao in (0,3,5)
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P331_SEMANAENTREGA (
+        type: selectList
+        label {
+            label: Seman Entrega
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select s.semana||'/'||s.ano||' - '||to_char(s.dt_ini,'DD/MM/RRRR')||' até '||to_char(s.dt_fim,'DD/MM/RRRR') display_value
+                 , c.dataemissao return_value
+                from roman.semana_dias s
+                   , comprastransferencias c
+                where c.idcompratransferencia = :P331_IDCOMPRATRANSFERENCIA
+                  and s.idsemana = c.idsemanaentrega
+                  and :P331_IDCOMPRATRANSFERENCIA is not null
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        cascadingLov {
+            parentItems: P331_IDCOMPRATRANSFERENCIA
+        }
+        layout {
+            sequence: 30
+            region: @escolha-de-remessa
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        source {
+            used: always
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from comprastransferencias c
+                where idfilialromancedestino = :P331_IDFILIALROMANCE
+                   or exists ( select 1
+                               from atendimentosfiliaisrmc a
+                               where a.idfilialfavoritaorigem = c.idfilialfavoritadestino
+                                 and a.idfilialdestino        = :P331_IDFILIALROMANCE )
+                  and idsituacao in (0,3,5)
+                ```
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button analise-remessa-aprovar (
+        buttonName: ANALISE_REMESSA_APROVAR
+        label: Aprovar
+        layout {
+            sequence: 10
+            region: @escolha-de-remessa
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+            icon: fa-check
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    validation valida-campo-de-remessa (
+        name: Valida campo de remessa.
+        execution {
+            sequence: 10
+        }
+        validation {
+            language: sql
+            sqlExpression: :P331_IDCOMPRATRANSFERENCIA is not null
+        }
+        error {
+            errorMessage: Campo de remessa deve ter algum valor!
+            associatedItem: @P331_IDCOMPRATRANSFERENCIA
+        }
+        serverSideCondition {
+            whenButtonPressed: @analise-remessa-aprovar
+        }
+    )
+
+    process aprovar-análise (
+        name: Aprovar Análise
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vidtipo number;
+                  vnumbernull  number;
+                  vpedidocorreio number;
+                  vidclassificacaopedido number;
+                  vidpedido number := :P331_IDPEDIDO;             
+                  vdataclassificado date := sysdate;   
+                  vidusuario number := :P0_IDUSUARIO;            
+                  vidcaracteristicapedido number := 100;
+                  vidvalorcaracteristica number;
+                  vobservacao varchar2(1000);            
+                  vmd5 varchar2(1000);                   
+                begin
+                  --
+                  begin
+                    --
+                    select idvalorcaracteristica
+                    into vidtipo
+                    from classificacoespedidos
+                    where idpedido = :P331_IDPEDIDO
+                      and idcaracteristicapedido = 19;
+                    --
+                    if vidtipo = 3 then
+                      --
+                      pck_movimentarpedidos_fav.prc_aprovaranalisepedido(pidpedido => :P331_IDPEDIDO,
+                                                                         pidusuario => :P0_IDUSUARIO);
+                      --
+                      pck_comprastransf_fav.prc_processomanualpedidos( pidcompratransferencia => :P331_IDCOMPRATRANSFERENCIA,
+                                                                       ptipoprocesso          => 'A',
+                                                                       pnumeropedido          => :P331_IDPEDIDO,
+                                                                       pidusuario             => :P0_IDUSUARIO );
+                      --
+                    elsif vidtipo = 2 then
+                      --
+                      pck_comprastransf_fav.prc_buscaitensremessa(pidcompratransferencia => :P331_IDCOMPRATRANSFERENCIA,
+                                                                  pidpedido              => vnumbernull,
+                                                                  pidusuario             => :P0_IDUSUARIO );
+                      --
+                      -- atualiza situações entrega e financeiro
+                      pck_movimentarpedidos_fav.prc_atz_entrega_financ_auto( pidpedido  => :P331_IDPEDIDO
+                                                                           , pidusuario => :P0_IDUSUARIO );
+                      --
+                    end if;
+                    --
+                    /*pck_pedidos_fav.prc_classificacoespedidos(pidclassificacaopedido  => vidclassificacaopedido,
+                                                              pidpedido               => vidpedido,
+                                                              pdataclassificado       => vdataclassificado,
+                                                              pidusuario              => vidusuario,
+                                                              pidcaracteristicapedido => vidcaracteristicapedido,
+                                                              pidvalorcaracteristica  => vidvalorcaracteristica,
+                                                              pobservacao             => vobservacao,
+                                                              poperacao_dml           => 'I',
+                                                              pmd5                    => vmd5);*/
+                    --
+                  end;
+                  --
+                  begin
+                    --
+                    select 1
+                    into vpedidocorreio
+                    from classificacoespedidos 
+                    where idcaracteristicapedido = 13
+                    and idvalorcaracteristica in (2,4,5)
+                    and idpedido = :P331_IDPEDIDO;
+                    --
+                    pck_movimentarpedidos_fav.prc_aprovaranalisepedido(pidpedido => :P331_IDPEDIDO,
+                                                                       pidusuario => :P0_IDUSUARIO);
+                    --
+                    pck_comprastransf_fav.prc_processomanualpedidos( pidcompratransferencia => :P331_IDCOMPRATRANSFERENCIA,
+                                                                     ptipoprocesso          => 'A',
+                                                                     pnumeropedido          => :P331_IDPEDIDO,
+                                                                     pidusuario             => :P0_IDUSUARIO );
+                    --
+                    pck_pedidos_fav.prc_classificacoespedidos(pidclassificacaopedido  => vidclassificacaopedido,
+                                                              pidpedido               => vidpedido,
+                                                              pdataclassificado       => vdataclassificado,
+                                                              pidusuario              => vidusuario,
+                                                              pidcaracteristicapedido => vidcaracteristicapedido,
+                                                              pidvalorcaracteristica  => vidvalorcaracteristica,
+                                                              pobservacao             => vobservacao,
+                                                              poperacao_dml           => 'I',
+                                                              pmd5                    => vmd5);
+                    --
+                  exception
+                    when others then
+                      null;    
+                  end;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Pedido Aprovado!
+        }
+        advanced {
+            executionMappingIdentifier: 1417036195596961922
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ANALISE_REMESSA_APROVAR
+        }
+    )
+
+    branch (
+        name: Go To Page 415 (Pedido Wide)
+        execution {
+            sequence: 20
+        }
+        behavior {
+            target: {
+                page: 415
+                items: {
+                    P415_IDPEDIDO: &P331_IDPEDIDO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: v('REQUEST') = 'ANALISE_REMESSA_APROVAR' and :P331_ORIGEM = 415
+        }
+    )
+
+    branch (
+        name: Go To Page 68 (Pedido)
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 68
+                items: {
+                    P68_IDPEDIDO: &P331_IDPEDIDO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression: v('REQUEST') = 'ANALISE_REMESSA_APROVAR' and :P331_ORIGEM = 68
+        }
+    )
+
+    branch (
+        name: Go To Page 360
+        execution {
+            sequence: 30
+        }
+        behavior {
+            target: {
+                page: 360
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: expression
+            language: sql
+            sqlExpression:
+                ```sql
+                v('REQUEST') = 'ANALISE_REMESSA_APROVAR' and 
+                :P331_ORIGEM = 360
+                ```
+        }
+    )
+
+)
+

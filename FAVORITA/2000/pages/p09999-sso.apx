@@ -1,0 +1,103 @@
+page 9999 (
+    name: AUTH-LOGIN
+    alias: SSO
+    title: AUTH-LOGIN
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        authentication: public
+        deepLinking: false
+        pageAccessProtection: unrestricted
+    }
+
+    pageItem P9999_TOKEN (
+        type: hidden
+        layout {
+            sequence: 20
+            slot: body
+        }
+    )
+
+    process new (
+        name: New
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                DECLARE
+                
+                    v_usuario          VARCHAR2(100);
+                    v_senha            VARCHAR2(4000);
+                
+                    v_app_destino      NUMBER;
+                    v_pagina_destino   NUMBER;
+                
+                BEGIN
+                
+                    ------------------------------------------------------------------
+                    -- BUSCA TOKEN SSO
+                    ------------------------------------------------------------------
+                    SELECT usuario,
+                           senha_cripto,
+                           app_id,
+                           pagina_destino
+                      INTO v_usuario,
+                           v_senha,
+                           v_app_destino,
+                           v_pagina_destino
+                      FROM roman.auth_sso_token
+                     WHERE token = :P9999_TOKEN
+                       AND utilizado = 'N'
+                       AND data_expiracao > SYSDATE;
+                
+                    ------------------------------------------------------------------
+                    -- LOGIN
+                    ------------------------------------------------------------------
+                    wwv_flow_custom_auth_std.login(
+                        p_uname      => v_usuario,
+                        p_password   => v_senha,
+                        p_session_id => v('APP_SESSION'),
+                        p_flow_page  => v_app_destino || ':' || v_pagina_destino
+                    );
+                
+                    ------------------------------------------------------------------
+                    -- MARCA TOKEN COMO UTILIZADO
+                    ------------------------------------------------------------------
+                    UPDATE roman.auth_sso_token
+                       SET utilizado = 'S'
+                     WHERE token = :P9999_TOKEN;
+                
+                    COMMIT;
+                
+                EXCEPTION
+                
+                    WHEN NO_DATA_FOUND THEN
+                
+                        /*apex_util.redirect_url(
+                            'f?p=' || :APP_ID || ':101'
+                        );*/
+                        null;
+                
+                    WHEN OTHERS THEN
+                
+                        raise_application_error(
+                            -20001,
+                            SQLERRM
+                        );
+                
+                END;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+        advanced {
+            executionMappingIdentifier: 948889531766032702
+        }
+    )
+
+)
+

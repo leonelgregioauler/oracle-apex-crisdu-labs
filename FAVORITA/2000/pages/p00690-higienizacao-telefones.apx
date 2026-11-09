@@ -1,0 +1,974 @@
+page 690 (
+    name: Higienizacao Telefones
+    alias: HIGIENIZACAO-TELEFONES
+    title: Higienizacao Telefones
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region vendedoras (
+        name: Vendedoras
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                return q'~
+                select p.idpessoa,
+                       upper(p.nomepessoa) "EMPREENDEDORA",
+                       v.idvendedora,
+                       v.ativo,
+                       v.idfilial,
+                       roman.pck_romance.fnc_nomefilial(v.idfilial) filial,
+                       
+                       (select decode(count(*), 0, 'Não', 'Sim')
+                          from favorita.pedidos ped
+                         where v.idvendedora = ped.idvendedora
+                           and ped.datacancelamento is null ) "COMPRA FAVORITA",
+                
+                       case
+                         when p.idpais = 1 then p.cpf
+                         else p.documentoestrangeiro
+                       end "DOCUMENTO",
+                
+                       p.tipopessoa "TIPO PESSOA",
+                
+                       (select c.nomecategoria
+                          from roman.categoriasclubes c
+                             , roman.pontuacoesclubedesucesso pcs
+                         where c.idcategoriaclube = pcs.idcategoriaclube
+                           and pcs.idvendedora = v.idvendedora ) "CATEGORIA ESTRELA",
+                
+                       (select c.nomecidade
+                          from catal.cidades c
+                         where c.idcidade = p.idcidade) "CIDADE",
+                
+                       (select e.nome
+                          from catal.cidades c, catal.estados e
+                         where c.idestado = e.idestado
+                           and c.idcidade = p.idcidade) "ESTADO",
+                
+                       (select e.sigla
+                          from catal.cidades c, catal.estados e
+                         where c.idestado = e.idestado
+                           and c.idcidade = p.idcidade) "UF",
+                
+                       (select ps.nome 
+                          from catal.paises ps 
+                         where ps.idpais = f.ididioma) "PAÍS",
+                
+                       (select listagg(tf.telefonelimpo, '; ') 
+                               within group(order by tf.ranking asc)
+                          from (
+                                select tp.idpessoa,
+                                       tp.telefonelimpo,
+                                       row_number() over (
+                                         partition by tp.idpessoa 
+                                         order by tp.idtelefonepessoa desc
+                                       ) as ranking
+                                  from catal.telefonespessoas tp
+                                 where tp.idpessoa = p.idpessoa
+                               ) tf
+                         where tf.ranking <= 3
+                         group by tf.idpessoa) "TELEFONES"
+                
+                  from catal.pessoas    p
+                     , catal.vendedoras v
+                     , catal.filiais    f
+                
+                 where p.idpessoa = v.idpessoa
+                   and v.idfilial = f.idfilial
+                
+                   -- obrigatório
+                   and f.ididioma = :P690_IDPAIS
+                   and :P690_FILTRAR = 'S'
+                
+                ~'
+                ||
+                case 
+                  when :P690_IDFILIAL is not null and :P690_IDFILIAL <> '-1'
+                  then ' and v.idfilial = :P690_IDFILIAL '
+                  else ''
+                end
+                ||
+                case 
+                  when :P690_BASERMC is not null and :P690_BASERMC <> 'A'
+                  then ' and v.ativo = :P690_BASERMC '
+                  else ''
+                end
+                ||
+                case 
+                  when :P690_SELECAO = 'S' 
+                  then ' and p.datahigienizacao is not null '
+                  else ''
+                end
+                ||
+                case 
+                  when :P690_SELECAO = 'N' 
+                  then ' and p.datahigienizacao is null '
+                  else ''
+                end
+                ||
+                case 
+                  when :P690_COMPRAFAV = 'S'
+                  then q'[
+                        and exists (
+                            select 1
+                              from favorita.pedidos ped
+                             where v.idvendedora = ped.idvendedora
+                               and ped.datacancelamento is null
+                        )
+                      ]'
+                  when :P690_COMPRAFAV = 'N'
+                  then q'[
+                        and not exists (
+                            select 1
+                              from favorita.pedidos ped
+                             where v.idvendedora = ped.idvendedora
+                               and ped.datacancelamento is null
+                        )
+                      ]'
+                  else ''
+                end
+                ||
+                case 
+                  when :P690_CATEGORIA is not null and :P690_CATEGORIA <> '-1'
+                  then q'[
+                        and exists (
+                            select 1
+                              from roman.pontuacoesclubedesucesso pcs
+                             where pcs.idvendedora = v.idvendedora
+                               and pcs.idcategoriaclube = :P690_CATEGORIA
+                        )
+                      ]'
+                  else ''
+                end
+                ||
+                  case
+                    when :P690_QTDDIASEMISSAO is not null
+                    then q'[
+                          and trunc(sysdate) - ( select max(trunc(dataemissao))
+                                                   from vw_pedidos_fav pp
+                                                  where pp.idvendedora = v.idvendedora
+                                                    and pp.ididioma    = 1
+                                                    and pp.codpedidocancelado = 'N'
+                                               ) >= :P690_QTDDIASEMISSAO
+                        ]'
+                    else ''
+                  end
+                ||
+                
+                q'~
+                
+                   -- regras fixas
+                   and not exists (
+                         select 1
+                           from catal.representantes rep
+                          where p.idpessoa = rep.idpessoa
+                       )
+                
+                   and not exists (
+                         select 1
+                           from catal.funcionarios fun
+                          where p.idpessoa = fun.idpessoa
+                       )
+                
+                ~';
+                ```
+            pageItemsToSubmit: [
+                P690_IDPAIS
+                P690_IDFILIAL
+                P690_BASERMC
+                P690_CATEGORIA
+                P690_COMPRAFAV
+                P690_SELECAO
+            ]
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        messages {
+            whenNoDataFound: Nenhum registro localizado!
+        }
+        actionsMenu {
+            savePublicReport: true
+            reset: false
+            help: false
+            subscription: false
+        }
+        download {
+            formats: csv
+            filename: Higienizacao
+        }
+        advanced {
+            savedReportMappingIdentifier: 231204520623288392
+        }
+
+        column ATIVO (
+            type: plainText
+            heading {
+                heading: Ativo
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column "CATEGORIA ESTRELA" (
+            type: plainText
+            heading {
+                heading: Categoria Estrela
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column CIDADE (
+            type: plainText
+            heading {
+                heading: Cidade
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Y
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column "COMPRA FAVORITA" (
+            type: plainText
+            heading {
+                heading: Compra Favorita
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column DOCUMENTO (
+            type: plainText
+            heading {
+                heading: Documento
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column EMPREENDEDORA (
+            type: plainText
+            heading {
+                heading: Empreendedora
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column ESTADO (
+            type: plainText
+            heading {
+                heading: Estado
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Z
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Filial
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column IDFILIAL (
+            type: plainText
+            heading {
+                heading: Idfilial
+                alignment: end
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column IDPESSOA (
+            type: plainText
+            heading {
+                heading: Idpessoa
+                alignment: end
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column IDVENDEDORA (
+            type: plainText
+            heading {
+                heading: Idvendedora
+                alignment: end
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column PAÍS (
+            type: plainText
+            heading {
+                heading: País
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AB
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column TELEFONES (
+            type: plainText
+            heading {
+                heading: Telefones
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AC
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column "TIPO PESSOA" (
+            type: plainText
+            heading {
+                heading: Tipo Pessoa
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: W
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        column UF (
+            type: plainText
+            heading {
+                heading: Uf
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AA
+            }
+            serverSideCondition {
+                type: expression
+                plsqlExpression:
+                    ```plsql
+                    NVL(:REQUEST, 'EMPTY') NOT IN ('CSV', 'XLSX', 'PDF', 'XML', 'RTF', 'HTMLD')
+                    
+                    ```
+            }
+        )
+
+        savedReport 2021921 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ATIVO (
+                sequence: 5
+            )
+
+            displayColumn "CATEGORIA ESTRELA" (
+                sequence: 6
+            )
+
+            displayColumn CIDADE (
+                sequence: 8
+            )
+
+            displayColumn "COMPRA FAVORITA" (
+                sequence: 7
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 3
+            )
+
+            displayColumn EMPREENDEDORA (
+                sequence: 2
+            )
+
+            displayColumn ESTADO (
+                sequence: 9
+            )
+
+            displayColumn FILIAL (
+                sequence: 1
+            )
+
+            displayColumn PAÍS (
+                sequence: 11
+            )
+
+            displayColumn TELEFONES (
+                sequence: 12
+            )
+
+            displayColumn "TIPO PESSOA" (
+                sequence: 4
+            )
+
+            displayColumn UF (
+                sequence: 10
+            )
+
+        )
+
+    )
+
+    pageItem P690_BASERMC (
+        type: radioGroup
+        label {
+            label: Vend. Ativas
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N,Ambas;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: S
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P690_CATEGORIA (
+        type: selectList
+        label {
+            label: Categ. Estrelas
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nomecategoria d
+                     , idcategoriaclube r
+                  from roman.categoriasclubes
+                 order by 1
+                ```
+            nullDisplayValue: - Todas -
+            nullReturnValue: -1
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        default {
+            type: expression
+            plsqlExpression: null
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P690_COMPRAFAV (
+        type: radioGroup
+        label {
+            label: Compra Favorita
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N,Todos;T
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: T
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P690_FILTRAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+    )
+
+    pageItem P690_IDFILIAL (
+        type: popupLov
+        label {
+            label: Franquia
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nome as d, 
+                       idfilial as r
+                  from roman.vw_filiais
+                 where tipofilial in ('D','A','L')
+                   and ativo = 'S'
+                   and ididioma = :P690_IDPAIS
+                ```
+            nullDisplayValue: - Todas -
+            nullReturnValue: -1
+        }
+        cascadingLov {
+            parentItems: P690_IDPAIS
+            itemsToSubmit: P690_IDPAIS
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        default {
+            type: expression
+            plsqlExpression: null
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P690_IDPAIS (
+        type: selectList
+        label {
+            label: País
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nome d
+                     , idpais r
+                 from roman.paises
+                 where idpais in (1,2,4,6)
+                order by 2
+                ```
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P690_QTDDIASEMISSAO (
+        type: numberField
+        label {
+            label: Qtd Dias Ultimo Pedido
+            alignment: left
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+    )
+
+    pageItem P690_SELECAO (
+        type: radioGroup
+        label {
+            label: Tipo Seleção
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Não Higienizados;N,Já Higienizados;S,Todos;T
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 120
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        name: Go To Page 186
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 690
+                items: {
+                    P690_IDPAIS: &P690_IDPAIS.
+                    P690_IDFILIAL: &P690_IDFILIAL.
+                    P690_BASERMC: &P690_BASERMC.
+                    P690_CATEGORIA: &P690_CATEGORIA.
+                    P690_COMPRAFAV: &P690_COMPRAFAV.
+                    P690_SELECAO: &P690_SELECAO.
+                    P690_FILTRAR: S
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

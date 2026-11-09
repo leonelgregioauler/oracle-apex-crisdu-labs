@@ -1,0 +1,336 @@
+page 402 (
+    name: Zerar Estoque Filial Favorita
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region zerar-estoque (
+        name: Zerar Estoque
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P402_IDFILIALFAVORITA (
+        type: selectList
+        label {
+            label: Filial Favorita
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomefilialfavorita(idfilialfavorita) display_value
+                     , idfilialfavorita   return_value
+                from filiaisfavorita f
+                where  exists ( select 1
+                               from usuariosfiliaisfavorita u
+                               where u.idfilialfavorita = f.idfilialfavorita
+                                 and u.consultar = 'S'
+                                 and u.idusuario = :P0_IDUSUARIO )
+                order by 1
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @zerar-estoque
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button voltar (
+        buttonName: VOLTAR
+        label: Voltar
+        layout {
+            sequence: 30
+            region: @zerar-estoque
+            slot: close
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--iconLeft
+            ]
+            icon: fa-reply
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 401
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button zerar-estoque-todo (
+        buttonName: ZERAR_ESTOQUE_TODO
+        label: Zerar estoque todo
+        layout {
+            sequence: 10
+            region: @zerar-estoque
+            slot: previous
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--danger
+                t-Button--iconRight
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button zerar-somente-csv (
+        buttonName: ZERAR_SOMENTE_CSV
+        label: Zerar somente csv
+        layout {
+            sequence: 20
+            region: @zerar-estoque
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconRight
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process validaconflito-zerarcsv (
+        name: ValidaConflito_ZerarCsv
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vitens_csv           number := 0;
+                  vinventarios_abertos number := 0;
+                begin
+                  select count(*) into vitens_csv from favorita.preatualizaestoques;
+                  if vitens_csv = 0 then
+                    raise_application_error(-20001,
+                      'Nenhum produto encontrado para equalizar. Realize o upload do CSV primeiro.');
+                  end if;
+                  select count(distinct ic.idinventariociclico)
+                    into vinventarios_abertos
+                    from favorita.inventariociclico    ic
+                    join favorita.itensinventariociclico ii on ii.idinventariociclico = ic.idinventariociclico
+                    join favorita.estoques              e  on e.idestoque             = ii.idestoque
+                   where ic.idfilial          = :P402_IDFILIALFAVORITA
+                     and ic.idtiposituacao   not in (5)
+                     and e.idprodutodetalhado in (
+                           select nvl(sk.idprodutodetalhado, p.codigovirtual - 6000000)
+                             from favorita.preatualizaestoques        p
+                             left join favorita.deparaprodfavoritavirtualage sk
+                                    on sk.skuvirtualage = p.codigovirtual
+                         );
+                  if vinventarios_abertos > 0 then
+                    raise_application_error(-20001,
+                      'Existem ' || vinventarios_abertos ||
+                      ' inventario(s) aberto(s) com produtos presentes no CSV. ' ||
+                      'Encerre os inventarios antes de realizar a equalizacao parcial.');
+                  end if;
+                end;
+                ```
+        }
+        execution {
+            sequence: 6
+        }
+        advanced {
+            executionMappingIdentifier: 9999402000000002
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ZERAR_SOMENTE_CSV
+        }
+    )
+
+    process validaconflito-zerartodo (
+        name: ValidaConflito_ZerarTodo
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vinventarios_abertos number := 0;
+                begin
+                  select count(*)
+                    into vinventarios_abertos
+                    from favorita.inventariociclico
+                   where idfilial = :P402_IDFILIALFAVORITA
+                     and idtiposituacao not in (5);
+                  if vinventarios_abertos > 0 then
+                    raise_application_error(-20001,
+                      'Existem ' || vinventarios_abertos ||
+                      ' inventario(s) aberto(s) para esta filial. ' ||
+                      'Encerre todos os inventarios antes de zerar o estoque total.');
+                  end if;
+                end;
+                ```
+        }
+        execution {
+            sequence: 5
+        }
+        advanced {
+            executionMappingIdentifier: 9999402000000001
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ZERAR_ESTOQUE_TODO
+        }
+    )
+
+    process zerar-estoque (
+        name: Zerar Estoque
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vidinventario number;
+                  vmd5          varchar2(6000);
+                  vdata         date        := sysdate;
+                  vsituacao     number      := 5;
+                  voperacao     varchar2(1) := 'I';
+                  vtipo         varchar2(1) := 'T';
+                begin
+                  favorita.pck_cadastros_fav.prc_inventariociclico(
+                      pidinventariociclico => vidinventario,
+                      psituacao            => vsituacao,
+                      pidfilial            => :P402_IDFILIALFAVORITA,
+                      pidusuario           => :P0_IDUSUARIO,
+                      pdatacriacao         => vdata,
+                      pdataencerramento    => vdata,
+                      pidusuarioencerra    => :P0_IDUSUARIO,
+                      ptipoinventario      => vtipo,
+                      pmd5                 => vmd5,
+                      poperacao_dml        => voperacao);
+                  favorita.pck_cadastros_fav.prc_itensinventarioloja(
+                      pidinventario   => vidinventario,
+                      pidfilial       => :P402_IDFILIALFAVORITA,
+                      ptipoinventario => vtipo);
+                  favorita.pck_estoque_fav.prc_inventariociclico(
+                      pidInventarioCiclico => vidinventario,
+                      pidUsuario           => :P0_IDUSUARIO);
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Estoque total zerado com sucesso!
+        }
+        error {
+            errorMessage: Erro ao zerar estoque, favor abrir um evento
+        }
+        advanced {
+            executionMappingIdentifier: 1550546249006098708
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ZERAR_ESTOQUE_TODO
+        }
+    )
+
+    process zerar-estoque-do-csv (
+        name: Zerar estoque do Csv
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  vidinventario number;
+                  vmd5          varchar2(6000);
+                  vdata         date        := sysdate;
+                  vsituacao     number      := 5;
+                  voperacao     varchar2(1) := 'I';
+                  vtipo         varchar2(1) := 'P';
+                begin
+                  favorita.pck_cadastros_fav.prc_inventariociclico(
+                      pidinventariociclico => vidinventario,
+                      psituacao            => vsituacao,
+                      pidfilial            => :P402_IDFILIALFAVORITA,
+                      pidusuario           => :P0_IDUSUARIO,
+                      pdatacriacao         => vdata,
+                      pdataencerramento    => vdata,
+                      pidusuarioencerra    => :P0_IDUSUARIO,
+                      ptipoinventario      => vtipo,
+                      pmd5                 => vmd5,
+                      poperacao_dml        => voperacao);
+                  favorita.pck_cadastros_fav.prc_itensinventarioloja(
+                      pidinventario   => vidinventario,
+                      pidfilial       => :P402_IDFILIALFAVORITA,
+                      ptipoinventario => vtipo);
+                  favorita.pck_estoque_fav.prc_inventariociclico(
+                      pidInventarioCiclico => vidinventario,
+                      pidUsuario           => :P0_IDUSUARIO);
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: Equalizacao parcial (CSV) concluida com sucesso!
+        }
+        error {
+            errorMessage: Erro ao zerar estoque, favor abrir um evento
+        }
+        advanced {
+            executionMappingIdentifier: 90938334934732733
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ZERAR_SOMENTE_CSV
+        }
+    )
+
+)
+

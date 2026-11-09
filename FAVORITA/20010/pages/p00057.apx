@@ -1,0 +1,2336 @@
+page 57 (
+    name: Análise de Compras
+    title: Análise de Compras
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region dados-da-análise (
+        name: Dados da Análise
+        type: staticContent
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        comments {
+            comments: Base do relatório gerada através de job chamando a pck_bi_fav.prc_geranecessidadecompra_tabx
+        }
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent15
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region listagem (
+        name: Listagem
+        type: interactiveGrid
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select relatorio.idfornecedor, relatorio.fornecedor
+                     , relatorio.tempo_entrega_em_ciclos
+                     , relatorio.prioridade  
+                     , relatorio.idfilialfavorita
+                     , relatorio.idprodutodetalhado
+                     , relatorio.qtd_disponivel
+                     , relatorio.qtd_ajustada
+                     , relatorio.qtd_ed1
+                     , relatorio.qtd_ed2
+                     , relatorio.qtd_ed3
+                     , relatorio.media_atual
+                     -- 9303521 - Maicon Aimi - 15/08/2024 - Ajuste no calculo da coluna Venda Considerada
+                     --, relatorio.venda_considerada <--  OLD
+                     --Verificado que atualmente a coluna da venda considerada faz a soma das 3 colunas de edição (edições 1.1, 1.2 e 1.3). Bruno solicitou que fosse alterado a regra da coluna venda considerada para o seguinte: 
+                     --  Se (Ed76.1 * 50%) > (1.1+1.2+1.3) então Ed76.1 * 80%
+                     --  Se o valor for menor que 50%, continua a regra já existente hoje que é a soma das 3 colunas de edições (1.1, 1.2 e 1.3).
+                     , case 
+                         when (relatorio.qtd_ed1 + relatorio.qtd_ed2 + relatorio.qtd_ed3) < (relatorio.qtd_edfinal / 2) then
+                           round ((relatorio.qtd_edfinal * 0.8))
+                         else
+                           relatorio.qtd_ed1 + relatorio.qtd_ed2 + relatorio.qtd_ed3
+                       end  venda_considerada
+                     -- 9303521 FIM
+                     , relatorio.qtd_comprada
+                     , relatorio.qtd_transferida
+                     , relatorio.qtd_edfinal
+                     , relatorio.cobertura_ciclo_atual
+                     , relatorio.necessidade_compra_ciclo
+                     , relatorio.cobertura_desejada
+                     , relatorio.necessidade_compra
+                     , relatorio.ciclos_morte
+                     , relatorio.qtd_disponivel_t2
+                     , relatorio.qtd_desejada_t2
+                     , relatorio.cobertura_ciclo_t2
+                     , relatorio.qtd_disponivel_t3
+                     , relatorio.qtd_desejada_t3
+                     , relatorio.cobertura_ciclo_t3
+                     , relatorio.qtd_disponivel_t4
+                     , relatorio.qtd_desejada_t4
+                     , relatorio.cobertura_ciclo_t4
+                     , relatorio.usuario
+                     , relatorio.id_rel_analise_compras
+                     , (select count(distinct k.idkitvenda)
+                          from itenskitsvendas ik, kitsvendas k
+                         where ik.idkitvenda = k.idkitvenda 
+                           and trunc(sysdate) between k.datainicial and k.datafinal
+                           and ik.idprodutodetalhado = relatorio.idprodutodetalhado) kits
+                     , (select sum(t.disponivel)
+                         from FAVORITA.temp_analisenecessidadecomp1 t 
+                         where t.idprodutodetalhado         = relatorio.idprodutodetalhado
+                           and t.idfilialorigem_abatecedor  = relatorio.idfilialfavorita
+                           and t.idfilialfavorita_est      != :P57_FILIAL) qtd_disponivel_lojas
+                     -- Criado a coluna edicao_iniciou para atender o ticket 8766474 - Maicon Aimi - 25/04/2024
+                     , (select e.nome
+                          from favorita.edicoesrevistas e
+                         where e.idpais = :P57_IDPAIS
+                           and e.idedicaorevista = (select min(d.idedicaorevista)
+                                                      from produtosdetedrevistas d
+                                                     where d.idedicaorevista not in (63,62,56,121,122)
+                                                       and d.idprodutodetalhado = relatorio.idprodutodetalhado
+                                                       and exists (select 1 
+                                                                     from favorita.edicoesrevistas ee
+                                                                    where ee.idedicaorevista = d.idedicaorevista
+                                                                      and ee.idpais =:P57_IDPAIS))) edicao_iniciou 
+                  from tmp_rel_analise_compras relatorio
+                 where usuario = :APP_USER
+                   and :P57_FILIAL is not null
+                   and ( :P57_IDKITVENDA is null or exists ( select 1
+                                                               from itenskitsvendas it
+                                                              where it.idkitvenda = :P57_IDKITVENDA
+                                                                and it.idprodutodetalhado = relatorio.idprodutodetalhado));
+                ```
+        }
+        layout {
+            sequence: 50
+            parentRegion: @dados-da-análise
+            slot: subRegions
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        edit {
+            enabled: true
+            allowedOperations: update
+        }
+        performance {
+            lazyLoading: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: page
+        }
+        messages {
+            whenNoDataFound: Nenhum dado encontrado
+        }
+        toolbar {
+            controls: [
+                searchCol
+                searchField
+                actionsMenu
+                searchCol
+                searchField
+                actionsMenu
+                resetButton
+                saveButton
+            ]
+        }
+        download {
+            formats: [
+                csv
+                html
+                pdf
+                excel
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 176461738561144880
+        }
+
+        savedReport 769153 (
+            visibility: primary
+            view {
+                default: grid
+                settingsAreaExpanded: false
+            }
+            singleRowView {
+                displayedColumns: true
+            }
+
+            displayColumn (
+                column: @QTD_DISPONIVEL_LOJAS
+                layout {
+                    width: 133
+                    sequence: 8
+                }
+            )
+
+            displayColumn (
+                column: @ID_REL_ANALISE_COMPRAS
+                layout {
+                    sequence: 29
+                }
+            )
+
+            displayColumn (
+                column: @QTD_DESEJADA_T2
+                layout {
+                    width: 81
+                    sequence: 25
+                }
+            )
+
+            displayColumn (
+                column: @QTD_DESEJADA_T3
+                layout {
+                    width: 81
+                    sequence: 28
+                }
+            )
+
+            displayColumn (
+                column: @QTD_DESEJADA_T4
+                layout {
+                    width: 88
+                    sequence: 34
+                }
+            )
+
+            displayColumn (
+                column: @IDFORNECEDOR
+                layout {
+                    frozen: true
+                    sequence: 2
+                }
+            )
+
+            displayColumn (
+                column: @FORNECEDOR
+                layout {
+                    frozen: true
+                    width: 302
+                    sequence: 3
+                }
+            )
+
+            displayColumn (
+                column: @TEMPO_ENTREGA_EM_CICLOS
+                layout {
+                    width: 136
+                    sequence: 10
+                }
+            )
+
+            displayColumn (
+                column: @Prioridade
+                layout {
+                    frozen: true
+                    sequence: 2
+                }
+            )
+
+            displayColumn (
+                column: @IDFILIALFAVORITA
+                layout {
+                    frozen: true
+                    sequence: 5
+                }
+            )
+
+            displayColumn (
+                column: @IDPRODUTODETALHADO
+                layout {
+                    frozen: true
+                    width: 183
+                    sequence: 5
+                }
+            )
+
+            displayColumn (
+                column: @QTD_DISPONIVEL
+                layout {
+                    width: 102
+                    sequence: 9
+                }
+            )
+
+            displayColumn (
+                column: @QTD_AJUSTADA
+                layout {
+                    width: 94
+                    sequence: 7
+                }
+            )
+
+            displayColumn (
+                column: @QTD_ED1
+                layout {
+                    width: 61
+                    sequence: 11
+                }
+            )
+
+            displayColumn (
+                column: @QTD_ED2
+                layout {
+                    width: 60
+                    sequence: 12
+                }
+            )
+
+            displayColumn (
+                column: @QTD_ED3
+                layout {
+                    width: 62
+                    sequence: 13
+                }
+            )
+
+            displayColumn (
+                column: @MEDIA_ATUAL
+                layout {
+                    width: 89
+                    sequence: 14
+                }
+            )
+
+            displayColumn (
+                column: @VENDA_CONSIDERADA
+                layout {
+                    width: 138
+                    sequence: 15
+                }
+            )
+
+            displayColumn (
+                column: @QTD_COMPRADA
+                layout {
+                    width: 103
+                    sequence: 19
+                }
+            )
+
+            displayColumn (
+                column: @QTD_TRANSFERIDA
+                layout {
+                    width: 116
+                    sequence: 21
+                }
+            )
+
+            displayColumn (
+                column: @COBERTURA_CICLO_ATUAL
+                layout {
+                    width: 146
+                    sequence: 17
+                }
+            )
+
+            displayColumn (
+                column: @NECESSIDADE_COMPRA_CICLO
+                layout {
+                    width: 165
+                    sequence: 18
+                }
+            )
+
+            displayColumn (
+                column: @COBERTURA_DESEJADA
+                layout {
+                    width: 153
+                    sequence: 20
+                }
+            )
+
+            displayColumn (
+                column: @NECESSIDADE_COMPRA
+                layout {
+                    width: 158
+                    sequence: 22
+                }
+            )
+
+            displayColumn (
+                column: @CICLOS_MORTE
+                layout {
+                    width: 143
+                    sequence: 23
+                }
+            )
+
+            displayColumn (
+                column: @QTD_DISPONIVEL_T2
+                layout {
+                    width: 83
+                    sequence: 24
+                }
+            )
+
+            displayColumn (
+                column: @COBERTURA_CICLO_T2
+                layout {
+                    width: 90
+                    sequence: 26
+                }
+            )
+
+            displayColumn (
+                column: @QTD_DISPONIVEL_T3
+                layout {
+                    width: 93
+                    sequence: 27
+                }
+            )
+
+            displayColumn (
+                column: @COBERTURA_CICLO_T3
+                layout {
+                    width: 90
+                    sequence: 31
+                }
+            )
+
+            displayColumn (
+                column: @QTD_DISPONIVEL_T4
+                layout {
+                    width: 96
+                    sequence: 32
+                }
+            )
+
+            displayColumn (
+                column: @COBERTURA_CICLO_T4
+                layout {
+                    width: 129
+                    sequence: 33
+                }
+            )
+
+            displayColumn (
+                column: @APEX$ROW_ACTION
+                layout {
+                    show: false
+                    frozen: true
+                    sequence: 0
+                }
+            )
+
+            displayColumn (
+                column: @USUARIO
+                layout {
+                    sequence: 28
+                }
+            )
+
+            displayColumn (
+                column: @QTD_EDFINAL
+                layout {
+                    width: 59
+                    sequence: 16
+                }
+            )
+
+            displayColumn (
+                column: @EDICAO_INICIOU
+                layout {
+                    width: 160
+                    sequence: 6
+                }
+            )
+
+            displayColumn (
+                column: @KITS
+                layout {
+                    sequence: 35
+                }
+            )
+
+            sort (
+                column: @TEMPO_ENTREGA_EM_CICLOS
+                sort {
+                    direction: desc
+                    nulls: first
+                    sequence: 1
+                }
+            )
+
+            highlight prioridade (
+                name: Prioridade 3
+                condition {
+                    column: @Prioridade
+                    value: 3
+                }
+                colors {
+                    background: #CCFFCC
+                    text: #008000
+                }
+                execution {
+                    sequence: 15
+                }
+            )
+
+            highlight prioridade-2 (
+                name: Prioridade 1
+                condition {
+                    column: @Prioridade
+                    value: 1
+                }
+                colors {
+                    background: #FFD6CC
+                    text: #FF0000
+                }
+                execution {
+                    sequence: 5
+                }
+            )
+
+            highlight prioridade-3 (
+                name: Prioridade 2
+                condition {
+                    column: @Prioridade
+                    value: 2
+                }
+                colors {
+                    background: #FFFFCC
+                    text: #808000
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+        column APEX$ROW_ACTION (
+            type: actionsMenu
+            layout {
+                sequence: 20
+            }
+        )
+
+        column APEX$ROW_SELECTOR (
+            type: rowSelector
+            layout {
+                sequence: 10
+            }
+        )
+
+        column CICLOS_MORTE (
+            type: popupLov
+            heading {
+                heading: Morte Programada
+            }
+            settings {
+                displayAs: modalDialog
+            }
+            lov {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select nome, idedicaorevista
+                      from edicoesrevistas
+                     where tipovenda = 'R'
+                    ```
+                nullDisplayValue: -
+            }
+            layout {
+                sequence: 240
+            }
+            source {
+                databaseColumn: CICLOS_MORTE
+                dataType: number
+            }
+            columnFilter {
+                lovType: useLov
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column COBERTURA_CICLO_ATUAL (
+            type: numberField
+            heading {
+                heading: Cobertura Ciclo Atual
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: COBERTURA_CICLO_ATUAL
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column COBERTURA_CICLO_T2 (
+            type: numberField
+            heading {
+                heading: &P57_COB_T2.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 260
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: COBERTURA_CICLO_T2
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column COBERTURA_CICLO_T3 (
+            type: numberField
+            heading {
+                heading: &P57_COB_T3.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 280
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: COBERTURA_CICLO_T3
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column COBERTURA_CICLO_T4 (
+            type: numberField
+            heading {
+                heading: &P57_COB_T4.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 300
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: COBERTURA_CICLO_T4
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column COBERTURA_DESEJADA (
+            type: numberField
+            heading {
+                heading: Cobertura Desejada
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 220
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            validation {
+                maxLength: 40
+            }
+            source {
+                databaseColumn: COBERTURA_DESEJADA
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column EDICAO_INICIOU (
+            type: textarea
+            heading {
+                heading: Edição Iniciou
+            }
+            layout {
+                sequence: 90
+            }
+            validation {
+                maxLength: 200
+            }
+            source {
+                databaseColumn: EDICAO_INICIOU
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column FORNECEDOR (
+            type: textarea
+            heading {
+                heading: Fornecedor
+            }
+            layout {
+                sequence: 40
+            }
+            validation {
+                maxLength: 255
+            }
+            source {
+                databaseColumn: FORNECEDOR
+                dataType: varchar2
+                queryOnly: true
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column IDFILIALFAVORITA (
+            type: hidden
+            layout {
+                sequence: 70
+            }
+            source {
+                databaseColumn: IDFILIALFAVORITA
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column IDFORNECEDOR (
+            type: hidden
+            layout {
+                sequence: 30
+            }
+            source {
+                databaseColumn: IDFORNECEDOR
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column IDPRODUTODETALHADO (
+            type: popupLov
+            heading {
+                heading: Produto
+            }
+            settings {
+                displayAs: modalDialog
+            }
+            lov {
+                type: sharedComponent
+                lov: @lov-produtosdetalhados
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                databaseColumn: IDPRODUTODETALHADO
+                dataType: number
+            }
+            columnFilter {
+                lovType: useLov
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column ID_REL_ANALISE_COMPRAS (
+            type: hidden
+            layout {
+                sequence: 320
+            }
+            source {
+                databaseColumn: ID_REL_ANALISE_COMPRAS
+                dataType: number
+                primaryKey: true
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column KITS (
+            type: numberField
+            heading {
+                heading: Kits
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 360
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: KITS
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column MEDIA_ATUAL (
+            type: numberField
+            heading {
+                heading: Média Atual
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: MEDIA_ATUAL
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column NECESSIDADE_COMPRA (
+            type: numberField
+            heading {
+                heading: Necessidade Compra
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 230
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: NECESSIDADE_COMPRA
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column NECESSIDADE_COMPRA_CICLO (
+            type: numberField
+            heading {
+                heading: Necessidade Compra Ciclos
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 210
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                databaseColumn: NECESSIDADE_COMPRA_CICLO
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column Prioridade (
+            type: numberField
+            heading {
+                heading: Prioridade
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                databaseColumn: PRIORIDADE
+                dataType: number
+                queryOnly: true
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column QTD_AJUSTADA (
+            type: numberField
+            heading {
+                heading: Qtd.Ajustada
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_AJUSTADA
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column QTD_COMPRADA (
+            type: numberField
+            heading {
+                heading: Qtd.Comprada
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 53
+                    items: {
+                        P53_IDPRODUTODETALHADO: &IDPRODUTODETALHADO.
+                        P53_IDFILIALFAVORITA: &IDFILIALFAVORITA.
+                    }
+                    action: resetPagination
+                }
+            }
+            source {
+                databaseColumn: QTD_COMPRADA
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column QTD_DESEJADA_T2 (
+            type: numberField
+            heading {
+                heading: &P57_QTDD_T2.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 330
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_DESEJADA_T2
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column QTD_DESEJADA_T3 (
+            type: numberField
+            heading {
+                heading: &P57_QTDD_T3.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 340
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_DESEJADA_T3
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column QTD_DESEJADA_T4 (
+            type: numberField
+            heading {
+                heading: &P57_QTDD_T4.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 350
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_DESEJADA_T4
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column QTD_DISPONIVEL (
+            type: link
+            heading {
+                heading: Qtd. Dispo. CD
+                alignment: end
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            link {
+                target: {
+                    page: 52
+                    items: {
+                        P52_IDFILIALFAVORITA: &IDFILIALFAVORITA.
+                        P52_IDPRODUTODETALHADO: &IDPRODUTODETALHADO.
+                    }
+                    action: resetPagination
+                }
+                linkText: &QTD_DISPONIVEL.
+            }
+            source {
+                databaseColumn: QTD_DISPONIVEL
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column QTD_DISPONIVEL_LOJAS (
+            type: numberField
+            heading {
+                heading: Qtd. Dispo. Lojas
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 370
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_DISPONIVEL_LOJAS
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column QTD_DISPONIVEL_T2 (
+            type: numberField
+            heading {
+                heading: &P57_QTD_T2.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 250
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_DISPONIVEL_T2
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column QTD_DISPONIVEL_T3 (
+            type: numberField
+            heading {
+                heading: &P57_QTD_T3.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 270
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_DISPONIVEL_T3
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column QTD_DISPONIVEL_T4 (
+            type: numberField
+            heading {
+                heading: &P57_QTD_T4.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 290
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_DISPONIVEL_T4
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column QTD_ED1 (
+            type: numberField
+            heading {
+                heading: &P57_ED1.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_ED1
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column QTD_ED2 (
+            type: numberField
+            heading {
+                heading: &P57_ED2.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_ED2
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column QTD_ED3 (
+            type: numberField
+            heading {
+                heading: &P57_ED3.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_ED3
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column QTD_EDFINAL (
+            type: numberField
+            heading {
+                heading: &P57_EDFINAL.
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_EDFINAL
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column QTD_TRANSFERIDA (
+            type: numberField
+            heading {
+                heading: Qtd.Transferida
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: QTD_TRANSFERIDA
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column TEMPO_ENTREGA_EM_CICLOS (
+            type: numberField
+            heading {
+                heading: Tempo Para Entrega
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: TEMPO_ENTREGA_EM_CICLOS
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        column USUARIO (
+            type: hidden
+            layout {
+                sequence: 310
+            }
+            source {
+                databaseColumn: USUARIO
+                dataType: varchar2
+                primaryKey: true
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column VENDA_CONSIDERADA (
+            type: numberField
+            heading {
+                heading: Venda Considerada
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            validation {
+                maxLength: 0
+            }
+            source {
+                databaseColumn: VENDA_CONSIDERADA
+                dataType: number
+                queryOnly: true
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+            }
+        )
+
+        page {
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+    )
+
+    region observações (
+        name: Observações
+        type: helpText
+        layout {
+            sequence: 20
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent14
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        headerAndFooter {
+            headerText: * &P57_ATUALIZACAO.<br>* É necessário criar um ciclo vigente, sem necessidade de definir o campo de identificação do relatório.<br>* Só serão avaliadas revistas que tenham o link do catálogo cadastrado.
+        }
+    )
+
+    pageItem P57_ATUALIZACAO (
+        type: hidden
+        layout {
+            sequence: 230
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_COB_T2 (
+        type: hidden
+        layout {
+            sequence: 200
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_COB_T3 (
+        type: hidden
+        layout {
+            sequence: 210
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_COB_T4 (
+        type: hidden
+        layout {
+            sequence: 220
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_DESCONTINUADOS (
+        type: selectList
+        label {
+            label: Produtos Descontinuados
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Incluir Produtos com Morte Programada;S,Apenas Produtos Sem Morte Programada;N
+            displayExtraValues: false
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_ED1 (
+        type: hidden
+        layout {
+            sequence: 100
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_ED2 (
+        type: hidden
+        layout {
+            sequence: 110
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_ED3 (
+        type: hidden
+        layout {
+            sequence: 120
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_EDFINAL (
+        type: hidden
+        layout {
+            sequence: 130
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_FILIAL (
+        type: selectList
+        label {
+            label: Filial Abastecedora
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nomefilialfavorita display_value
+                     , idfilialfavorita   return_value
+                  from favorita.filiaisfavorita f
+                 where f.tipofilial in ('E')
+                   and idpais = :P57_IDPAIS
+                   and ativo = 'S'
+                 order by 1
+                
+                ```
+        }
+        cascadingLov {
+            parentItems: P57_IDPAIS
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_FORNECEDOR (
+        type: selectList
+        label {
+            label: Fornecedor
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select upper(p.nomepessoa), f.idfornecedor
+                  from fornecedores f, pessoas p
+                 where f.idpessoa = p.idpessoa
+                   and f.idfornecedor in (select idfornecedor 
+                                            from fornecedoresprodutos fp, produtosdetalhados pd, produtos pro
+                                           where fp.idproduto = pro.idproduto
+                                             and pro.idproduto = pd.idproduto
+                                             and pd.descontinuado = 'N')
+                 order by 1
+                ```
+            nullDisplayValue: Todos
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_IDFILIALT1 (
+        type: hidden
+        layout {
+            sequence: 30
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_IDFILIALT2 (
+        type: hidden
+        layout {
+            sequence: 70
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_IDFILIALT3 (
+        type: hidden
+        layout {
+            sequence: 80
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_IDFILIALT4 (
+        type: hidden
+        layout {
+            sequence: 90
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_IDFILT2 (
+        type: hidden
+        layout {
+            sequence: 40
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_IDFILT3 (
+        type: hidden
+        layout {
+            sequence: 50
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_IDFILT4 (
+        type: hidden
+        layout {
+            sequence: 60
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_IDKITVENDA (
+        type: selectList
+        label {
+            label: Kit de Venda
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select k.referencia||' - '||k.descricao d
+                     , k.idkitvenda r
+                from kitsvendas k
+                where trunc(sysdate) between k.datainicial and k.datafinal
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_IDPAIS (
+        type: selectList
+        label {
+            label: País
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nome, idpais
+                  from roman.paises
+                 where idpais in (
+                                  select idpais
+                                    from edicoesrevistas
+                                   where sysdate between datainicial and datafinal
+                                     and tipovenda = 'R')
+                 order by 1
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_QTDD_T2 (
+        type: hidden
+        layout {
+            sequence: 150
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_QTDD_T3 (
+        type: hidden
+        layout {
+            sequence: 160
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_QTDD_T4 (
+        type: hidden
+        layout {
+            sequence: 170
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_QTD_T2 (
+        type: hidden
+        layout {
+            sequence: 140
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_QTD_T3 (
+        type: hidden
+        layout {
+            sequence: 180
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_QTD_T4 (
+        type: hidden
+        layout {
+            sequence: 190
+            region: @dados-da-análise
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P57_VENDAS (
+        type: selectList
+        label {
+            label: Apenas Produtos Com Venda
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N
+            displayExtraValues: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button atualizar (
+        buttonName: ATUALIZAR
+        label: Atualizar a Base
+        layout {
+            sequence: 10
+            region: @observações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+                t-Button--iconLeft
+                t-Button--stretch
+                t-Button--gapTop
+            ]
+            icon: fa-refresh
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: "javascript:apex.confirm(\"Deseja certeza que deseja atualizar a base?\", {     request:\"ATUALIZABASE\",     showWait:true     });"
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Aplicar Filtros
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+                t-Button--iconLeft
+                t-Button--stretch
+                t-Button--gapTop
+            ]
+            icon: fa-filter
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button zerar (
+        buttonName: ZERAR
+        label: Apagar a Análise
+        layout {
+            sequence: 20
+            region: @observações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--iconLeft
+                t-Button--stretch
+                t-Button--gapTop
+            ]
+            icon: fa-eraser
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: "javascript:apex.confirm(\"Deseja apagar a análise atual?\", {     request:\"APAGAR\",     showWait:true     });"
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process atualiza-tabela-temporária (
+        name: Atualiza Tabela Temporária
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                 
+                 pck_bi_fav.prc_rel_analise_compras (:P57_IDPAIS, :P57_FILIAL, :P57_FORNECEDOR, :P57_DESCONTINUADOS, :P57_VENDAS, :APP_USER, :P57_IDFILIALT2, :P57_IDFILIALT3, :P57_IDFILIALT4, 
+                                                     :P57_ED1, :P57_ED2, :P57_ED3, :P57_EDFINAL, :P57_IDFILT2, :P57_IDFILT3, :P57_IDFILT4);
+                 :P57_QTD_T2 := 'Qtd.'||:P57_IDFILIALT2;
+                 :P57_QTD_T3 := 'Qtd.'||:P57_IDFILIALT3;
+                 :P57_QTD_T4 := 'Qtd.'||:P57_IDFILIALT4;
+                 :P57_QTDD_T2 := 'Cbt.Desej.'||:P57_IDFILIALT2;
+                 :P57_QTDD_T3 := 'Cbt.Desej.'||:P57_IDFILIALT3;
+                 :P57_QTDD_T4 := 'Cbt.Desej.'||:P57_IDFILIALT4;
+                 :P57_COB_T2 := 'Cbt.'||:P57_IDFILIALT2;
+                 :P57_COB_T3 := 'Cbt.'||:P57_IDFILIALT3;
+                 :P57_COB_T4 := 'Cbt.'||:P57_IDFILIALT4;
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        advanced {
+            executionMappingIdentifier: 90976335840526821
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+    process atualizar-a-base (
+        name: Atualizar a Base
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  pck_bi_fav.prc_geranecessidadecompra_tabx(null);
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        successMessage {
+            successMessage:
+                ```
+                Processo concluído com sucesso!
+                Aplique os filtros novamente...
+                ```
+        }
+        advanced {
+            executionMappingIdentifier: 91002223219205024
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ATUALIZABASE
+        }
+    )
+
+    process dados-da-atualização (
+        name: Dados da Atualização
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                    select 'Atualizado ' || to_char(max(data_fim),'dd/mm hh24:mi') dados  
+                      into :P57_ATUALIZACAO
+                      from log_tmp_rel_compras
+                     where data_inicio <> data_fim;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeRegions
+        }
+        advanced {
+            executionMappingIdentifier: 90976717253526821
+        }
+    )
+
+    process listagem-save-interactive-grid-data (
+        name: Listagem - Save Interactive Grid Data
+        type: interactiveGridAutoRowProcessing
+        editableRegion: @listagem
+        target {
+            targetType: plsqlCode
+            dmlPlsqlCode:
+                ```plsql
+                begin
+                 if :APEX$ROW_STATUS = 'U' then
+                     --
+                     update tmp_rel_analise_compras
+                        set cobertura_desejada = :COBERTURA_DESEJADA
+                      where idprodutodetalhado = :IDPRODUTODETALHADO
+                        and idfilialfavorita = :IDFILIALFAVORITA
+                        and usuario = :APP_USER;
+                
+                     update tmp_rel_analise_compras
+                        set cobertura_desejada = :QTD_DESEJADA_T2
+                      where idprodutodetalhado = :IDPRODUTODETALHADO
+                        and idfilialfavorita = :P57_IDFILT2
+                        and usuario = :APP_USER;
+                
+                     update tmp_rel_analise_compras
+                        set cobertura_desejada = :QTD_DESEJADA_T3
+                      where idprodutodetalhado = :IDPRODUTODETALHADO
+                        and idfilialfavorita = :P57_IDFILT3
+                        and usuario = :APP_USER;
+                
+                     update tmp_rel_analise_compras
+                        set cobertura_desejada = :QTD_DESEJADA_T4
+                      where idprodutodetalhado = :IDPRODUTODETALHADO
+                        and idfilialfavorita = :P57_IDFILT4
+                        and usuario = :APP_USER;
+                
+                   --
+                
+                    if :COBERTURA_DESEJADA is null then
+                         delete produtoscoberturafilial
+                          where idprodutodetalhado = :IDPRODUTODETALHADO
+                            and idfilial = :IDFILIALFAVORITA;
+                     else
+                         update produtoscoberturafilial
+                            set coberturadesejada = :COBERTURA_DESEJADA
+                          where idprodutodetalhado = :IDPRODUTODETALHADO
+                            and idfilial = :IDFILIALFAVORITA;
+                         if sql%rowcount = 0 then
+                          insert into produtoscoberturafilial
+                                      ( idfilial
+                                      , idprodutodetalhado
+                                      , coberturadesejada)
+                               values ( :IDFILIALFAVORITA
+                                      , :IDPRODUTODETALHADO
+                                      , :COBERTURA_DESEJADA);
+                         end if;
+                    end if;
+                
+                    if :QTD_DESEJADA_T2 is null then
+                         delete produtoscoberturafilial
+                          where idprodutodetalhado = :IDPRODUTODETALHADO
+                            and idfilial = :P57_IDFILT2;
+                     else
+                         update produtoscoberturafilial
+                            set coberturadesejada = :QTD_DESEJADA_T2
+                          where idprodutodetalhado = :IDPRODUTODETALHADO
+                            and idfilial = :P57_IDFILT2;
+                         if sql%rowcount = 0 then
+                          insert into produtoscoberturafilial
+                                      ( idfilial
+                                      , idprodutodetalhado
+                                      , coberturadesejada)
+                               values ( :P57_IDFILT2
+                                      , :IDPRODUTODETALHADO
+                                      , :QTD_DESEJADA_T2);
+                         end if;
+                    end if;
+                
+                    if :QTD_DESEJADA_T3 is null then
+                         delete produtoscoberturafilial
+                          where idprodutodetalhado = :IDPRODUTODETALHADO
+                            and idfilial = :P57_IDFILT3;
+                     else
+                         update produtoscoberturafilial
+                            set coberturadesejada = :QTD_DESEJADA_T3
+                          where idprodutodetalhado = :IDPRODUTODETALHADO
+                            and idfilial = :P57_IDFILT3;
+                         if sql%rowcount = 0 then
+                          insert into produtoscoberturafilial
+                                      ( idfilial
+                                      , idprodutodetalhado
+                                      , coberturadesejada)
+                               values ( :P57_IDFILT3
+                                      , :IDPRODUTODETALHADO
+                                      , :QTD_DESEJADA_T3);
+                         end if;
+                    end if;
+                
+                    if :QTD_DESEJADA_T4 is null then
+                         delete produtoscoberturafilial
+                          where idprodutodetalhado = :IDPRODUTODETALHADO
+                            and idfilial = :P57_IDFILT4;
+                     else
+                         update produtoscoberturafilial
+                            set coberturadesejada = :QTD_DESEJADA_T4
+                          where idprodutodetalhado = :IDPRODUTODETALHADO
+                            and idfilial = :P57_IDFILT4;
+                         if sql%rowcount = 0 then
+                          insert into produtoscoberturafilial
+                                      ( idfilial
+                                      , idprodutodetalhado
+                                      , coberturadesejada)
+                               values ( :P57_IDFILT4
+                                      , :IDPRODUTODETALHADO
+                                      , :QTD_DESEJADA_T4);
+                         end if;
+                    end if;
+                
+                 end if;
+                 commit;
+                end;
+                ```
+        }
+        lockRow {
+            lockRow: false
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 90975702384526819
+        }
+    )
+
+    process zerar-análise (
+        name: Zerar Análise
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                 delete produtoscoberturafilial where idfilial = :P57_IDFILIAL;
+                 commit;
+                end;
+                ```
+        }
+        execution {
+            sequence: 40
+        }
+        successMessage {
+            successMessage:
+                ```
+                Processo concluído com sucesso!
+                Aplique os filtros novamente...
+                ```
+        }
+        advanced {
+            executionMappingIdentifier: 93843259405360501
+        }
+        serverSideCondition {
+            type: request=Value
+            value: APAGAR
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 57
+                items: {
+                    P57_IDPAIS: &P57_IDPAIS.
+                    P57_FILIAL: &P57_FILIAL.
+                    P57_FORNECEDOR: &P57_FORNECEDOR.
+                    P57_VENDAS: &P57_VENDAS.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @atualizar
+        }
+    )
+
+)
+

@@ -1,0 +1,320 @@
+page 442 (
+    name: Nota Fiscal Favorita
+    title: Nota Fiscal Favorita
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region impressão-de-pedido (
+        name: Impressão de Pedido
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vsysdate date;
+                  vobs varchar2(100);
+                  vnull number;
+                  vid number := 9;
+                  vnullvar varchar2(100);
+                  vidsituacaoentrega number;
+                  vpagina number := :P442_PAGINA;
+                  vcancelado varchar2(1);
+                  vboleto number;
+                  vcorreio varchar2(1);
+                  vidgerente number;
+                  --
+                  vidpedido                 number := :P442_IDPEDIDO;
+                  vnumeropedido             varchar2(20) := '10000000'||:P442_IDPEDIDO||'99';
+                  vidcompratransferencia    number    := :P442_IDCOMPRATRANSFERENCIA;
+                  vidusuario                number := :P0_IDUSUARIO;
+                  vretorno                  varchar2(1);
+                  --
+                begin
+                  --
+                  --raise_application_error(-20001,'Variavel '||vidcompratransferencia);
+                  --
+                  if vidcompratransferencia is not null then
+                    --
+                    begin
+                      vidpedido := pck_movimentarpedidos_fav.fnc_localizapedidoimpressao( pnumeropedido => vnumeropedido
+                                                                                        , pidcompratransferencia => vidcompratransferencia 
+                                                                                        , pidusuario => vidusuario );
+                    exception
+                      when no_data_found then
+                        vidpedido := -1;
+                    end;
+                      -- 
+                      if vidpedido =-1 then
+                        htp.p('<br><br><br><br><br><br><br><br>');
+                        htp.p('<p align="center"><font size="5" color="red">Pedido não pode ser impresso pois pertence à outra remessa !</font><p>');
+                      end if;
+                      --
+                  end if;
+                  --
+                  if vidcompratransferencia is null or ( vidcompratransferencia is not null and vidpedido != -1) then
+                     --
+                      vcancelado := pck_util_fav.fnc_retornapedidocancelado(pidpedido => :P442_IDPEDIDO);
+                      --
+                      select idgerente
+                      into vidgerente
+                      from usuarios
+                      where idusuario = :P0_IDUSUARIO;
+                      --
+                      begin
+                        select 'S'
+                        into vcorreio
+                        from classificacoespedidos c
+                        where c.idpedido = :P442_IDPEDIDO
+                          and c.idcaracteristicapedido = 13
+                          and c.idvalorcaracteristica = 2;
+                      exception
+                        when others then
+                          vcorreio := 'N';
+                      end;
+                      --
+                      select p.idsituacaoentrega
+                      into vidsituacaoentrega
+                      from pedidos p
+                      where p.idpedido = :P442_IDPEDIDO;
+                      --
+                      if :P0_IDIDIOMA = 2 then
+                        --
+                        vboleto := 2;
+                        --
+                      else
+                        --
+                        vboleto := 1;
+                        --
+                      end if;
+                      --
+                      if vcancelado = 'N' then
+                        --
+                        if pck_util_fav.fnc_retornatipofilial ( :P0_IDFILIALFAVORITA ) = 'L' then
+                          --
+                          pck_imprime_fav.prc_pedidos_loja(pidpedido    => :P442_IDPEDIDO,
+                                                           ppromissoria => 1,
+                                                           pboleto      => vboleto,
+                                                           pididioma    => :P0_IDIDIOMA);
+                          --
+                        elsif vidgerente != 80 then
+                          --
+                          pck_imprime_fav.prc_pedidos(pidpedido    => :P442_IDPEDIDO,
+                                                      ppromissoria => 1,
+                                                      pboleto      => vboleto,
+                                                      pididioma    => :P0_IDIDIOMA,
+                                                      pidusuario   => :P0_IDUSUARIO);
+                          --
+                        elsif vidgerente = 80 then
+                          --
+                          pck_imprime_fav.prc_pedidos_cobranca ( pidpedido  => :P442_IDPEDIDO
+                                                               , pidusuario => :P0_IDUSUARIO);
+                          --
+                        end if;
+                        --
+                        /*if :P0_IDFILIALFAVORITA != 6 then
+                          --
+                          pck_etiquetas.prc_imprimeetiquetaspedido(pidpedido => :P442_IDPEDIDO
+                                                                  ,pididioma => :P0_IDIDIOMA
+                                                                  ,pidusuario => :P0_IDUSUARIO);
+                          --
+                        end if;*/
+                        --
+                        vobs := 'Impressão do Pedido realiazada';
+                        --
+                        pck_pedidos_fav.prc_classificacoespedidos(pidclassificacaopedido  => vnull,
+                                                                  pidpedido               => :P442_IDPEDIDO,
+                                                                  pdataclassificado       => vsysdate,
+                                                                  pidusuario              => :P0_IDUSUARIO,
+                                                                  pidcaracteristicapedido => vid,
+                                                                  pidvalorcaracteristica  => vnull,
+                                                                  pobservacao             => vobs,
+                                                                  poperacao_dml           => 'I',
+                                                                  pmd5                    => vnullvar);
+                        --
+                        if vcorreio = 'S' then
+                          --
+                          pck_movimentarpedidos_fav.prc_movimentapedidoviacorreio(pidpedido => :P442_IDPEDIDO,
+                                                                                  pidusuario => :P0_IDUSUARIO);
+                          --
+                        end if;
+                        --
+                        
+                        if vpagina = 78 and vidsituacaoentrega = 46000 then
+                          --
+                          pck_movimentarpedidos_fav.prc_atz_situacaoentrega_auto(:P442_IDPEDIDO,:P0_IDUSUARIO);
+                          --
+                        end if;
+                        --
+                      elsif vcancelado = 'S' then 
+                        --
+                        pck_imprime_fav.prc_pedidocancelado(pidpedido  => :P442_IDPEDIDO,
+                                                            pidusuario => :P0_IDUSUARIO,
+                                                            pididioma  => :P0_IDIDIOMA);
+                        --
+                        vobs := 'Impressão de Aviso de Cancelamento!';
+                        --
+                        pck_pedidos_fav.prc_classificacoespedidos(pidclassificacaopedido  => vnull,
+                                                                  pidpedido               => :P442_IDPEDIDO,
+                                                                  pdataclassificado       => vsysdate,
+                                                                  pidusuario              => :P0_IDUSUARIO,
+                                                                  pidcaracteristicapedido => vid,
+                                                                  pidvalorcaracteristica  => vnull,
+                                                                  pobservacao             => vobs,
+                                                                  poperacao_dml           => 'I',
+                                                                  pmd5                    => vnullvar);
+                        --
+                        /*if vpagina = 78 then
+                          --
+                          pck_estoque_fav.prc_movimentapedidocancelado(pidpedido => :P442_IDPEDIDO,
+                                                                       pidprotocolo => :P0_IDUSUARIO);
+                          --
+                        end if;*/
+                        --
+                      end if;
+                      --
+                  end if;
+                end;
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/blank-with-attributes
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region new (
+        name: New
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                DECLARE
+                  varquivopdf varchar2(100) := replace('43200307318638000203550010002702011490167207-nfe.xml','.xml','.pdf');
+                begin
+                  -- Call the procedure
+                  --
+                  crisdu.pck_notasfiscais_crd.prc_abreaqruivo_web(pnomearquivo => varquivopdf);
+                  --
+                end;
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    region new-2 (
+        name: New
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P442_IDPEDIDO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @impressão-de-pedido
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: 4623151
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P442_NOMEARQUIVOXML (
+        type: textField
+        label {
+            label: Nome arquivo XML
+            alignment: left
+        }
+        layout {
+            sequence: 10
+            region: @new
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    process abrir-pdf-da-nota-fiscal (
+        name: Abrir PDF da Nota Fiscal
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                DECLARE
+                  varquivopdf varchar2(100) := replace('43200307318638000203550010002702011490167207-nfe.xml','.xml','.pdf');
+                begin
+                  -- Call the procedure
+                  --
+                  crisdu.pck_notasfiscais_crd.prc_abreaqruivo_web(pnomearquivo => varquivopdf);
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeRegions
+        }
+        advanced {
+            executionMappingIdentifier: 27011200226249563
+        }
+    )
+
+)
+

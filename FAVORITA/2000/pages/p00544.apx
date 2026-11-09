@@ -1,0 +1,924 @@
+page 544 (
+    name: Gerenciamento de Leads
+    title: Gerenciamento de Leads
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region gerenciamento-de-leads (
+        name: Gerenciamento de  Leads
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select l.nomecompleto 
+                     , nvl(l.cpf,l.documentoestrangeiro) documento
+                     , l.datacadastro
+                     , l.datacadastrorepresentante
+                     , round((l.datacadastrorepresentante - l.datacadastro), 0) total_dias
+                     , decode(l.cadastrado, 'Sim', 'Sim',
+                                            'Nao', 'Não') cadastrado
+                     , l.nomerepresentante
+                     , l.enviado_painel
+                     , roman.pck_romance.fnc_nomefilial (l.idfilial) Franquia
+                     , l.descricaosituacao
+                     , '<a href="javascript:window.open('''||APEX_UTIL.PREPARE_URL('f?p=' || 2000 || ':546:'||v('APP_SESSION')||'::NO::P546_IDCONTROLECONTATOSSITE:'||l.idcontrolecontatossite,'SESSION')||''',''_blank''); void(0)"><img src="#IMAGE_PREFIX#magnifying_glass_white_bg.gif" alt=""/></a>' url
+                     , '<a href="javascript:window.open('''||APEX_UTIL.PREPARE_URL('f?p=' || 2000 || ':124:'||v('APP_SESSION')||'::NO::P124_IDCONTROLECONTATOSSITE:'||l.idcontrolecontatossite,'SESSION')||''',''_blank''); void(0)"><img src="#IMAGE_PREFIX#magnifying_glass_white_bg.gif" alt=""/></a>' edicao
+                     , l.situacao_cliente
+                     , l.data_envio_painel
+                     , l.origemdesc origem
+                from ( select c.nomecompleto
+                            , c.idcontrolecontatossite
+                            , c.cpf
+                            , c.datacadastro
+                            , c.datacadastrorepresentante
+                            , c.descricaosituacao
+                            --, c.cadastrado
+                            , case 
+                                when exists (select 1
+                                             from catal.pessoas p
+                                             where p.cpf = c.cpf
+                                               and exists( select 1
+                                                           from catal.vendedoras v
+                                                           where v.idpessoa = p.idpessoa)) then 'Sim'
+                                else 'Não'
+                              end cadastrado
+                            /*, case 
+                                when exists (select 1
+                                             from roman.painelcontatossite p
+                                             where p.idcontrolecontatossite = c.idcontrolecontatossite
+                                               and p.idsituacaopainel = 2) then 'Sim'
+                                else 'Não'
+                              end cadastrado*/
+                            , c.nomerepresentante
+                            , case
+                                when exists (select 1
+                                             from roman.painelcontatossite p
+                                             where p.idcontrolecontatossite = c.idcontrolecontatossite) then 'Sim'
+                                else 'Não'
+                              end enviado_painel
+                            , c.idfilial
+                            , Nvl((select decode(v.ativo,'S','Ativa','N','Inativa') situacao
+                                 from vendedoras v
+                                    , pessoas p
+                                where v.idpessoa = p.idpessoa
+                                  and p.cpf      = trim(replace(replace(c.cpf,'.',''),'-',''))
+                               union
+                               select decode(v.ativo,'S','Ativa','N','Inativa') situacao
+                                 from vendedoras v
+                                    , pessoas p
+                                where v.idpessoa = p.idpessoa
+                                  and p.documentoestrangeiro = c.documentoestrangeiro),'Não cadastrado') situacao_cliente
+                            , (select max(cl.dataclassificado)
+                                 from roman.classificacoessac cl
+                               where cl.idcontrolecontatossite = c.idcontrolecontatossite
+                                 and cl.idcaracteristicasac = 37) data_envio_painel
+                            , c.documentoestrangeiro 
+                            , c.origemdesc
+                       from favorita.vw_controlecontatossite_fav c
+                       where ( :P544_DATAINICIO is null or trunc(c.datacadastro) between to_date(:P544_DATAINICIO,'DD/MM/RRRR') and to_date(:P544_DATAFIM,'DD/MM/RRRR'))
+                         and ( :P544_CPF is null or replace(replace(c.cpf,'.',''),'-','') = replace(replace(:P544_CPF,'.',''),'-','') )
+                         and ( :P544_NOME is null or lower(c.nomecompleto) like '%'||lower(:P544_NOME)||'%' )
+                         and ( :P544_ENVIADOAOPAINEL is null 
+                             or :P544_ENVIADOAOPAINEL = 'S' and exists (select 1
+                                                                        from roman.painelcontatossite p
+                                                                        where p.idcontrolecontatossite = c.idcontrolecontatossite)
+                             or :P544_ENVIADOAOPAINEL = 'N' and not exists (select 1
+                                                                            from roman.painelcontatossite p
+                                                                            where p.idcontrolecontatossite = c.idcontrolecontatossite))
+                         and ( :P544_FILIAL is null or c.idfilial = :P544_FILIAL)
+                         and ( :P544_NAOFILTRAR = 'S')
+                         and ( :P544_SITUACAO = 'XX' or c.situacao = :P544_SITUACAO )
+                         AND ( :P544_DOCESTRANGEIRO is null or c.documentoestrangeiro = :P544_DOCESTRANGEIRO ))l
+                       where nvl(trunc(l.data_envio_painel),trunc(sysdate)) between nvl(:P544_DATA_ENVIO_LEADS_INICIO,nvl(trunc(l.data_envio_painel),trunc(sysdate))) and  nvl(:P544_DATA_ENVIO_LEADS_FIM,nvl(trunc(l.data_envio_painel),trunc(sysdate)))
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 32002948308984615
+        }
+
+        column CADASTRADO (
+            type: plainText
+            heading {
+                heading: Cadastrado?
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column DATACADASTRO (
+            type: plainText
+            heading {
+                heading: Data do Cadastro
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DATACADASTROREPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Data da Abertura
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DATA_ENVIO_PAINEL (
+            type: plainText
+            heading {
+                heading: Data envio ao Painel
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/yyyy hh24:mi:ss
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: N
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                      from roman.usuariosgruposatendimento us
+                     where us.usuario = v('APP_USER')
+                       and us.idgrupoatendimento in (0,9) /*0 TI Labs / 9 Análise de Crédito Favorita*/
+                    ```
+            }
+        )
+
+        column DESCRICAOSITUACAO (
+            type: plainText
+            heading {
+                heading: Descrição Situação
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                      from roman.usuariosgruposatendimento us
+                     where us.usuario = v('APP_USER')
+                       and us.idgrupoatendimento in (0,9) /*0 TI Labs / 9 Análise de Crédito Favorita*/
+                    ```
+            }
+        )
+
+        column DOCUMENTO (
+            type: plainText
+            heading {
+                heading: Documento
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column EDICAO (
+            type: plainText
+            heading {
+                heading: Edição
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                      from roman.usuariosgruposatendimento us
+                     where us.usuario = v('APP_USER')
+                       and us.idgrupoatendimento in (0,9) /*0 TI Labs / 9 Análise de Crédito Favorita*/
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column ENVIADO_PAINEL (
+            type: plainText
+            heading {
+                heading: Enviado ao Painel?
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column FRANQUIA (
+            type: plainText
+            heading {
+                heading: Franquia
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column NOMECOMPLETO (
+            type: plainText
+            heading {
+                heading: Nome
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column NOMEREPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column ORIGEM (
+            type: plainText
+            heading {
+                heading: Origem
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column SITUACAO_CLIENTE (
+            type: plainText
+            heading {
+                heading: Situação Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column TOTAL_DIAS (
+            type: plainText
+            heading {
+                heading: Total Dias
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column URL (
+            type: plainText
+            heading {
+                heading: Ver Histórico
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 320443 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CADASTRADO (
+                sequence: 7
+            )
+
+            displayColumn DATACADASTRO (
+                sequence: 4
+            )
+
+            displayColumn DATACADASTROREPRESENTANTE (
+                sequence: 5
+            )
+
+            displayColumn DATA_ENVIO_PAINEL (
+                sequence: 14
+            )
+
+            displayColumn DESCRICAOSITUACAO (
+                sequence: 12
+            )
+
+            displayColumn DOCUMENTO (
+                sequence: 3
+            )
+
+            displayColumn EDICAO (
+                sequence: 1
+            )
+
+            displayColumn ENVIADO_PAINEL (
+                sequence: 9
+            )
+
+            displayColumn FRANQUIA (
+                sequence: 10
+            )
+
+            displayColumn NOMECOMPLETO (
+                sequence: 2
+            )
+
+            displayColumn NOMEREPRESENTANTE (
+                sequence: 8
+            )
+
+            displayColumn ORIGEM (
+                sequence: 15
+            )
+
+            displayColumn SITUACAO_CLIENTE (
+                sequence: 13
+            )
+
+            displayColumn TOTAL_DIAS (
+                sequence: 6
+            )
+
+            displayColumn URL (
+                sequence: 11
+            )
+
+        )
+
+    )
+
+    region opções (
+        name: Opções
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P544_CPF (
+        type: textField
+        label {
+            label: Cpf
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P544_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Data Final
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P544_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: Data Inicial
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P544_DATA_ENVIO_LEADS_FIM (
+        type: datePicker
+        label {
+            label: Data Envio Painel Final
+            alignment: left
+        }
+        layout {
+            sequence: 120
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+    )
+
+    pageItem P544_DATA_ENVIO_LEADS_INICIO (
+        type: datePicker
+        label {
+            label: Data Envio Painel Inicial
+            alignment: left
+        }
+        layout {
+            sequence: 110
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+    )
+
+    pageItem P544_DOCESTRANGEIRO (
+        type: textField
+        label {
+            label: Doc. Estrangeiro
+            alignment: left
+        }
+        layout {
+            sequence: 60
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+    )
+
+    pageItem P544_ENVIADOAOPAINEL (
+        type: radioGroup
+        label {
+            label: Enviado ao Painel
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N
+            displayExtraValues: false
+            nullDisplayValue: Não Filtrar
+        }
+        layout {
+            sequence: 100
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+        }
+        default {
+            type: expression
+            plsqlExpression: null
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P544_FILIAL (
+        type: selectList
+        label {
+            label: Franquia
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select roman.pck_romance.fnc_nomefilial (u.idfilial) display_value
+                     , u.idfilial 
+                from roman.usuariosfiliais u
+                where u.usuario = v('APP_USER')
+                order by 1 asc
+                ```
+            displayExtraValues: false
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 80
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P544_IDCONTROLECONTATOSSITE (
+        type: hidden
+        layout {
+            sequence: 40
+            region: @opções
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P544_NAOFILTRAR (
+        type: hidden
+        layout {
+            sequence: 140
+            region: @opções
+            slot: regionBody
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P544_NOME (
+        type: textField
+        label {
+            label: Nome
+            alignment: left
+        }
+        layout {
+            sequence: 70
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P544_SITUACAO (
+        type: selectList
+        label {
+            label: Situação
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select descricao as d,
+                       idsituacao as r
+                  from roman.situacoessac
+                 order by 1
+                ```
+            displayExtraValues: false
+            nullDisplayValue: Todas
+            nullReturnValue: XX
+        }
+        layout {
+            sequence: 90
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: XX
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 130
+            region: @opções
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button parametros-higienizacao-leads (
+        buttonName: PARAMETROS_HIGIENIZACAO_LEADS
+        label: Parâmetros <br> Higienização Leads
+        layout {
+            sequence: 10
+            region: @opções
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--warning
+                t-Button--iconLeft
+                t-Button--hoverIconPush
+            ]
+            icon: fa-gears
+        }
+        behavior {
+            action: redirectUrl
+            targetUrl: javascript:window.open('f?p=&APP_ID.:665:&SESSION.:::::', '_blank');
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        name: Go To Page 544
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 544
+                items: {
+                    P544_NAOFILTRAR: S
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

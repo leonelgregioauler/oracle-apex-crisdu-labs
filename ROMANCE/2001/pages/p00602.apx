@@ -1,0 +1,1099 @@
+page 602 (
+    name: Assinaturas Eletrônicas
+    title: Assinaturas Eletrônicas
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function aprovaassinatura(pid){ 
+            
+              document.getElementById('P573_ID').value = pid;
+                
+              var answer = confirm("Aprova a Assinatura Eletronica?")
+              if (answer)
+                {
+                  apex.submit('APROVA_ASSINATURA');
+                }
+            }
+            
+            function reprovaassinatura(pid){ 
+            
+              document.getElementById('P573_ID').value = pid;
+              openModal('REPROVAR');
+              
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region assinaturas-realizadas (
+        name: Assinaturas Realizadas
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                       select a.datarealizada dataclassificado
+                     , a.vendedora nomepessoa
+                     , a.cpf
+                     , a.representante
+                     , a.link
+                     , case
+                         when a.situacao = 'A' then
+                           '<font color="green"><b>Aprovada!</b></font>'
+                         else
+                           '-'
+                       end aprovarassinatura
+                     , case
+                         when a.situacao = 'R' then
+                           '<font color="red"><b>Reprovada</b></font>'||' - '||nvl(a.motivoreprovacao,'Motivo não informado')
+                         else
+                           '-'
+                       end reprovarassinatura
+                     , identificacao
+                     , a.desctiponota tipo
+                     , decode (a.tipoassinatura, 'P', 'Titular', 'T', 'Terceiro') Tipo_de_Assinatura
+                     , case
+                       when (select count(1)
+                               from roman.notasvendas nv
+                              where a.idvendedora = nv.idvendedora) = '1' then 'Sim'
+                        else 'Não'
+                       end Abertura
+                     , a.telefone
+                     , nv.numeronota
+                     , nv.semanadistribuicao 
+                     , case 
+                        when nv.idsituacaonotavenda = '4' and nv.saldo > 0 then 'Débito'
+                        when nv.idsituacaonotavenda = '3' then 'Aguardando Acerto'
+                        when nv.idsituacaonotavenda = '5' then 'Cancelada'
+                        when nv.saldo <= 0 then 'Quitada'        
+                        else '-'
+                       end situacao_nota
+                     , nv.valortotalnota
+                     , nv.valortotalvenda
+                     , nv.valorpago
+                     , nv.saldo
+                     -- Maicon Aimi - 10122034 - 18/07/2025
+                     , a.nome_terceiro
+                     , favorita.pck_util_fav.fnc_nomefilialromance(a.idfilial) FRANQUIA
+                     -- Maicon Aimi - 10620793 - 02/10/2025
+                     , ( select initcap(p.nomepessoa)
+                           from catal.usuarios u
+                              , catal.pessoas p
+                          where p.idpessoa = u.idpessoa
+                            and u.idusuario = a.idusuarioavaliacao ) analisado_por
+                from vw_assinaturas_eletronicas a
+                   , notasvendas nv
+                where a.idnotavenda = nv.idnotavenda 
+                  and a.datarealizada between to_date(:P602_DATAINICIO||' 00:00:01','DD/MM/RRRR HH24:MI:SS') and to_date(:P602_DATAFIM||' 23:59:59','DD/MM/RRRR HH24:MI:SS')
+                  and ( :P602_IDFILIAL = -1 or a.idfilial = :P602_IDFILIAL)
+                  and ( :P602_IDREPRESENTANTE is null or a.idrepresentante = :P602_IDREPRESENTANTE )
+                  and ( :P602_SITUACAO = 'X'
+                     or ( :P602_SITUACAO = 'A' and a.situacao = 'A' )
+                     or ( :P602_SITUACAO = 'R' and a.situacao = 'R' )
+                     or ( :P602_SITUACAO = 'S' and a.situacao = 'R' and not exists (select 1
+                                                                                      from roman.assinaturaseletronicas aa
+                                                                                     where aa.idnotavenda = a.idnotavenda  
+                                                                                       and aa.idassinaturaeletronica > a.idassinaturaeletronica
+                                                                                       and aa.status = 'C'
+                                                                                       and aa.situacao = 'A' )))
+                  and a.situacao != 'P'
+                order by a.datarealizada desc
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        messages {
+            whenNoDataFound: Nenhuma assinatura encontrada!
+        }
+        advanced {
+            savedReportMappingIdentifier: 6721182937142707862
+        }
+
+        column ABERTURA (
+            type: plainText
+            heading {
+                heading: Abertura
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column ANALISADO_POR (
+            type: plainText
+            heading {
+                heading: Analisado Por
+                alignment: center
+            }
+            layout {
+                sequence: 220
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1
+                      from dual
+                     where v('APP_USER') in ('LILIANCOSTA','TAISEDORNELLES','PAULOSARAIVA')
+                    
+                     union
+                    
+                     select 1
+                      from roman.usuariosgruposatendimento u
+                     where u.usuario = v('APP_USER')
+                       and u.idgrupoatendimento = 0
+                    ```
+            }
+        )
+
+        column APROVARASSINATURA (
+            type: plainText
+            heading {
+                heading: Aprovar Assinatura?
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: CPF
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DATACLASSIFICADO (
+            type: plainText
+            heading {
+                heading: Data
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column FRANQUIA (
+            type: plainText
+            heading {
+                heading: Filial
+            }
+            layout {
+                sequence: 210
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column IDENTIFICACAO (
+            type: plainText
+            heading {
+                heading: Identificação
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column LINK (
+            type: plainText
+            heading {
+                heading: Acessar Envelope
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    -- Geral
+                    select 1
+                      from dual
+                     where pck_util.fnc_verificaacesso(3569,v('APP_USER')) = 'S'
+                    
+                     union
+                    
+                     -- Libera time T.I Labs
+                    select 1
+                      from roman.usuariosgruposatendimento u
+                     where u.idgrupoatendimento = 0
+                       and u.usuario = v('APP_USER')
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NOMEPESSOA (
+            type: plainText
+            heading {
+                heading: Consultora
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column NOME_TERCEIRO (
+            type: plainText
+            heading {
+                heading: Assinatura Terceiro
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: T
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    -- Geral
+                    select 1
+                      from dual
+                     where pck_util.fnc_verificaacesso(3569,v('APP_USER')) = 'S'
+                    
+                     union
+                    
+                     -- Libera time T.I Labs
+                    select 1
+                      from roman.usuariosgruposatendimento u
+                     where u.idgrupoatendimento = 0
+                       and u.usuario = v('APP_USER')
+                    ```
+            }
+        )
+
+        column NUMERONOTA (
+            type: plainText
+            heading {
+                heading: Nota
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column REPROVARASSINATURA (
+            type: plainText
+            heading {
+                heading: Reprovar Assinatura?
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column SEMANADISTRIBUICAO (
+            type: plainText
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column SITUACAO_NOTA (
+            type: plainText
+            heading {
+                heading: Situação Nota
+                alignment: center
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column TELEFONE (
+            type: plainText
+            heading {
+                heading: Telefone Identificado
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column TIPO (
+            type: plainText
+            heading {
+                heading: Tipo de Nota
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column TIPO_DE_ASSINATURA (
+            type: plainText
+            heading {
+                heading: Tipo De Assinatura
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column VALORPAGO (
+            type: plainText
+            heading {
+                heading: Valor pago
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column VALORTOTALNOTA (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column VALORTOTALVENDA (
+            type: plainText
+            heading {
+                heading: Valor da Venda
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 10391544 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ABERTURA (
+                sequence: 12
+            )
+
+            displayColumn ANALISADO_POR (
+                sequence: 21
+            )
+
+            displayColumn APROVARASSINATURA (
+                sequence: 8
+            )
+
+            displayColumn CPF (
+                sequence: 4
+            )
+
+            displayColumn DATACLASSIFICADO (
+                sequence: 2
+            )
+
+            displayColumn FRANQUIA (
+                sequence: 1
+            )
+
+            displayColumn LINK (
+                sequence: 6
+            )
+
+            displayColumn NOMEPESSOA (
+                sequence: 3
+            )
+
+            displayColumn NOME_TERCEIRO (
+                sequence: 7
+            )
+
+            displayColumn NUMERONOTA (
+                sequence: 14
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 5
+            )
+
+            displayColumn REPROVARASSINATURA (
+                sequence: 9
+            )
+
+            displayColumn SALDO (
+                sequence: 19
+            )
+
+            displayColumn SEMANADISTRIBUICAO (
+                sequence: 15
+            )
+
+            displayColumn SITUACAO_NOTA (
+                sequence: 20
+            )
+
+            displayColumn TELEFONE (
+                sequence: 13
+            )
+
+            displayColumn TIPO (
+                sequence: 10
+            )
+
+            displayColumn TIPO_DE_ASSINATURA (
+                sequence: 11
+            )
+
+            displayColumn VALORPAGO (
+                sequence: 18
+            )
+
+            displayColumn VALORTOTALNOTA (
+                sequence: 16
+            )
+
+            displayColumn VALORTOTALVENDA (
+                sequence: 17
+            )
+
+            highlight ir-condition (
+                name: Aguardando Acerto
+                condition {
+                    column: SITUACAO_NOTA
+                    value: Aguardando Acerto
+                }
+                colors {
+                    background: #FFFF99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: Cancelada
+                condition {
+                    column: SITUACAO_NOTA
+                    value: Cancelada
+                }
+                colors {
+                    background: #FFDD44
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-3 (
+                name: Débito
+                condition {
+                    column: SITUACAO_NOTA
+                    value: Débito
+                }
+                colors {
+                    background: #FF7755
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-4 (
+                name: Quitada
+                condition {
+                    column: SITUACAO_NOTA
+                    value: Quitada
+                }
+                colors {
+                    background: #99FF99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P602_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: <b>Até</b>
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P602_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: <b>De</b>
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P602_IDFILIAL (
+        type: selectList
+        label {
+            label: <b>Filial</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and exists ( select 1
+                               from parametrosrepresentantes pr
+                               where pr.parametro = 'UTILIZAASSINATURAELETRONICA'
+                                 and pr.valor     = 'Z'
+                                 and pck_romance.fnc_filialrepresentante(pr.idrepresentante) = f.idfilial )
+                  and ( pck_util.fnc_verificaacesso(2844,v('APP_USER')) = 'S'
+                     or v('APP_USER') = 'LUCASRAMOS' )
+                
+                union
+                -- Maicon Aimi - 8773203 - 29/08/2024 inclusão das filiais (1275 e 1246 Brasilia)
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.idfilial in  (1275,1246)
+                  and ( pck_util.fnc_verificaacesso(2844,v('APP_USER')) = 'S'
+                     or v('APP_USER') = 'LUCASRAMOS' )
+                
+                union
+                
+                select (select initcap(nvl(apelido,nomepessoa))
+                        from pessoas 
+                        where idpessoa = f.idpessoa )|| CASE when v('APP_USER') in ('EVERTON','GUILHERME','LUIZV','FERNANDO','LUCASRAMOS') then
+                                                                    ' - '||f.idfilial
+                                                                    end display_value
+                     , f.idfilial
+                from filiais f
+                where idfilial = pck_romance.fnc_filialusuario(v('APP_USER'))
+                  and pck_util.fnc_verificaacesso(2844,v('APP_USER')) = 'N'
+                  and v('APP_USER') != 'MYCON'
+                union
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.idfilial in (100,1071,1082)
+                  and v('APP_USER') = 'MYCON'
+                union
+                select f.nome
+                     , f.idfilial
+                from vw_filiais f
+                where f.ativo = 'S'
+                  and f.idfilial in  (1089,1090,1106,1132,124,122,320,221) 
+                  and v('APP_USER') in ('RENATAF','RAFAELK')
+                
+                union
+                
+                select '- Todas -'
+                     , -1
+                from dual
+                where roman.pck_util.fnc_verificaacesso(2844,v('APP_USER')) = 'S'
+                
+                union 
+                
+                -- Maicon Aimi - 10050006 - 25/03/2025 -- Traz as filiais do usuário
+                select f.nome
+                     , f.idfilial
+                  from roman.vw_filiais f
+                 where f.idfilial in ( select uf.idfilial
+                                          from roman.usuariosfiliais uf
+                                         where uf.usuario = v('APP_USER'))
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        validation {
+            valueRequired: true
+        }
+    )
+
+    pageItem P602_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: <b>Distribuidor</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(idrepresentante) d
+                     , idrepresentante r
+                  from representantes r
+                 where r.ativo = 'S'
+                   and (:P602_IDFILIAL = -1 or r.idgerente = ( select idgerente
+                                                                   from gerentes g
+                                                                  where g.idfilial = :P602_IDFILIAL))
+                 order by 1
+                ```
+        }
+        cascadingLov {
+            parentItems: P602_IDFILIAL
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P602_SITUACAO (
+        type: radioGroup
+        label {
+            label: <b>Situação</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Aprovado;A,Reprovado Geral;R,Reprovado S/ Reass.;S,Ambos;X
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: X
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    process informa-valores (
+        name: Informa Valores
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin 
+                  --
+                  if :P602_DATAINICIO is null then
+                    --
+                    select trunc(SYSDATE,'MM')
+                    into :P602_DATAINICIO
+                    from dual;
+                    --
+                  end if;
+                  --
+                  if :P602_DATAFIM is null then
+                    --
+                    select trunc(sysdate) 
+                    into :P602_DATAFIM
+                    from dual;
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 1039157192481794663
+        }
+    )
+
+    branch (
+        name: Go To Page 602
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 602
+                items: {
+                    P602_IDREPRESENTANTE: &P602_IDREPRESENTANTE.
+                    P602_SITUACAO: &P602_SITUACAO.
+                    P602_DATAINICIO: &P602_DATAINICIO.
+                    P602_DATAFIM: &P602_DATAFIM.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

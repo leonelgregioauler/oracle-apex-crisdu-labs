@@ -1,0 +1,246 @@
+page 828 (
+    name: Imprime Termo Consultora em Lote
+    title: Imprime Termo Consultora em Lote
+    appearance {
+        pageTemplate: @/minimal-no-navigation
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    css {
+        inline:
+            ```css
+            /* REMOVE HEADER VITA */
+            .t-Header,
+            #t_Header {
+              display: none !important;
+            }
+            
+            /* REMOVE NAVIGATION BAR */
+            .t-Body-nav,
+            #t_Body_nav {
+              display: none !important;
+            }
+            
+            /* REMOVE SIDE BAR */
+            .t-Body-side,
+            #t_Body_side {
+              display: none !important;
+            }
+            
+            /* REMOVE FOOTER */
+            .t-Footer,
+            #t_Footer {
+              display: none !important;
+            }
+            
+            /* REMOVE ESPAÇO SUPERIOR */
+            .t-Body-main {
+              margin-top: 0 !important;
+              padding-top: 0 !important;
+            }
+            /* Remove toolbar flutuante do APEX */
+            .a-DevToolbar,
+            .t-Body-actions,
+            .t-ButtonRegion,
+            .apex-rds-container,
+            .js-maximizeButtonContainer {
+                display: none !important;
+            }
+            /* Numeração da Página */
+            @media print {
+            
+                .folha {
+                    position: relative;
+                    page-break-after: always;
+                }
+            
+                .folha:last-child {
+                    page-break-after: auto;
+                }
+            
+                .numero-pagina {
+                    position: absolute;
+                    bottom: 10mm;
+                    right: 15mm;
+                    font-size: 10pt;
+                }
+            
+            }
+            ```
+    }
+    htmlHeader {
+        htmlHeader: <meta charset="UTF-8">
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region impressão-termo-consultora-em-lote (
+        name: Impressão Termo Consultora em Lote
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                -- Created on 16/02/2026 by OSIEL.FERREIRA 
+                declare 
+                  -- 
+                  i integer;
+                  vidrepresentante number := :P828_IDREPRESENTANTE;
+                  vresponsavel varchar2(50) := :P828_RESPONSAVEL;
+                  v_total number;
+                  v_seq   number := 0;
+                  vidioma number;
+                  --
+                begin
+                  -- ==============================
+                    -- CSS GLOBAL (APENAS UMA VEZ)
+                  -- ============================== 
+                 htp.p(q'[<style>
+                            html, body{
+                              margin: 0;
+                              padding: 0;
+                              font-family: Arial, Helvetica, sans-serif;
+                              font-size: 12pt;
+                            }
+                
+                            .titulo{
+                              
+                              font-size: 18pt;
+                              font-weight: bold
+                              margin-bottom: 25px;;
+                              
+                            }
+                
+                            .subtitulo{
+                              font-size: 14pt;
+                              font-weight: bold;
+                              margin-top: 20px;
+                              margin-bottom: 10px;
+                            }
+                
+                            table{
+                              width: 100%;
+                              border-collapse: collapse;
+                            }
+                
+                            .tabela-brinde th,
+                            .tabela-brinde td{
+                              border: 1px solid #000;
+                              padding: 6px;
+                            }
+                
+                            /* ¿ CADA CUPOM NÃO PODE QUEBRAR NO MEIO */
+                            .bloco-cupom{
+                              break-inside: avoid;
+                              page-break-inside: avoid;
+                              margin-bottom: 14px;
+                            }
+                
+                            @media print{
+                              @page { margin: 25mm 15mm 25mm 15mm; }
+                            }
+                          </style> ]');
+                
+                  --
+                 -- select count(*)
+                 --   into v_total
+                 -- from apex_collections
+                 -- where collection_name = 'CUPONS_SEL';
+                 
+                  -- Verifica o idioma do representante. 
+                  select f.ididioma
+                    into vidioma
+                  from catal.representantes r
+                     , catal.filiais f
+                  where f.idfilial = r.idfilial
+                    and r.idrepresentante = vidrepresentante;
+                  -- ============================================================
+                           -- CUPONS (CONSULTORAS)
+                  -- ============================================================
+                  for i in (select clc.idconquistoulevoucupom idcupom
+                                 , clc.idvendedora
+                                 , roman.pck_romance.fnc_nomevendedora(clc.idvendedora) consultora
+                                 , nvl(p.cpf,p.documentoestrangeiro) documento
+                                 , clc.dataretirada
+                                 , clc.idfilialretira
+                                 , (select nomecampanha
+                                    from roman.campanhasconquistoulevou c
+                                   where c.idconquistoulevou = clc.idconquistoulevou) campanha
+                            from apex_collections col
+                               , roman.conquistoulevoucupons clc
+                               , catal.vendedoras v
+                               , catal.pessoas p
+                            where col.collection_name = 'CUPONS_SEL'
+                              and col.c001 = clc.idconquistoulevoucupom
+                              and v.idvendedora = clc.idvendedora
+                              and p.idpessoa = v.idpessoa)
+                  loop 
+                    --
+                    v_seq := v_seq + 1;
+                    
+                    -- abre folha
+                    htp.p('<div class="folha">');
+                    --
+                    if vidioma in (1,11) then 
+                      -- Chama procedure com termo em Portugues Brasil.
+                      favorita.pck_imprime_fav.prc_termo_conquistou_emp(pidcupom => i.idcupom, presponsavel => vresponsavel);
+                      --
+                    elsif vidioma in (2,6,12,13) then
+                      -- Chama procedure com termo em espanhol. 
+                      favorita.pck_imprime_fav.prc_termo_conquistou_emp_espanhol(pidcupom => i.idcupom, presponsavel => vresponsavel);
+                      --
+                    elsif vidioma = 4 then
+                      -- Chama procedure com termo em espanhol. 
+                      favorita.pck_imprime_fav.prc_termo_conquistou_emp_paraguai(pidcupom => i.idcupom,presponsavel => vresponsavel);
+                      --
+                    end if;
+                    -- Numeração fixa no rodapé
+                   -- htp.p('<div style="
+                       --     text-align:right;
+                        --    font-size:10pt;
+                        --    margin:10mm 15mm 0 0;
+                        --    "> Página '||v_seq||' de '||v_total||'
+                        --  </div>');
+                              
+                    -- fecha folha
+                    htp.p('</div>');
+                    --
+                  end loop;
+                  --
+                  htp.p('<script>window.onload = function(){window.print();}</script>');
+                  --
+                end;
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/blank-with-attributes
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P828_IDREPRESENTANTE (
+        type: hidden
+        layout {
+            sequence: 20
+            slot: body
+        }
+    )
+
+    pageItem P828_RESPONSAVEL (
+        type: hidden
+        layout {
+            sequence: 30
+            slot: body
+        }
+    )
+
+)
+

@@ -1,0 +1,4226 @@
+page 188 (
+    name: Relatório de Cobranças
+    title: Relatório de Cobranças
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function listanotas(pidrepres,pidsemana) 
+            {
+            javascript:window.open('f?p=&APP_ID.:165:&SESSION.::NO:165:P165_IDREPRESENTANTE,P165_SEMANA:'+pidrepres+','
+                                                                                                         +pidsemana
+            ,'popup','toolbar=yes,location=no,status=no,menubar=yes,scrollbars=yes,resizable=no,width=1400,height=800,screenX=50,screenY =100');void(0);
+            }
+            
+            function listanotasnovas(pidrepres,pidsemana) 
+            {
+            javascript:window.open('f?p=&APP_ID.:161:&SESSION.::NO:161:P161_IDREPRESENTANTE,P161_SEMANA:'+pidrepres+','
+                                                                                                         +pidsemana
+            ,'popup','toolbar=yes,location=no,status=no,menubar=yes,scrollbars=yes,resizable=no,width=1000,height=1300,screenX=50,screenY =100');void(0);
+            }
+            
+            function listanotasacertar(pidrepres,pidsemana) 
+            {
+            javascript:window.open('f?p=&APP_ID.:170:&SESSION.::NO:170:P170_IDREPRESENTANTE,P170_SEMANA:'+pidrepres+','
+                                                                                                         +pidsemana
+            ,'popup','toolbar=yes,location=no,status=no,menubar=yes,scrollbars=yes,resizable=no,width=1000,height=1300,screenX=50,screenY =100');void(0);
+            }
+            
+            function liberar(pidrepres,pidsemana) 
+            {
+              document.getElementById('P74_IDREPRESENTANTE').value = pidrepres;
+              document.getElementById('P74_SEMANALIBERAR').value   = pidsemana;
+              apex.submit('LIBERAR');
+            }
+            ```
+    }
+    security {
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: No help is available for this page.
+    }
+
+    region fechamentos-efetuados (
+        name: "Fechamentos Efetuados "
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                with filiais_escopo as (
+                  -- (Comercial Romance / regional / America Latina / todas / uma especifica).
+                  select f.idfilial
+                  from roman.vw_filiais_filtro f
+                  where f.ref_filial =  :P0_IDFILIAL
+                )
+                select pck_romance.fnc_nomefilial(pidfilial => fr.idfilial) Filial
+                     , pck_romance.fnc_nomerepresentante(fr.idrepresentante) Distribuidor
+                     , sum(fr.qtdnotasnovas + nvl(fr.qtdnotasnovasoutrareg,0)) qtdnotasnovas
+                     , sum(fr.qtdnotaslevou) qtdnotaslevou
+                     , sum(fr.qtdnotasfechou) qtdnotasfechou
+                     , sum(fr.totalgeral) totalgeral
+                     , sum(fr.totalcobranca) totalcobranca
+                     , sum(nvl(fr.vlrcomissao,0)) "Vlr Comissão"
+                     , sum((select sum(valor) from perdas pp where pp.idfechamentorepres = fr.idfechamentorepres)) "Total Resgate"
+                     , sum(nvl(fr.totalpepinosrecebidos,0)) "Débitos Recebidos"
+                     , sum(nvl(fr.totaldebitosnovos,0)) "Débitos Novos"
+                     , Sum(nvl(fr.TOTALCOMISSOESFAVORITAREPRES,0)) "Com. Paga Fav."
+                     , sum(( select count(1)
+                             from favorita.pedidos pf
+                             where pf.idrepresentante = fr.idrepresentante
+                               and pf.idsituacaoentrega >= 20000
+                               and pf.idsemanaemissao = pck_util.fnc_idsemana(fr.semana)
+                               and pf.datacancelamento is null )) "Qtd Pedidos"
+                     , sum(nvl( ( select sum(pgd.valorpago)
+                                  from vw_pagamentos_dist_rmc pgd
+                                  where pgd.idrepresentante = fr.idrepresentante
+                                    and pgd.semana          = fr.semana ),0 )) "Pgto Pedidos"
+                     , sum(fr.totaldebitosfavorita) totaldebitosfavorita
+                     , case
+                         when sum(fr.totalcobranca) > 0 and sum(fr.qtdnotaslevou) > 0 then
+                           round(sum(fr.totalgeral)/sum(fr.qtdnotaslevou),2)
+                         else
+                           0
+                       end ticket_medio
+                     , sum( nvl(( select sum(pf.valorapagar)
+                                  from favorita.pedidos pf
+                                  where pf.idrepresentante = fr.idrepresentante
+                                    and pf.idsituacaoentrega >= 20000
+                                    and pf.idsemanaemissao = pck_util.fnc_idsemana(fr.semana)
+                                    and pf.datacancelamento is null ),0)) "Total Pedidos"
+                      , count(fr.idfechamentorepres) "Qtd Acertos"
+                      , ( select count (f.idfechamentorepres)
+                          from roman.fechamentorepresentantes f
+                             , roman.fechamentossemanais ff
+                          where f.idrepresentante = fr.idrepresentante
+                            and f.idfechamento = ff.idfechamento
+                            and ff.idsemana between to_number(:P188_IDFECHAMENTOINI) and to_number(:P188_IDFECHAMENTOFIM)
+                            and f.totalgeral > 0) "Zerados"
+                     , decode( sum(fr.totalgeral) ,0,0,(round((sum(fr.totaldebitosnovos)/sum(fr.totalgeral))*100,2))) percdebitosnovos
+                     , sum(nvl(( select sum(nv.saldo)
+                                   from notasvendas nv
+                                  where nv.idsemanacobranca = nvl(( select ff.idsemana -- 16461316
+                                                                     from fechamentossemanais ff
+                                                                    where ff.idfechamento = fr.idfechamentopontuacao ), fs.idsemana)
+                                    and nv.idsituacaonotavenda = 4
+                                    and nv.idrepresentante = fr.idrepresentante
+                                    and nv.saldo > 0 ),0)) debitosnovos_real
+                     /*, sum(( select sum(nv.saldo)
+                             from notasvendas nv
+                             where nv.idsemanacobranca = fs.idsemana
+                               and nv.idsituacaonotavenda = 4
+                               and nv.idrepresentante = fr.idrepresentante
+                               and nv.saldo > 0 )) debitosnovos_real*/
+                     , sum(( select count(nv.idnotavenda)
+                         from roman.notasvendas nv
+                         where nv.idrepresentante =  fr.idrepresentante
+                          and nv.idsemanacobranca = fs.idsemana
+                          and nv.idsituacaonotavenda = 3
+                          and nv.semanacobrancaorig < nv.semanacobranca) ) Notas_fora_da_semana
+                     -- Maicon Aimi - 16/07/2025 - 10345369
+                     , (select nvl(catal.pck_util.fnc_semanaid( min(nv.idsemanadistribuicao)), 'Sem Registro')
+                          from roman.notasvendas nv
+                         where nv.idrepresentante = fr.idrepresentante
+                           and nv.idsituacaonotavenda in (4,3)) iniciou_na_empresa
+                     , sum(fr.qtdconsultorasnaorenovadas) consultoras_nao_renovadas
+                from fechamentorepresentantes fr
+                    , fechamentossemanais fs
+                    , catal.representantes rr
+                    , filiais_escopo fe
+                where fr.idfilial = fe.idfilial
+                  and fr.idfechamento = fs.idfechamento
+                  and fr.idrepresentante = rr.idrepresentante
+                  and (:P188_ATIVO is null
+                      or (rr.ativo = 'S'     and :P188_ATIVO = 'S')
+                      or (rr.ativo = 'N'     and :P188_ATIVO = 'N'))
+                  and fs.idsemana between to_number(:P188_IDFECHAMENTOINI) and to_number(:P188_IDFECHAMENTOFIM)
+                  and ( :P188_PESQUISARPOR is null
+                       or ( :P188_PESQUISARPOR = 'D' and ( :P188_IDREPRESENTANTE is null or fr.idrepresentante = :P188_IDREPRESENTANTE ) )
+                       or ( :P188_PESQUISARPOR = 'G' and exists ( select 1
+                                                                  from filtrosrepresentantes fil
+                                                                  where fil.usuario = v('APP_USER')
+                                                                    and fil.idrepresentante = fr.idrepresentante ) ) )
+                group by fr.idfilial, fr.idrepresentante
+                order by 3 desc, 2,1 desc
+                
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P188_TIPORELATORIO
+            value: R
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        messages {
+            whenNoDataFound: Verifique as semanas!
+            whenMoreDataFound: This query returns more than #MAX_ROW_COUNT# rows, please filter your data to ensure complete results.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            rowsPerPage: false
+            pivot: false
+            savePublicReport: true
+        }
+        download {
+            formats: [
+                csv
+                html
+                excel
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 4068783751838300346
+        }
+
+        column CONSULTORAS_NAO_RENOVADAS (
+            type: plainText
+            heading {
+                heading: Consultoras Nao Renovadas
+                alignment: center
+            }
+            layout {
+                sequence: 410
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AE
+            }
+        )
+
+        column "Com. Paga Fav." (
+            type: plainText
+            heading {
+                heading: Desconto Pago Fav.
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column DEBITOSNOVOS_REAL (
+            type: plainText
+            heading {
+                heading: Déb. Novos Real
+                alignment: center
+            }
+            layout {
+                sequence: 380
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 300
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "Débitos Novos" (
+            type: plainText
+            heading {
+                heading: Déb. Novos
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Débitos Novos
+                endUserAlias: A
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Débitos Recebidos" (
+            type: plainText
+            heading {
+                heading: Déb. Receb.
+                alignment: center
+            }
+            layout {
+                sequence: 290
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Débitos Recebidos
+                endUserAlias: O
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 200
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: FILIAL
+                endUserAlias: L
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column INICIOU_NA_EMPRESA (
+            type: plainText
+            heading {
+                heading: Iniciou na Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 400
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AD
+            }
+        )
+
+        column NOTAS_FORA_DA_SEMANA (
+            type: plainText
+            heading {
+                heading: Notas Fora Da Semana
+                alignment: center
+            }
+            layout {
+                sequence: 390
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column PERCDEBITOSNOVOS (
+            type: plainText
+            heading {
+                heading: % Deb. Novos
+                alignment: center
+            }
+            layout {
+                sequence: 370
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column "Pgto Pedidos" (
+            type: plainText
+            heading {
+                heading: Total Pago Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column QTDNOTASFECHOU (
+            type: plainText
+            heading {
+                heading: Notas Fechou
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: QTDNOTASFECHOU
+                endUserAlias: I
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column QTDNOTASLEVOU (
+            type: plainText
+            heading {
+                heading: Atendidas
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: QTDNOTASLEVOU
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column QTDNOTASNOVAS (
+            type: plainText
+            heading {
+                heading: Notas Novas
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: QTDNOTASNOVAS
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Qtd Acertos" (
+            type: plainText
+            heading {
+                heading: Qtd Acertos
+                alignment: center
+            }
+            layout {
+                sequence: 330
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column "Qtd Pedidos" (
+            type: plainText
+            heading {
+                heading: Pedidos Feitos
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column TICKET_MEDIO (
+            type: plainText
+            heading {
+                heading: Ticket Médio
+                alignment: center
+            }
+            layout {
+                sequence: 310
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column TOTALCOBRANCA (
+            type: plainText
+            heading {
+                heading: Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALCOBRANCA
+                endUserAlias: J
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALDEBITOSFAVORITA (
+            type: plainText
+            heading {
+                heading: Débitos de Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column TOTALGERAL (
+            type: plainText
+            heading {
+                heading: "Total "
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            columnFormatting {
+                htmlExpression: <B>#TOTALGERAL#</b>
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALGERAL
+                endUserAlias: K
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Total Pedidos" (
+            type: plainText
+            heading {
+                heading: Total Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 320
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column "Total Resgate" (
+            type: plainText
+            heading {
+                heading: Total Resgate
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Total Resgate
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Vlr Comissão" (
+            type: plainText
+            heading {
+                heading: Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 280
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Vlr Comissão
+                endUserAlias: N
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Zerados (
+            type: plainText
+            heading {
+                heading: Qtd S/ Acertos Zerados
+                alignment: center
+            }
+            layout {
+                sequence: 340
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 40898527 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn APXWS_CC_001 (
+                sequence: 22
+            )
+
+            displayColumn APXWS_CC_002 (
+                sequence: 16
+            )
+
+            displayColumn APXWS_CC_003 (
+                sequence: 14
+            )
+
+            displayColumn CONSULTORAS_NAO_RENOVADAS (
+                sequence: 25
+            )
+
+            displayColumn "Com. Paga Fav." (
+                sequence: 8
+            )
+
+            displayColumn DEBITOSNOVOS_REAL (
+                sequence: 15
+            )
+
+            displayColumn DISTRIBUIDOR (
+                sequence: 2
+            )
+
+            displayColumn "Débitos Novos" (
+                sequence: 12
+            )
+
+            displayColumn "Débitos Recebidos" (
+                sequence: 10
+            )
+
+            displayColumn FILIAL (
+                sequence: 1
+            )
+
+            displayColumn INICIOU_NA_EMPRESA (
+                sequence: 24
+            )
+
+            displayColumn NOTAS_FORA_DA_SEMANA (
+                sequence: 23
+            )
+
+            displayColumn PERCDEBITOSNOVOS (
+                sequence: 13
+            )
+
+            displayColumn "Pgto Pedidos" (
+                sequence: 19
+            )
+
+            displayColumn QTDNOTASLEVOU (
+                sequence: 6
+            )
+
+            displayColumn QTDNOTASNOVAS (
+                sequence: 5
+            )
+
+            displayColumn "Qtd Acertos" (
+                sequence: 3
+            )
+
+            displayColumn "Qtd Pedidos" (
+                sequence: 17
+            )
+
+            displayColumn TICKET_MEDIO (
+                sequence: 21
+            )
+
+            displayColumn TOTALCOBRANCA (
+                sequence: 9
+            )
+
+            displayColumn TOTALDEBITOSFAVORITA (
+                sequence: 20
+            )
+
+            displayColumn TOTALGERAL (
+                sequence: 11
+            )
+
+            displayColumn "Total Pedidos" (
+                sequence: 18
+            )
+
+            displayColumn "Vlr Comissão" (
+                sequence: 7
+            )
+
+            displayColumn "Zerados" (
+                sequence: 4
+            )
+
+            computation APXWS_CC_001 (
+                identifier: C01
+                source {
+                    expression: case when  H > 0 then round( ( C / H ) * 100,2)  else 0 end
+                    dataType: number
+                }
+                label {
+                    column: Aproveitamento Favorita
+                }
+            )
+
+            computation APXWS_CC_002 (
+                identifier: C02
+                source {
+                    expression:
+                        ```sql
+                        case when  AA > 0 then round( ( ( AA) / ( K+ AA)) * 100,2) end
+                          
+                        ```
+                    dataType: number
+                }
+                label {
+                    column: % Inadimplencia
+                }
+            )
+
+            computation APXWS_CC_003 (
+                identifier: C03
+                source {
+                    expression: nvl(AA,0) +  K
+                    dataType: number
+                }
+                label {
+                    column: Total Venda
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+            )
+
+            sort (
+                column: DISTRIBUIDOR
+                sort {
+                    sequence: 1
+                }
+            )
+
+            aggregate (
+                column: QTDNOTASNOVAS
+            )
+
+            aggregate (
+                column: QTDNOTASLEVOU
+            )
+
+            aggregate (
+                column: "Vlr Comissão"
+            )
+
+            aggregate (
+                column: "Com. Paga Fav."
+            )
+
+            aggregate (
+                column: TOTALCOBRANCA
+            )
+
+            aggregate (
+                column: "Débitos Recebidos"
+            )
+
+            aggregate (
+                column: TOTALGERAL
+            )
+
+            aggregate (
+                column: "Débitos Novos"
+            )
+
+            aggregate (
+                column: "Qtd Pedidos"
+            )
+
+            aggregate (
+                column: "Pgto Pedidos"
+            )
+
+            aggregate (
+                column: TOTALDEBITOSFAVORITA
+            )
+
+            controlBreak (
+                column: FILIAL
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region fechamentos-efetuados-agrupado (
+        name: Fechamentos Efetuados  Agrupado
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                with filiais_escopo as (
+                  -- (Comercial Romance / regional / America Latina / todas / uma especifica).
+                  select f.idfilial
+                  from roman.vw_filiais_filtro f
+                  where f.ref_filial =  :P0_IDFILIAL
+                )
+                select roman.pck_romance.fnc_nomefilial(pidfilial => x.idfilial) Filial
+                     , sum(qtdnotasnovas) qtdnotasnovas
+                     , sum(qtdnotaslevou) qtdnotaslevou
+                     , sum(qtdnotasfechou) qtdnotasfechou
+                     , sum(totalgeral)    totalgeral
+                     , sum(totalcobranca) totalcobranca
+                     , sum(nvl(Vlr_Comissao,0))  "Vlr Comissão"
+                     , sum(Total_Resgate) "Total Resgate"
+                     , sum(nvl(Debitos_Recebidos,0)) "Débitos Recebidos"
+                     , sum(nvl(Debitos_Novos,0)) "Débitos Novos"
+                     , Sum(nvl(Com_Paga_Fav,0)) "Com. Paga Fav."
+                     , sum(Qtd_Pedidos) "Qtd Pedidos"
+                     , sum(nvl(Pgto_Pedidos,0)) "Pgto Pedidos"
+                     , sum(totaldebitosfavorita) "total debitos favorita"
+                     , sum(ticket_medio) "ticket medio"
+                     , sum(nvl(Total_Pedidos,0)) "Total Pedidos"
+                     , sum(Qtd_Acertos) "Qtd Acertos"
+                     , sum(Zerados) "Zerados"
+                     , sum(percdebitosnovos) percdebitosnovos
+                     , sum(debitosnovos_real) debitosnovos_real
+                     , sum(Notas_fora_da_semana) Notas_fora_da_semana
+                     , iniciou_na_empresa
+                     , sum(consultoras_nao_renovadas) consultoras_nao_renovadas
+                from (
+                select fr.idfilial
+                     , fr.idrepresentante
+                     , sum(fr.qtdnotasnovas + nvl(fr.qtdnotasnovasoutrareg,0)) qtdnotasnovas
+                     , sum(fr.qtdnotaslevou) qtdnotaslevou
+                     , sum(fr.qtdnotasfechou) qtdnotasfechou
+                     , sum(fr.totalgeral) totalgeral
+                     , sum(fr.totalcobranca) totalcobranca
+                     , sum(nvl(fr.vlrcomissao,0)) Vlr_Comissao
+                     , sum((select sum(valor) from perdas pp where pp.idfechamentorepres = fr.idfechamentorepres)) Total_Resgate
+                     , sum(nvl(fr.totalpepinosrecebidos,0)) Debitos_Recebidos
+                     , sum(nvl(fr.totaldebitosnovos,0)) Debitos_Novos
+                     , Sum(nvl(fr.TOTALCOMISSOESFAVORITAREPRES,0)) Com_Paga_Fav
+                     , sum(( select count(1)
+                             from favorita.pedidos pf
+                             where pf.idrepresentante = fr.idrepresentante
+                               and pf.idsituacaoentrega >= 20000
+                               and pf.idsemanaemissao = pck_util.fnc_idsemana(fr.semana)
+                               and pf.datacancelamento is null )) Qtd_Pedidos
+                     , sum(nvl( ( select sum(pgd.valorpago)
+                                  from vw_pagamentos_dist_rmc pgd
+                                  where pgd.idrepresentante = fr.idrepresentante
+                                    and pgd.semana          = fr.semana ),0 )) Pgto_Pedidos
+                     , sum(fr.totaldebitosfavorita) totaldebitosfavorita
+                     , case
+                         when sum(fr.totalcobranca) > 0 and sum(fr.qtdnotaslevou) > 0 then
+                           round(sum(fr.totalgeral)/sum(fr.qtdnotaslevou),2)
+                         else
+                           0
+                       end ticket_medio
+                     , sum( nvl(( select sum(pf.valorapagar)
+                                  from favorita.pedidos pf
+                                  where pf.idrepresentante = fr.idrepresentante
+                                    and pf.idsituacaoentrega >= 20000
+                                    and pf.idsemanaemissao = pck_util.fnc_idsemana(fr.semana)
+                                    and pf.datacancelamento is null ),0)) Total_Pedidos
+                      , count(fr.idfechamentorepres) Qtd_Acertos
+                      , ( select count (f.idfechamentorepres)
+                          from roman.fechamentorepresentantes f
+                             , roman.fechamentossemanais ff
+                          where f.idrepresentante = fr.idrepresentante
+                            and f.idfechamento = ff.idfechamento
+                            and ff.idsemana between to_number(:P188_IDFECHAMENTOINI) and to_number(:P188_IDFECHAMENTOFIM)
+                            and f.totalgeral > 0) Zerados
+                     , decode( sum(fr.totalgeral) ,0,0,(round((sum(fr.totaldebitosnovos)/sum(fr.totalgeral))*100,2))) percdebitosnovos
+                     , sum(nvl(( select sum(nv.saldo)
+                                   from notasvendas nv
+                                  where nv.idsemanacobranca = nvl(( select ff.idsemana -- 16461316
+                                                                      from fechamentossemanais ff
+                                                                     where ff.idfechamento = fr.idfechamentopontuacao ), fs.idsemana)
+                                    and nv.idsituacaonotavenda = 4
+                                    and nv.idrepresentante = fr.idrepresentante
+                                    and nv.saldo > 0 ),0)) debitosnovos_real
+                     /*, sum(( select sum(nv.saldo)
+                             from notasvendas nv
+                             where nv.idsemanacobranca = fs.idsemana
+                               and nv.idsituacaonotavenda = 4
+                               and nv.idrepresentante = fr.idrepresentante
+                               and nv.saldo > 0 )) debitosnovos_real*/
+                     , sum(( select count(nv.idnotavenda)
+                         from roman.notasvendas nv
+                         where nv.idrepresentante =  fr.idrepresentante
+                          and nv.idsemanacobranca = fs.idsemana
+                          and nv.idsituacaonotavenda = 3
+                          and nv.semanacobrancaorig < nv.semanacobranca) ) Notas_fora_da_semana
+                     -- Maicon Aimi - 16/07/2025 - 10345369
+                     , (select nvl(catal.pck_util.fnc_semanaid( min(nv.idsemanadistribuicao)), 'Sem Registro')
+                          from roman.notasvendas nv
+                         where nv.idrepresentante = fr.idrepresentante
+                           and nv.idsituacaonotavenda in (4,3)) iniciou_na_empresa
+                     , sum(qtdconsultorasnaorenovadas) consultoras_nao_renovadas
+                from fechamentorepresentantes fr
+                    , fechamentossemanais fs
+                    , catal.representantes rr
+                    , filiais_escopo fe
+                where fr.idfilial = fe.idfilial
+                  and fr.idfechamento = fs.idfechamento
+                  and fr.idrepresentante = rr.idrepresentante
+                  and (:P188_ATIVO is null
+                      or (rr.ativo = 'S'     and :P188_ATIVO = 'S')
+                      or (rr.ativo = 'N'     and :P188_ATIVO = 'N'))
+                  and fs.idsemana between to_number(:P188_IDFECHAMENTOINI) and to_number(:P188_IDFECHAMENTOFIM)
+                  and ( :P188_PESQUISARPOR is null
+                       or ( :P188_PESQUISARPOR = 'D' and ( :P188_IDREPRESENTANTE is null or fr.idrepresentante = :P188_IDREPRESENTANTE ) )
+                       or ( :P188_PESQUISARPOR = 'G' and exists ( select 1
+                                                                  from filtrosrepresentantes fil
+                                                                  where fil.usuario = v('APP_USER')
+                                                                    and fil.idrepresentante = fr.idrepresentante ) ) )
+                group by fr.idfilial , fr.idrepresentante) x
+                group by x.idfilial,iniciou_na_empresa
+                order by 1
+                
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P188_TIPORELATORIO
+            value: A
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1334286617847266503
+        }
+
+        column CONSULTORAS_NAO_RENOVADAS (
+            type: plainText
+            heading {
+                heading: Consultoras Nao Renovadas
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column "Com. Paga Fav." (
+            type: plainText
+            heading {
+                heading: Desconto Pago Fav.
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column DEBITOSNOVOS_REAL (
+            type: plainText
+            heading {
+                heading: Déb. Novos Real
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column "Débitos Novos" (
+            type: plainText
+            heading {
+                heading: Déb. Novos
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "Débitos Recebidos" (
+            type: plainText
+            heading {
+                heading: Déb. Receb.
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column INICIOU_NA_EMPRESA (
+            type: plainText
+            heading {
+                heading: Iniciou na Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column NOTAS_FORA_DA_SEMANA (
+            type: plainText
+            heading {
+                heading: Notas Fora Da Semana
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column PERCDEBITOSNOVOS (
+            type: plainText
+            heading {
+                heading: % Deb. Novos
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column "Pgto Pedidos" (
+            type: plainText
+            heading {
+                heading: Total Pago Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column QTDNOTASFECHOU (
+            type: plainText
+            heading {
+                heading: Notas Fechou
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column QTDNOTASLEVOU (
+            type: plainText
+            heading {
+                heading: Atendidas
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column QTDNOTASNOVAS (
+            type: plainText
+            heading {
+                heading: Notas Novas
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Qtd Acertos" (
+            type: plainText
+            heading {
+                heading: Qtd Acertos
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column "Qtd Pedidos" (
+            type: plainText
+            heading {
+                heading: Pedidos Feitos
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column TOTALCOBRANCA (
+            type: plainText
+            heading {
+                heading: Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column TOTALGERAL (
+            type: plainText
+            heading {
+                heading: "Total "
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "Total Pedidos" (
+            type: plainText
+            heading {
+                heading: Total Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column "Total Resgate" (
+            type: plainText
+            heading {
+                heading: Total Resgate
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Vlr Comissão" (
+            type: plainText
+            heading {
+                heading: Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column Zerados (
+            type: plainText
+            heading {
+                heading: Qtd S/ Acertos Zerados
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "ticket medio" (
+            type: plainText
+            heading {
+                heading: Ticket Médio
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column "total debitos favorita" (
+            type: plainText
+            heading {
+                heading: Débitos de Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 13343003 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn APXWS_CC_001 (
+                sequence: 13
+            )
+
+            displayColumn APXWS_CC_002 (
+                sequence: 15
+            )
+
+            displayColumn APXWS_CC_003 (
+                sequence: 23
+            )
+
+            displayColumn "Com. Paga Fav." (
+                sequence: 7
+            )
+
+            displayColumn DEBITOSNOVOS_REAL (
+                sequence: 14
+            )
+
+            displayColumn "Débitos Novos" (
+                sequence: 11
+            )
+
+            displayColumn "Débitos Recebidos" (
+                sequence: 9
+            )
+
+            displayColumn FILIAL (
+                sequence: 1
+            )
+
+            displayColumn NOTAS_FORA_DA_SEMANA (
+                sequence: 24
+            )
+
+            displayColumn PERCDEBITOSNOVOS (
+                sequence: 12
+            )
+
+            displayColumn "Pgto Pedidos" (
+                sequence: 18
+            )
+
+            displayColumn QTDNOTASFECHOU (
+                sequence: 21
+            )
+
+            displayColumn QTDNOTASLEVOU (
+                sequence: 5
+            )
+
+            displayColumn QTDNOTASNOVAS (
+                sequence: 4
+            )
+
+            displayColumn "Qtd Acertos" (
+                sequence: 2
+            )
+
+            displayColumn "Qtd Pedidos" (
+                sequence: 16
+            )
+
+            displayColumn TOTALCOBRANCA (
+                sequence: 8
+            )
+
+            displayColumn TOTALGERAL (
+                sequence: 10
+            )
+
+            displayColumn "Total Pedidos" (
+                sequence: 17
+            )
+
+            displayColumn "Total Resgate" (
+                sequence: 22
+            )
+
+            displayColumn "Vlr Comissão" (
+                sequence: 6
+            )
+
+            displayColumn "Zerados" (
+                sequence: 3
+            )
+
+            displayColumn "ticket medio" (
+                sequence: 20
+            )
+
+            displayColumn "total debitos favorita" (
+                sequence: 19
+            )
+
+            computation APXWS_CC_001 (
+                identifier: C01
+                source {
+                    expression: nvl(T,0) +  E
+                    dataType: number
+                }
+                label {
+                    column: Total Venda
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+            )
+
+            computation APXWS_CC_002 (
+                identifier: C02
+                source {
+                    expression: case when  T > 0 then round( ( ( T) / ( E+ T)) * 100,2) end
+                    dataType: number
+                }
+                label {
+                    column: % Inadimplencia
+                }
+            )
+
+            computation APXWS_CC_003 (
+                identifier: C03
+                source {
+                    expression: case when  C > 0 then round( ( L/ C ) * 100,2)  else 0 end
+                    dataType: number
+                }
+                label {
+                    column: Aproveitamento Favorita
+                }
+            )
+
+            aggregate (
+                column: QTDNOTASNOVAS
+            )
+
+            aggregate (
+                column: QTDNOTASLEVOU
+            )
+
+            aggregate (
+                column: QTDNOTASFECHOU
+            )
+
+            aggregate (
+                column: TOTALGERAL
+            )
+
+            aggregate (
+                column: TOTALCOBRANCA
+            )
+
+            aggregate (
+                column: "Vlr Comissão"
+            )
+
+            aggregate (
+                column: "Total Resgate"
+            )
+
+            aggregate (
+                column: "Débitos Recebidos"
+            )
+
+            aggregate (
+                column: "Débitos Novos"
+            )
+
+            aggregate (
+                column: "Com. Paga Fav."
+            )
+
+            aggregate (
+                column: "Qtd Pedidos"
+            )
+
+            aggregate (
+                column: "Pgto Pedidos"
+            )
+
+            aggregate (
+                column: "total debitos favorita"
+            )
+
+            aggregate (
+                column: "ticket medio"
+            )
+
+            aggregate (
+                column: "Total Pedidos"
+            )
+
+            aggregate (
+                column: "Qtd Acertos"
+            )
+
+            aggregate (
+                column: "Zerados"
+            )
+
+            aggregate (
+                column: PERCDEBITOSNOVOS
+            )
+
+            aggregate (
+                column: DEBITOSNOVOS_REAL
+            )
+
+            aggregate (
+                column: NOTAS_FORA_DA_SEMANA
+            )
+
+            aggregate (
+                column: APXWS_CC_001
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region lista-de-fechamentos-efetuados (
+        name: Lista de Fechamentos Efetuados
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                with filiais_escopo as (
+                  -- (Comercial Romance / regional / America Latina / todas / uma especifica).
+                  select f.idfilial
+                  from roman.vw_filiais_filtro f
+                  where f.ref_filial =  :P0_IDFILIAL
+                )
+                select fr.idfechamentorepres
+                     , pck_romance.fnc_nomerepresentante(pidrepresentante => fr.idrepresentante) Representante
+                     , to_number(trim(substr(fr.semana,4,4))) ano
+                     , to_number(trim(substr(fr.semana,1,2))) semanan
+                     , pck_romance.fnc_nomefilial(pidfilial => fr.idfilial) Filial
+                     , fr.setor
+                     , ( select rv.descricao
+                         from regioesvenda rv
+                         where rv.idregiaovenda = fr.idregiaovenda ) "Região"
+                     , fr.semana
+                     , fr.qtdnotasnovas + nvl(fr.qtdnotasnovasoutrareg,0) qtdnotasnovas
+                     , fr.qtdnotaslevou
+                     , fr.qtdnotasfechou
+                     , fr.vlralvo
+                     , fr.totalgeral
+                     , fr.totalcobranca
+                     , fr.vlrespecie
+                     , fr.vlrcheque
+                     , fr.idcomissao
+                     , nvl(fr.vlrcomissao,0) "Vlr Comissão"
+                     , fr.observacao
+                     , ( select semana from fechamentossemanais ff where ff.idfechamento = fr.idfechamentopontuacao ) "Referente a"
+                     , decode(nvl(fr.vlralvo,0), 0, 0, ((fr.totalgeral/(fr.vlralvo*2))*100) ) "Perc Venda"
+                     , fr.vlralvo "Alvo"
+                     , (select sum(valor) from perdas pp where pp.idfechamentorepres = fr.idfechamentorepres) "Total Resgate"
+                     , fr.totalgeral
+                     - nvl(fr.vlrespecie,0)
+                     - nvl(fr.vlrcheque,0)
+                     - ( select NVL(sum(d.valordeposito),0) valor
+                         from depositosdiarios_orig d
+                         where d.tipo            = 'DD'
+                           and d.idfechamentorepres = fr.idfechamentorepres)
+                     - ( select NVL(sum(d.valordeposito),0) valor
+                         from depositosdiarios_orig d
+                         where d.tipo            = 'CC'
+                           and d.idfechamentorepres = fr.idfechamentorepres)
+                     - ( select nvl(sum(r.valor),0) valor
+                         from despesas r
+                         where r.idfechamentorepres = fr.idfechamentorepres )
+                     - nvl(fr.vlrcomissao,0)
+                     - nvl(fr.totalcomissoesfavoritarepres,0)
+                     - nvl( (select sum(valorpago)
+                            from pagamentocomissoes p
+                            where p.fechamento = fr.semana
+                              and p.idgerente = ( select idgerente
+                                                  from gerentes
+                                                  where idpessoa = ( select idpessoa
+                                                                     from representantes u
+                                                                     where u.idrepresentante = fr.idrepresentante ) )  ),0) Saldoapagar
+                     , nvl(fr.totalpepinosrecebidos,0) "Débitos Recebidos"
+                     , nvl(fr.totaldebitosnovos,0) "Débitos Novos"
+                     , nvl(fr.TOTALCOMISSOESFAVORITAREPRES,0) "Com. Paga Fav."
+                     , ( select count(1)
+                         from favorita.pedidos pf
+                         where pf.idrepresentante = fr.idrepresentante
+                           and pf.idsituacaoentrega >= 20000
+                           and pck_util.fnc_semanaid(pf.idsemanaemissao) = fr.semana
+                           and pf.datacancelamento is null ) "Qtd Pedidos"
+                     , nvl( ( select sum(pgd.valorpago)
+                              from vw_pagamentos_dist_rmc pgd
+                              where pgd.idrepresentante = fr.idrepresentante
+                                and pgd.semana          = fr.semana ),0 ) "Pgto Pedidos"
+                     , nvl( ( select pgd.qtdpedidos
+                              from vw_pagamentos_dist_rmc pgd
+                              where pgd.idrepresentante = fr.idrepresentante
+                                and pgd.semana          = fr.semana ),0 ) "QTD Pedidos Pagos"
+                     , fr.totaldebitosfavorita
+                     , fr.totalqtddebitosfavorita
+                     ,
+                     case
+                         when fr.totalcobranca > 0 and fr.qtdnotaslevou > 0 then
+                           round(fr.totalgeral / fr.qtdnotaslevou,2)
+                         else
+                           0
+                       end ticket_medio
+                
+                     /*case
+                         when fr.totalcobranca > 0 and fr.qtdnotaslevou > 0 then
+                           round(fr.totalcobranca/fr.qtdnotaslevou,2)
+                         else
+                           0
+                       end ticket_medio*/
+                
+                
+                     , ( select count(1)
+                         from notasvendas n
+                         where nvl(n.idrepresentanteatende,n.idrepresentante)   = fr.idrepresentante
+                           and n.semanacobranca        = (select pck_romance.fnc_proximasemana(SEMANA)
+                                                          from fechamentossemanais
+                                                          where idfechamento = fr.idfechamentopontuacao )
+                           and n.idsituacaonotavenda   = 3
+                           and pck_util.fnc_idsemana(n.semanacobranca) - pck_util.fnc_idsemana(n.semanadistribuicao) > 6 ) notasemaberto
+                     , QTDNOTASATENDER
+                     , decode(fr.totalgeral,0,0,(round((fr.totaldebitosnovos/fr.totalgeral)*100,2))) percdebitosnovos
+                     , nvl(( select sum(nv.saldo)
+                         from notasvendas nv
+                         where nv.idsemanacobranca = nvl(( select ff.idsemana -- 16461316
+                                                             from fechamentossemanais ff
+                                                            where ff.idfechamento = fr.idfechamentopontuacao ), fs.idsemana)
+                           and nv.idsituacaonotavenda = 4
+                           and nv.idrepresentante = fr.idrepresentante
+                           and nv.saldo > 0 ),0) debitosnovos_real
+                     /*, ( select sum(nv.saldo)
+                         from notasvendas nv
+                         where nv.idsemanacobranca = fs.idsemana
+                           and nv.idsituacaonotavenda = 4
+                           and nv.idrepresentante = fr.idrepresentante
+                           and nv.saldo > 0 ) debitosnovos_real*/
+                     , ( select count(nv.idnotavenda)
+                         from roman.notasvendas nv
+                         where nv.idrepresentante =  fr.idrepresentante
+                          and nv.idsemanacobranca = fs.idsemana
+                          and nv.idsituacaonotavenda = 3
+                          and nv.semanacobrancaorig < nv.semanacobranca) Notas_fora_da_semana
+                     , (select round( ((sum(nv.valortotalvenda)) / Sum((nv.valortotalnota))) * 100,2) perc_Sacola
+                          from roman.notasvendas nv
+                         where nv.idrepresentante =  fr.idrepresentante
+                           and nv.idsemanacobranca = fs.idsemana
+                           and nv.idsituacaonotavenda = 4) perc_aproveitamento_sacola
+                     , fr.notasemaberto emaberto_acertos
+                     -- Maicon Aimi - 16/07/2025 - 10345369
+                     , (select nvl(catal.pck_util.fnc_semanaid( min(nv.idsemanadistribuicao)), 'Sem Registro')
+                          from roman.notasvendas nv
+                         where nv.idrepresentante = fr.idrepresentante
+                           and nv.idsituacaonotavenda in (4,3)) iniciou_na_empresa
+                     , fr.qtdconsultorasnaorenovadas consultoras_nao_renovadas
+                     , rr.idrepresentante
+                from fechamentorepresentantes fr
+                   , fechamentossemanais fs
+                   , catal.representantes rr
+                   , filiais_escopo fe
+                where fr.idfilial = fe.idfilial
+                  and fr.idfechamento = fs.idfechamento
+                  and fr.idrepresentante = rr.idrepresentante
+                  and (:P188_ATIVO is null
+                      or (rr.ativo = 'S'     and :P188_ATIVO = 'S')
+                      or (rr.ativo = 'N'     and :P188_ATIVO = 'N'))
+                  and fs.idsemana between to_number(:P188_IDFECHAMENTOINI) and to_number(:P188_IDFECHAMENTOFIM)
+                  and ( :P188_PESQUISARPOR is null
+                       or ( :P188_PESQUISARPOR = 'D' and ( :P188_IDREPRESENTANTE is null or fr.idrepresentante = :P188_IDREPRESENTANTE ) )
+                       or ( :P188_PESQUISARPOR = 'G' and exists ( select 1
+                                                                  from filtrosrepresentantes fil
+                                                                  where fil.usuario = :P0_USUARIO
+                                                                    and fil.idrepresentante = fr.idrepresentante ) ) )
+                order by 3 desc, 2,1 desc
+                
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+                t-Form--slimPadding
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P188_TIPORELATORIO
+            value: D
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        messages {
+            whenNoDataFound: Verifique as semanas!
+            whenMoreDataFound: This query returns more than #MAX_ROW_COUNT# rows, please filter your data to ensure complete results.
+        }
+        searchBar {
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            rowsPerPage: false
+            pivot: false
+            savePublicReport: true
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 75926414903599218
+        }
+
+        column ANO (
+            type: plainText
+            heading {
+                heading: Ano
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: ANO
+                endUserAlias: AB
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Alvo (
+            type: plainText
+            heading {
+                heading: Alvo
+                alignment: center
+            }
+            layout {
+                sequence: 250
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        column CONSULTORAS_NAO_RENOVADAS (
+            type: plainText
+            heading {
+                heading: Consultoras Nao Renovadas
+                alignment: center
+            }
+            layout {
+                sequence: 360
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AW
+            }
+        )
+
+        column "Com. Paga Fav." (
+            type: plainText
+            heading {
+                heading: Desconto Pago Fav.
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AD
+            }
+        )
+
+        column DEBITOSNOVOS_REAL (
+            type: plainText
+            heading {
+                heading: Déb. Novos Real
+                alignment: center
+            }
+            layout {
+                sequence: 320
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AQ
+            }
+        )
+
+        column "Débitos Novos" (
+            type: plainText
+            heading {
+                heading: Déb. Novos
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Débitos Novos
+                endUserAlias: AA
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Débitos Recebidos" (
+            type: plainText
+            heading {
+                heading: Déb. Receb.
+                alignment: center
+            }
+            layout {
+                sequence: 170
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Débitos Recebidos
+                endUserAlias: Z
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column EMABERTO_ACERTOS (
+            type: plainText
+            heading {
+                heading: Em Aberto (Acerto)
+                alignment: center
+            }
+            layout {
+                sequence: 340
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AU
+            }
+        )
+
+        column FILIAL (
+            type: plainText
+            heading {
+                heading: Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: FILIAL
+                endUserAlias: P
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDCOMISSAO (
+            type: hidden
+            heading {
+                heading: Comissão
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDCOMISSAO
+                endUserAlias: N
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDFECHAMENTOREPRES (
+            type: plainText
+            heading {
+                heading: ID Fechamento Rep
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDFECHAMENTOREPRES
+                endUserAlias: A
+            }
+        )
+
+        column IDREPRESENTANTE (
+            type: plainText
+            heading {
+                heading: ID Rpresentante
+                alignment: center
+            }
+            layout {
+                sequence: 370
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AX
+            }
+        )
+
+        column INICIOU_NA_EMPRESA (
+            type: plainText
+            heading {
+                heading: Iniciou na Empresa
+                alignment: center
+            }
+            layout {
+                sequence: 350
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AV
+            }
+        )
+
+        column NOTASEMABERTO (
+            type: plainText
+            heading {
+                heading: Notas em Aberto (Hoje)
+                alignment: center
+            }
+            layout {
+                sequence: 290
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AL
+            }
+        )
+
+        column NOTAS_FORA_DA_SEMANA (
+            type: plainText
+            heading {
+                heading: Notas Fora Da Semana
+                alignment: center
+            }
+            layout {
+                sequence: 330
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AS
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 150
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: OBSERVACAO
+                endUserAlias: X
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column PERCDEBITOSNOVOS (
+            type: plainText
+            heading {
+                heading: % Deb. Novos
+                alignment: center
+            }
+            layout {
+                sequence: 310
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AP
+            }
+        )
+
+        column PERC_APROVEITAMENTO_SACOLA (
+            type: plainText
+            heading {
+                heading: % Aproveitamento Sacola
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AT
+            }
+        )
+
+        column "Perc Venda" (
+            type: plainText
+            heading {
+                heading: % Venda(Alvo)
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Perc Venda
+                endUserAlias: U
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Pgto Pedidos" (
+            type: plainText
+            heading {
+                heading: Total Pago Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 230
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column "QTD Pedidos Pagos" (
+            type: plainText
+            heading {
+                heading: QTD Pedidos Pagos
+                alignment: center
+            }
+            layout {
+                sequence: 270
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AJ
+            }
+        )
+
+        column QTDNOTASATENDER (
+            type: plainText
+            heading {
+                heading: Para Atender na Semana
+                alignment: center
+            }
+            layout {
+                sequence: 300
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AM
+            }
+        )
+
+        column QTDNOTASFECHOU (
+            type: plainText
+            heading {
+                heading: Notas Fechou
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: QTDNOTASFECHOU
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column QTDNOTASLEVOU (
+            type: plainText
+            heading {
+                heading: Atendidas
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: QTDNOTASLEVOU
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column QTDNOTASNOVAS (
+            type: plainText
+            heading {
+                heading: Notas Novas
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: QTDNOTASNOVAS
+                endUserAlias: F
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Qtd Pedidos" (
+            type: plainText
+            heading {
+                heading: Pedidos Feitos
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AE
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: REPRESENTANTE
+                endUserAlias: O
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Referente a" (
+            type: plainText
+            heading {
+                heading: Referente A
+                alignment: center
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Referente a
+                endUserAlias: W
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Região (
+            type: plainText
+            heading {
+                heading: Região
+                alignment: center
+            }
+            layout {
+                sequence: 120
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Região
+                endUserAlias: T
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SALDOAPAGAR (
+            type: plainText
+            heading {
+                heading: Saldo a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: SALDOAPAGAR
+                endUserAlias: R
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SEMANA (
+            type: plainText
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: SEMANA
+                endUserAlias: E
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SEMANAN (
+            type: plainText
+            heading {
+                heading: Semanan
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: SEMANAN
+                endUserAlias: AC
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SETOR (
+            type: plainText
+            heading {
+                heading: Setor
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: SETOR
+                endUserAlias: Q
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column TICKET_MEDIO (
+            type: plainText
+            heading {
+                heading: Ticket Médio
+                alignment: center
+            }
+            layout {
+                sequence: 260
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00MI
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AI
+            }
+        )
+
+        column TOTALCOBRANCA (
+            type: plainText
+            heading {
+                heading: Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALCOBRANCA
+                endUserAlias: J
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALDEBITOSFAVORITA (
+            type: plainText
+            heading {
+                heading: Débitos de Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 240
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column TOTALGERAL (
+            type: plainText
+            heading {
+                heading: "Total "
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            columnFormatting {
+                htmlExpression: <B>#TOTALGERAL#</b>
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: TOTALGERAL
+                endUserAlias: K
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column TOTALQTDDEBITOSFAVORITA (
+            type: plainText
+            heading {
+                heading: Qtd Débitos Favorita
+                alignment: center
+            }
+            layout {
+                sequence: 280
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AK
+            }
+        )
+
+        column "Total Resgate" (
+            type: plainText
+            heading {
+                heading: Total Resgate
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Total Resgate
+                endUserAlias: S
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column VLRALVO (
+            type: hidden
+            heading {
+                heading: Alvo
+            }
+            layout {
+                sequence: 9
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VLRALVO
+                endUserAlias: I
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column VLRCHEQUE (
+            type: plainText
+            heading {
+                heading: Valor Cheque
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VLRCHEQUE
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1 
+                    from gerentes g
+                    where IDFILIAL = :P0_IDFILIAL
+                      and g.idpessoa = ( select u.idpessoa 
+                                         from usuarios u
+                                         where u.usuario = v('APP_USER') ) 
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column VLRESPECIE (
+            type: plainText
+            heading {
+                heading: Valor Espécie
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VLRESPECIE
+                endUserAlias: L
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: rowsReturned
+                sqlQuery:
+                    ```sql
+                    select 1 
+                    from gerentes g
+                    where IDFILIAL = :P0_IDFILIAL
+                      and g.idpessoa = ( select u.idpessoa 
+                                         from usuarios u
+                                         where u.usuario = v('APP_USER') ) 
+                    ```
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Vlr Comissão" (
+            type: plainText
+            heading {
+                heading: Desconto
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Vlr Comissão
+                endUserAlias: Y
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        savedReport 4165932 (
+            visibility: alternativeDefault
+            name: Agrupado
+            view {
+                groupBy: true
+                default: groupBy
+                rowsPerPage: 100
+            }
+
+            displayColumn ANO (
+                sequence: 18
+            )
+
+            displayColumn "Alvo" (
+                sequence: 21
+            )
+
+            displayColumn "Com. Paga Fav." (
+                sequence: 10
+            )
+
+            displayColumn "Débitos Novos" (
+                sequence: 14
+            )
+
+            displayColumn "Débitos Recebidos" (
+                sequence: 12
+            )
+
+            displayColumn FILIAL (
+                sequence: 1
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 17
+            )
+
+            displayColumn "Perc Venda" (
+                sequence: 5
+            )
+
+            displayColumn "Pgto Pedidos" (
+                sequence: 16
+            )
+
+            displayColumn QTDNOTASNOVAS (
+                sequence: 6
+            )
+
+            displayColumn "Qtd Pedidos" (
+                sequence: 15
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 2
+            )
+
+            displayColumn "Referente a" (
+                sequence: 8
+            )
+
+            displayColumn "Região" (
+                sequence: 4
+            )
+
+            displayColumn SALDOAPAGAR (
+                sequence: 7
+            )
+
+            displayColumn SEMANA (
+                sequence: 3
+            )
+
+            displayColumn SEMANAN (
+                sequence: 19
+            )
+
+            displayColumn TICKET_MEDIO (
+                sequence: 22
+            )
+
+            displayColumn TOTALCOBRANCA (
+                sequence: 11
+            )
+
+            displayColumn TOTALDEBITOSFAVORITA (
+                sequence: 20
+            )
+
+            displayColumn TOTALGERAL (
+                sequence: 13
+            )
+
+            displayColumn "Vlr Comissão" (
+                sequence: 9
+            )
+
+            sort (
+                column: REPRESENTANTE
+                sort {
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: ANO
+                sort {
+                    direction: desc
+                    sequence: 2
+                }
+            )
+
+            sort (
+                column: SEMANA
+                sort {
+                    direction: desc
+                    sequence: 3
+                }
+            )
+
+            aggregate (
+                column: TOTALGERAL
+            )
+
+            aggregate (
+                column: TOTALCOBRANCA
+            )
+
+            aggregate (
+                column: "Débitos Recebidos"
+            )
+
+            aggregate (
+                column: "Vlr Comissão"
+            )
+
+            aggregate (
+                column: "Débitos Novos"
+            )
+
+            aggregate (
+                column: "Cobrança - Débitos"
+            )
+
+            aggregate (
+                column: "Com. Paga Fav."
+            )
+
+            aggregate (
+                column: "Qtd Pedidos"
+            )
+
+            aggregate (
+                column: "Pgto Pedidos"
+            )
+
+            aggregate (
+                column: QTDNOTASNOVAS
+            )
+
+            aggregate (
+                function: average
+                column: "Perc Venda"
+            )
+
+            controlBreak (
+                column: REPRESENTANTE
+                layout {
+                    sequence: 1
+                }
+            )
+
+            highlight ir-condition (
+                name: % Baixa
+                condition {
+                    column: "Perc Venda"
+                    operator: <
+                    value: 35
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #FC0000
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: % Boa
+                condition {
+                    column: "Perc Venda"
+                    operator: >=
+                    value: 35
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #006300
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-3 (
+                name: Notas Baixas
+                condition {
+                    column: QTDNOTASNOVAS
+                    operator: <
+                    value: 30
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #FC0000
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-4 (
+                name: Notas Boas
+                condition {
+                    column: QTDNOTASNOVAS
+                    operator: >=
+                    value: 30
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #006300
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            groupByColumn (
+                column: "Região"
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: QTD Acertos
+                aggregate {
+                    function: count
+                    column: SEMANA
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: Total Cobrado
+                aggregate {
+                    column: TOTALGERAL
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByAggregate (
+                heading: Média Cobrado
+                aggregate {
+                    function: average
+                    column: TOTALGERAL
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 3
+                }
+            )
+
+        )
+
+        savedReport 759290 (
+            visibility: primaryDefault
+            view {
+                groupBy: true
+                rowsPerPage: 100
+            }
+
+            displayColumn ANO (
+                sequence: 29
+            )
+
+            displayColumn APXWS_CC_001 (
+                sequence: 24
+            )
+
+            displayColumn APXWS_CC_002 (
+                sequence: 25
+            )
+
+            displayColumn "Alvo" (
+                sequence: 6
+            )
+
+            displayColumn CONSULTORAS_NAO_RENOVADAS (
+                sequence: 36
+            )
+
+            displayColumn "Com. Paga Fav." (
+                sequence: 15
+            )
+
+            displayColumn DEBITOSNOVOS_REAL (
+                sequence: 23
+            )
+
+            displayColumn "Débitos Novos" (
+                sequence: 21
+            )
+
+            displayColumn "Débitos Recebidos" (
+                sequence: 17
+            )
+
+            displayColumn EMABERTO_ACERTOS (
+                sequence: 10
+            )
+
+            displayColumn FILIAL (
+                sequence: 2
+            )
+
+            displayColumn INICIOU_NA_EMPRESA (
+                sequence: 35
+            )
+
+            displayColumn NOTASEMABERTO (
+                sequence: 9
+            )
+
+            displayColumn NOTAS_FORA_DA_SEMANA (
+                sequence: 34
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 28
+            )
+
+            displayColumn PERCDEBITOSNOVOS (
+                sequence: 22
+            )
+
+            displayColumn PERC_APROVEITAMENTO_SACOLA (
+                sequence: 18
+            )
+
+            displayColumn "Perc Venda" (
+                sequence: 5
+            )
+
+            displayColumn "Pgto Pedidos" (
+                sequence: 27
+            )
+
+            displayColumn "QTD Pedidos Pagos" (
+                sequence: 32
+            )
+
+            displayColumn QTDNOTASATENDER (
+                sequence: 7
+            )
+
+            displayColumn QTDNOTASLEVOU (
+                sequence: 8
+            )
+
+            displayColumn QTDNOTASNOVAS (
+                sequence: 11
+            )
+
+            displayColumn "Qtd Pedidos" (
+                sequence: 26
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 1
+            )
+
+            displayColumn "Referente a" (
+                sequence: 13
+            )
+
+            displayColumn "Região" (
+                sequence: 4
+            )
+
+            displayColumn SALDOAPAGAR (
+                sequence: 12
+            )
+
+            displayColumn SEMANA (
+                sequence: 3
+            )
+
+            displayColumn SEMANAN (
+                sequence: 30
+            )
+
+            displayColumn TICKET_MEDIO (
+                sequence: 20
+            )
+
+            displayColumn TOTALCOBRANCA (
+                sequence: 16
+            )
+
+            displayColumn TOTALDEBITOSFAVORITA (
+                sequence: 31
+            )
+
+            displayColumn TOTALGERAL (
+                sequence: 19
+            )
+
+            displayColumn TOTALQTDDEBITOSFAVORITA (
+                sequence: 33
+            )
+
+            displayColumn "Vlr Comissão" (
+                sequence: 14
+            )
+
+            computation APXWS_CC_001 (
+                identifier: C01
+                source {
+                    expression: AQ +  K
+                    dataType: number
+                }
+                label {
+                    column: Total Venda
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+            )
+
+            computation APXWS_CC_002 (
+                identifier: C02
+                source {
+                    expression: case when  AQ > 0 then round( (   AQ  / (  AQ+ K  ))*100 ,2) end
+                    dataType: number
+                }
+                label {
+                    column: % Inadimplencia
+                }
+            )
+
+            sort (
+                column: REPRESENTANTE
+                sort {
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: ANO
+                sort {
+                    direction: desc
+                    sequence: 2
+                }
+            )
+
+            sort (
+                column: SEMANA
+                sort {
+                    direction: desc
+                    sequence: 3
+                }
+            )
+
+            aggregate (
+                column: TOTALGERAL
+            )
+
+            aggregate (
+                column: TOTALCOBRANCA
+            )
+
+            aggregate (
+                column: "Débitos Recebidos"
+            )
+
+            aggregate (
+                column: "Vlr Comissão"
+            )
+
+            aggregate (
+                column: "Débitos Novos"
+            )
+
+            aggregate (
+                column: "Cobrança - Débitos"
+            )
+
+            aggregate (
+                column: "Com. Paga Fav."
+            )
+
+            aggregate (
+                column: "Qtd Pedidos"
+            )
+
+            aggregate (
+                column: "Pgto Pedidos"
+            )
+
+            aggregate (
+                column: QTDNOTASNOVAS
+            )
+
+            aggregate (
+                column: TOTALDEBITOSFAVORITA
+            )
+
+            aggregate (
+                column: QTDNOTASATENDER
+            )
+
+            aggregate (
+                column: QTDNOTASLEVOU
+            )
+
+            aggregate (
+                column: NOTASEMABERTO
+            )
+
+            aggregate (
+                function: average
+                column: "Perc Venda"
+            )
+
+            aggregate (
+                function: average
+                column: TICKET_MEDIO
+            )
+
+            aggregate (
+                function: average
+                column: PERC_APROVEITAMENTO_SACOLA
+            )
+
+            controlBreak (
+                column: REPRESENTANTE
+                layout {
+                    sequence: 1
+                }
+            )
+
+            highlight ir-condition (
+                name: % Baixa
+                condition {
+                    column: "Perc Venda"
+                    operator: <
+                    value: 35
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #FC0000
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-2 (
+                name: % Boa
+                condition {
+                    column: "Perc Venda"
+                    operator: >=
+                    value: 35
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #006300
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-3 (
+                name: Notas Baixas
+                condition {
+                    column: QTDNOTASNOVAS
+                    operator: <
+                    value: 30
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #FC0000
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight ir-condition-4 (
+                name: Notas Boas
+                condition {
+                    column: QTDNOTASNOVAS
+                    operator: >=
+                    value: 30
+                }
+                highlight {
+                    type: cell
+                }
+                colors {
+                    text: #006300
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            groupByColumn (
+                column: "Região"
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: QTD Acertos
+                aggregate {
+                    function: count
+                    column: SEMANA
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990
+                }
+                layout {
+                    sequence: 1
+                }
+            )
+
+            groupByAggregate (
+                heading: Total Cobrado
+                aggregate {
+                    column: TOTALGERAL
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 2
+                }
+            )
+
+            groupByAggregate (
+                heading: Média Cobrado
+                aggregate {
+                    function: average
+                    column: TOTALGERAL
+                }
+                appearance {
+                    formatMask: 999G999G999G999G990D00
+                }
+                layout {
+                    sequence: 3
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P188_ATIVO (
+        type: selectList
+        label {
+            label: <b>Ativo:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Sim;S,Não;N
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P188_IDFECHAMENTO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+        }
+        source {
+            used: always
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P188_IDFECHAMENTOFIM (
+        type: selectList
+        label {
+            label: <b>Até:</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select semanacompleta display_value
+                     , idsemana return_value
+                from semana_dias s
+                where s.ano between to_char(sysdate,'RRRR')-3 and to_char(sysdate,'RRRR')
+                order by s.idsemana desc
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P188_IDFECHAMENTOINI (
+        type: selectList
+        label {
+            label: <b>De:</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select semanacompleta display_value
+                     , idsemana return_value
+                from semana_dias s
+                where s.ano between to_char(sysdate,'RRRR')-3 and to_char(sysdate,'RRRR')
+                order by s.idsemana desc
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P188_IDREPRESENTANTE (
+        type: selectList
+        label {
+            label: <b>Distribuidor:</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                with filiais_escopo as (
+                  -- Mesma regra de escopo de filial usada em query_estoquefilial_filtro_p0_idfilial.sql
+                  -- (Comercial Romance / regional / America Latina / todas / uma especifica).
+                  select f.idfilial
+                  from roman.vw_filiais_filtro f
+                  where f.ref_filial =  :P0_IDFILIAL
+                )
+                select roman.pck_romance.fnc_nomerepresentante(r.idrepresentante)||' - '||decode(r.ativo,'S','Ativo','N','Inativo')||' - '|| (select min(nv.semanadistribuicao)
+                                                                                                                                              from roman.notasvendas nv
+                                                                                                                                              where nv.idrepresentante = r.idrepresentante)  display_value
+                   , r.idrepresentante return_value
+                from catal.representantes r
+                   , catal.gerentes       g
+                   , filiais_escopo       fe
+                where r.idgerente = g.idgerente  -- regra de negocio: filial do representante e definida via gerente
+                  and g.idfilial  = fe.idfilial
+                  and (:P188_ATIVO is null or r.ativo = :P188_ATIVO)
+                order by 1
+                
+                ```
+            nullDisplayValue: "- Todos - "
+        }
+        cascadingLov {
+            parentItems: P188_ATIVO
+            itemsToSubmit: P188_IDREPRESENTANTE
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P188_PESQUISARPOR (
+        type: selectList
+        label {
+            label: <b>Pesquisar Por:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Distribuidor;D,Grupo de Distribuidores;G
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        default {
+            type: static
+            staticValue: D
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P188_SEMANA (
+        type: hidden
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+        }
+        security {
+            sessionStateProtection: checksumRequiredSessionLevel
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P188_SEMANALIBERAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P188_TIPORELATORIO (
+        type: selectList
+        label {
+            label: <b>Tipo:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Detalhado;D,Resumido;R,Agrupado;A
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 120
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--iconRight
+                t-Button--stretch
+                t-Button--gapTop
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button grupo-distribuidores (
+        buttonName: GRUPO_DISTRIBUIDORES
+        label: Grupo de Distribuidores
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+                t-Button--stretch
+                t-Button--gapTop
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 546
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction pesquisa-por-distribuidor (
+        name: Pesquisa por Distribuidor
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P188_PESQUISARPOR
+        }
+        clientSideCondition {
+            type: item=value
+            item: P188_PESQUISARPOR
+            value: D
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P188_IDREPRESENTANTE
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: button
+                button: @grupo-distribuidores
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P188_IDREPRESENTANTE
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: button
+                button: @grupo-distribuidores
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    dynamicAction relatorio-agrupado (
+        name: Relatorio Agrupado
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P188_TIPORELATORIO
+        }
+        clientSideCondition {
+            type: item!=value
+            item: P188_TIPORELATORIO
+            value: A
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P188_PESQUISARPOR
+                    P188_ATIVO
+                    P188_IDREPRESENTANTE
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P188_PESQUISARPOR
+                    P188_ATIVO
+                    P188_IDREPRESENTANTE
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    process inicializa-filtros (
+        name: INICIALIZA_FILTROS
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                    
+                    -- inicializa :P188_IDFECHAMENTOINI
+                    if :P188_IDFECHAMENTOINI is null then
+                        select s.idsemana - 1
+                          into :P188_IDFECHAMENTOINI
+                          from roman.semana_dias s
+                         where sysdate between s.dt_ini and s.dt_fim;
+                    end if;
+                
+                    -- inicializa :P188_IDFECHAMENTOFIM
+                    if :P188_IDFECHAMENTOFIM is null then
+                        select s.idsemana
+                          into :P188_IDFECHAMENTOFIM
+                          from roman.semana_dias s
+                         where sysdate between s.dt_ini and s.dt_fim;
+                    end if;
+                
+                    -- inicializa o tipo de relatório 
+                    if :P188_TIPORELATORIO is null then
+                        :P188_TIPORELATORIO := 'D';
+                    end if;
+                
+                exception
+                    when others then
+                        null;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterHeader
+        }
+        advanced {
+            executionMappingIdentifier: 378507359060702940
+        }
+    )
+
+    process libera-proxima-semana (
+        name: libera proxima semana
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  insert into LIBERACOESSEMANAIS
+                  values (seq_idliberacoessemanais.nextval , :P188_SEMANALIBERAR , 'S', v('APP_USER'), :P188_IDREPRESENTANTE  );
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Próxima semana liberada.
+        }
+        error {
+            errorMessage: A próxima semana já foi liberada para este representante.
+        }
+        advanced {
+            executionMappingIdentifier: 81723163814732977
+        }
+        serverSideCondition {
+            type: request=Value
+            value: LIBERAR
+        }
+    )
+
+    branch (
+        name: Go To Page 188
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 188
+                items: {
+                    P188_IDFECHAMENTO: &P188_IDFECHAMENTO.
+                    P188_IDFECHAMENTOINI: &P188_IDFECHAMENTOINI.
+                    P188_IDFECHAMENTOFIM: &P188_IDFECHAMENTOFIM.
+                    P188_IDREPRESENTANTE: &P188_IDREPRESENTANTE.
+                    P188_TIPORELATORIO: &P188_TIPORELATORIO.
+                    P188_PESQUISARPOR: &P188_PESQUISARPOR.
+                }
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

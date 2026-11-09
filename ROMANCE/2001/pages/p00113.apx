@@ -1,0 +1,1075 @@
+page 113 (
+    name: Devoluções Distribuidor
+    title: Devoluções Distribuidor
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+        warnOnUnsavedChanges: false
+    }
+    security {
+        formAutoComplete: true
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+    help {
+        helpText: Não há ajuda disponível para esta página.
+    }
+
+    region devoluções-distribuidor (
+        name: Devoluções Distribuidor
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                  p_where varchar2(4000);
+                  p_from  varchar2(4000);
+                  p_xx varchar2(4000);
+                  
+                begin
+                  --
+                  -- OBS: TODOS OS PAGE ITENS TEM QUE SER COLOCADOS EM CONDICAO(IF), SENAO DA ERRO DE COMPILACAO
+                  --
+                  p_from := ' from devolucoesrepresentantes d
+                                 , itensdevolucaorepres     i 
+                             where d.idpostoavancado is null 
+                               and d.iddevolucaorepres = i.iddevolucaorepres(+) ' ;
+                  
+                  p_where := ' and d.idfilial = '|| v('P0_IDFILIAL');
+                
+                  --
+                  IF nvl(:P113_IDREPRESENTANTE,0) > 0 THEN
+                     p_where := p_where || ' and d.idrepresentante = '|| v('P113_IDREPRESENTANTE');
+                  END IF;
+                  --
+                  IF :P113_IDSEMANA IS NOT NULL THEN
+                     p_where := p_where || ' and d.idsemana = '|| v('P113_IDSEMANA');
+                  END IF;
+                
+                
+                  return 
+                     ' select d.iddevolucaorepres
+                     , pck_romance.fnc_nomerepresentante(d.idrepresentante) "Representante"
+                     , d.semana
+                     , d.valortotal
+                     , d.idfilial
+                     , decode( d.situacao , 1 , ''Aberta''
+                                          , 2 , ''Aguardando Conclusão''
+                                          , 3 , ''Concluída''
+                                          , 0 , ''Cancelada'') "Situação"
+                     , d.observacao
+                     , sum(i.qtd_pp)   "Qtd PP"
+                     --
+                     , sum(i.qtd_p)    "Qtd P"
+                     --
+                     , sum(i.qtd_m)    "Qtd M"
+                     --
+                     , sum(i.qtd_g)    "Qtd G"            
+                     , sum(i.qtd_gg)   "Qtd GG"
+                     , sum(i.qtd_egg)  "Qtd EGG"
+                     , sum(i.qtd_exgg) "Qtd EXGG"
+                     , sum(i.qtd_u)    "Qtd U" 
+                     --
+                     , sum( CASE WHEN i.comissao = ''S''
+                                 THEN ((nvl(i.qtd_u,0)
+                                      + nvl(i.qtd_exgg,0)
+                                      + nvl(i.qtd_egg,0)
+                                      + nvl(i.qtd_gg ,0)
+                                      + nvl(i.qtd_g  ,0)
+                                      + nvl(i.qtd_m  ,0)
+                                      + nvl(i.qtd_p  ,0)
+                                      + nvl(i.qtd_pp ,0))*i.valorproduto)
+                                 ELSE
+                                   0
+                            END)  "Total COM Comissão" 
+                     --
+                     , sum( CASE WHEN i.comissao = ''N''
+                                 THEN ((nvl(i.qtd_u,0)
+                                      + nvl(i.qtd_exgg,0)
+                                      + nvl(i.qtd_egg,0)
+                                      + nvl(i.qtd_gg ,0)
+                                      + nvl(i.qtd_g  ,0)
+                                      + nvl(i.qtd_m  ,0)
+                                      + nvl(i.qtd_p  ,0)
+                                      + nvl(i.qtd_pp ,0))*I.valorproduto)
+                                 ELSE
+                                   0
+                            END)  "Total SEM Comissão"  
+                     --
+                     , sum(nvl(i.qtd_u,0)
+                                  + nvl(i.qtd_exgg,0)
+                                  + nvl(i.qtd_egg,0)
+                                  + nvl(i.qtd_gg ,0)
+                                  + nvl(i.qtd_g  ,0)
+                                  + nvl(i.qtd_m  ,0)
+                                  + nvl(i.qtd_p  ,0)
+                                  + nvl(i.qtd_pp ,0))  "Total Peças" 
+                     , d.datainclusao "Data_Inclusão"
+                     , d.dataconclusao "Data Conclusão"
+                     , d.usuario "Usuário Incluiu"
+                     , case
+                         when d.situacao = 3 and d.dataconclusao is not null then
+                           pck_util.fnc_tempodecorrido(d.dataconclusao - d.datainclusao,''D'')
+                         else 
+                           ''Não Contabilizado''
+                       end tempototal
+                     , case
+                         when d.situacao = 3 and d.dataconclusao is not null
+                           and exists ( select 1
+                                        from itensdevolucaorepres it
+                                        where it.iddevolucaorepres = d.iddevolucaorepres  ) 
+                         then pck_util.fnc_tempodecorrido( ( d.dataconclusao - d.datainclusao ) / 
+                                                           ( select count(1)
+                                                               from itensdevolucaorepres it
+                                                              where it.iddevolucaorepres = d.iddevolucaorepres ),''D'' ) 
+                         else 
+                           ''Não Contabilizado''
+                       end tempoporproduto '
+                 || p_from
+                 || p_where
+                 || ' group by
+                           d.idfilial
+                         , d.iddevolucaorepres
+                         , d.idrepresentante
+                         , d.semana
+                         , d.dataconclusao
+                         , d.valortotal
+                         , d.situacao 
+                         , d.observacao
+                         , d.datainclusao
+                         , d.usuario' ;
+                
+                end;
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        link {
+            linkColumn: customTarget
+            target: {
+                page: 115
+                items: {
+                    P115_IDDEVOLUCAOREPRES: #IDDEVOLUCAOREPRES#
+                }
+            }
+            linkIcon: <img src="#IMAGE_PREFIX#menu/pencil16x16.gif"  border="0">
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 100000
+        }
+        messages {
+            whenNoDataFound: Nenhuma devolução efetuada.
+            whenMoreDataFound: Esta consulta retorna mais de #MAX_ROW_COUNT# linhas. Filtre seus dados para garantir resultados completos.
+        }
+        actionsMenu {
+            pivot: false
+            savePublicReport: true
+            subscription: false
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        heading {
+            fixedTo: none
+        }
+        advanced {
+            savedReportMappingIdentifier: 1
+        }
+
+        column "Data Conclusão" (
+            type: plainText
+            heading {
+                heading: Data conclusão
+                alignment: center
+            }
+            layout {
+                sequence: 86
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: dd/mm/rrrr HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column Data_Inclusão (
+            type: plainText
+            heading {
+                heading: Data Inclusão
+                alignment: center
+            }
+            layout {
+                sequence: 126
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column IDDEVOLUCAOREPRES (
+            type: plainText
+            heading {
+                heading: ID
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDDEVOLUCAOREPRES
+                endUserAlias: A
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column IDFILIAL (
+            type: plainText
+            heading {
+                heading: Idfilial
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: IDFILIAL
+                endUserAlias: E
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column OBSERVACAO (
+            type: plainText
+            heading {
+                heading: Observação
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: OBSERVACAO
+                endUserAlias: G
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Qtd EGG" (
+            type: plainText
+            heading {
+                heading: EGG
+                alignment: center
+            }
+            layout {
+                sequence: 16
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Qtd_EGG
+                endUserAlias: P
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: item=value
+                item: P0_ESTOQUEPORGRADE
+                value: S
+            }
+        )
+
+        column "Qtd EXGG" (
+            type: plainText
+            heading {
+                heading: EXGG
+                alignment: center
+            }
+            layout {
+                sequence: 26
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: item=value
+                item: P0_ESTOQUEPORGRADE
+                value: S
+            }
+        )
+
+        column "Qtd G" (
+            type: plainText
+            heading {
+                heading: G
+                alignment: center
+            }
+            layout {
+                sequence: 14
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Qtd_G
+                endUserAlias: N
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: item=value
+                item: P0_ESTOQUEPORGRADE
+                value: S
+            }
+        )
+
+        column "Qtd GG" (
+            type: plainText
+            heading {
+                heading: GG
+                alignment: center
+            }
+            layout {
+                sequence: 15
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Qtd_GG
+                endUserAlias: O
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: item=value
+                item: P0_ESTOQUEPORGRADE
+                value: S
+            }
+        )
+
+        column "Qtd M" (
+            type: plainText
+            heading {
+                heading: M
+                alignment: center
+            }
+            layout {
+                sequence: 13
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Qtd_M
+                endUserAlias: M
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: item=value
+                item: P0_ESTOQUEPORGRADE
+                value: S
+            }
+        )
+
+        column "Qtd P" (
+            type: plainText
+            heading {
+                heading: P
+                alignment: center
+            }
+            layout {
+                sequence: 12
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Qtd_P
+                endUserAlias: L
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: item=value
+                item: P0_ESTOQUEPORGRADE
+                value: S
+            }
+        )
+
+        column "Qtd PP" (
+            type: plainText
+            heading {
+                heading: PP
+                alignment: center
+            }
+            layout {
+                sequence: 11
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Qtd_PP
+                endUserAlias: K
+            }
+            enableUsersTo {
+                pivot: false
+            }
+            serverSideCondition {
+                type: item=value
+                item: P0_ESTOQUEPORGRADE
+                value: S
+            }
+        )
+
+        column "Qtd U" (
+            type: plainText
+            heading {
+                heading: U
+                alignment: center
+            }
+            layout {
+                sequence: 36
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Qtd_U
+                endUserAlias: Q
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Representante
+                endUserAlias: H
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column SEMANA (
+            type: plainText
+            heading {
+                heading: Semana
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: SEMANA
+                endUserAlias: C
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column Situação (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 9
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                htmlDomId: Situação
+                endUserAlias: I
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column TEMPOPORPRODUTO (
+            type: plainText
+            heading {
+                heading: Tempo Por Produto
+                alignment: center
+            }
+            layout {
+                sequence: 116
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column TEMPOTOTAL (
+            type: plainText
+            heading {
+                heading: "Tempo Total "
+                alignment: center
+            }
+            layout {
+                sequence: 106
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column "Total COM Comissão" (
+            type: plainText
+            heading {
+                heading: Total Com Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 46
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Total_COM_Comissao
+                endUserAlias: R
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Total Peças" (
+            type: plainText
+            heading {
+                heading: Total Peças
+                alignment: center
+            }
+            layout {
+                sequence: 66
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Total_Pecas
+                endUserAlias: T
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Total SEM Comissão" (
+            type: plainText
+            heading {
+                heading: Total Sem Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 56
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: Total_SEM_Comissao
+                endUserAlias: S
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        column "Usuário Incluiu" (
+            type: plainText
+            heading {
+                heading: Usuário incluiu
+                alignment: center
+            }
+            layout {
+                sequence: 96
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G999G990d00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                htmlDomId: VALORTOTAL
+                endUserAlias: D
+            }
+            enableUsersTo {
+                pivot: false
+            }
+        )
+
+        savedReport 2180740 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "Data Conclusão" (
+                sequence: 17
+            )
+
+            displayColumn "Data_Inclusão" (
+                sequence: 21
+            )
+
+            displayColumn OBSERVACAO (
+                sequence: 4
+            )
+
+            displayColumn "Qtd EGG" (
+                sequence: 11
+            )
+
+            displayColumn "Qtd EXGG" (
+                sequence: 12
+            )
+
+            displayColumn "Qtd G" (
+                sequence: 9
+            )
+
+            displayColumn "Qtd GG" (
+                sequence: 10
+            )
+
+            displayColumn "Qtd M" (
+                sequence: 8
+            )
+
+            displayColumn "Qtd P" (
+                sequence: 7
+            )
+
+            displayColumn "Qtd PP" (
+                sequence: 6
+            )
+
+            displayColumn "Qtd U" (
+                sequence: 13
+            )
+
+            displayColumn "Representante" (
+                sequence: 1
+            )
+
+            displayColumn SEMANA (
+                sequence: 2
+            )
+
+            displayColumn "Situação" (
+                sequence: 3
+            )
+
+            displayColumn TEMPOPORPRODUTO (
+                sequence: 20
+            )
+
+            displayColumn TEMPOTOTAL (
+                sequence: 19
+            )
+
+            displayColumn "Total COM Comissão" (
+                sequence: 14
+            )
+
+            displayColumn "Total Peças" (
+                sequence: 16
+            )
+
+            displayColumn "Total SEM Comissão" (
+                sequence: 15
+            )
+
+            displayColumn "Usuário Incluiu" (
+                sequence: 18
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 5
+            )
+
+            sort (
+                column: SEMANA
+                sort {
+                    direction: desc
+                    sequence: 1
+                }
+            )
+
+            sort (
+                column: "Representante"
+                sort {
+                    sequence: 2
+                }
+            )
+
+            aggregate (
+                column: VALORTOTAL
+            )
+
+            aggregate (
+                column: "Total de peças"
+            )
+
+            aggregate (
+                column: "Total Peças"
+            )
+
+            filter ir-condition (
+                type: rowExpression
+                rowExpression: C like '%'||to_char(sysdate,'RRRR')||'%'
+                identification {
+                    name: Ano
+                }
+            )
+
+            controlBreak (
+                column: SEMANA
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    region devoluções-em-aberto (
+        name: Devoluções em Aberto
+        type: plugin/badgeList
+        source {
+            sqlQuery:
+                ```sql
+                select d.semana
+                     , d.idsemana
+                     , count(1) qtd
+                from devolucoesrepresentantes d
+                where idfilial = :P0_IDFILIAL
+                  and situacao in (1,2)
+                group by d.semana,d.idsemana
+                ORDER BY d.idsemana
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        settings {
+            labelColumn: SEMANA
+            valueColumn: QTD
+        }
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P113_IDREPRESENTANTE (
+        type: popupLov
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            displayAs: modalDialog
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_romance.fnc_nomerepresentante(r.idrepresentante)||' - Cód.: '||r.idrepresentante||' - Sit.: '||decode(ativo,'S','Ativo','N','Inativo') display_value
+                     , r.idrepresentante return_value
+                from representantes r
+                where r.idgerente = ( select idgerente
+                                      from gerentes g
+                                      where g.idfilial = :P0_IDFILIAL )
+                order by 1
+                ```
+            nullDisplayValue: "- Todos - "
+            nullReturnValue: 0
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P113_IDSEMANA (
+        type: selectList
+        label {
+            label: Semana
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select semanacompleta d
+                     , idsemana
+                from semana_dias s
+                where s.ano <= to_char(sysdate,'RRRR')
+                order by 2 desc
+                ```
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+                t-Form-fieldContainer--large
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Buscar
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button create (
+        buttonName: CREATE
+        label: Nova Devolução
+        layout {
+            sequence: 30
+            region: @devoluções-distribuidor
+            slot: rightOfInteractiveReportSearchBar
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--iconRight
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 115
+                clearCache: 115
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 113
+                items: {
+                    P113_IDREPRESENTANTE: &P113_IDREPRESENTANTE.
+                    P113_IDSEMANA: &P113_IDSEMANA.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @buscar
+        }
+    )
+
+)
+

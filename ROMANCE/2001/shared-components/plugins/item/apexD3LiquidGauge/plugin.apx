@@ -1,0 +1,244 @@
+plugin apexD3LiquidGauge (
+    name: APEX D3 Liquid Gauge
+    staticId: COM.FARZAD.APEXGAUGE
+    type: item
+    component {
+        supports: pageItems
+        standardAttributes: [
+            visibleWidget
+            standardFormElement
+            elementAttrs
+            listOfValues
+            lovDisplayNullAttrs
+        ]
+    }
+    source {
+        plsqlCode:
+            ```plsql
+            FUNCTION render_item(p_item                IN apex_plugin.t_page_item,
+                                 p_plugin              IN apex_plugin.t_plugin,
+                                 p_value               IN VARCHAR2,
+                                 p_is_readonly         IN BOOLEAN,
+                                 p_is_printer_friendly IN BOOLEAN)
+              RETURN apex_plugin.t_page_item_render_result IS
+              -- Custom Plugin Attributes
+              l_result             apex_plugin.t_page_item_render_result;
+              l_input_percent      p_item.attribute_02%TYPE := apex_escape.html(p_item.attribute_02);
+              l_sql_percent        p_item.attribute_03%TYPE := apex_escape.html(p_item.attribute_03);
+              l_height             p_item.attribute_04%TYPE := apex_escape.html(p_item.attribute_04);
+              l_theme              p_item.attribute_05%TYPE := apex_escape.html(p_item.attribute_05);
+              l_circleColour       p_item.attribute_06%TYPE := apex_escape.html(p_item.attribute_06);
+              l_textColour         p_item.attribute_07%TYPE := apex_escape.html(p_item.attribute_07);
+              l_waveTextColour     p_item.attribute_08%TYPE := apex_escape.html(p_item.attribute_08);
+              l_waveColour         p_item.attribute_09%TYPE := apex_escape.html(p_item.attribute_09);
+              -- Other Variables
+              l_name            VARCHAR2(30);
+              l_percent         VARCHAR2(30);
+              l_config          VARCHAR2(5000);
+              l_escaped_value   VARCHAR2(4000);
+              l_html_string     VARCHAR2(2000);
+              l_element_item_id VARCHAR2(200);
+              l_onload_code     VARCHAR2(14000);
+              l_temp            VARCHAR2(4000);
+            BEGIN
+              -- Printer Friendly Display
+              IF p_is_printer_friendly THEN
+                apex_plugin_util.print_display_only(p_item_name        => p_item.name,
+                                                    p_display_value    => p_value,
+                                                    p_show_line_breaks => FALSE,
+                                                    p_escape           => TRUE,
+                                                    p_attributes       => p_item.element_attributes);
+              -- Read Only Display
+              ELSIF p_is_readonly THEN
+                apex_plugin_util.print_hidden_if_readonly(p_item_name           => p_item.name,
+                                                          p_value               => p_value,
+                                                          p_is_readonly         => p_is_readonly,
+                                                          p_is_printer_friendly => p_is_printer_friendly);
+              -- Normal Display
+              ELSE
+                l_element_item_id := p_item.name;
+                l_name            := apex_plugin.get_input_name_for_page_item(FALSE);
+                l_escaped_value   := apex_escape.html(p_value);
+                
+                -- Build SVG HTML String
+                l_html_string := '<svg ';
+                l_html_string := l_html_string || 'id="' || l_element_item_id || '" ';
+                l_html_string := l_html_string || 'width="100%" height="' || l_height || '"></svg>';
+            
+                -- Add JavaScript Files
+                apex_javascript.add_library(p_name           => 'd3.v3.min',
+                                            p_directory => p_plugin.file_prefix,
+                                            p_version        => NULL,
+                                            p_skip_extension => FALSE);
+                apex_javascript.add_library(p_name           => 'liquidFillGauge',
+                                            p_directory => p_plugin.file_prefix,
+                                            p_version        => NULL,
+                                            p_skip_extension => FALSE);
+                -- Instantiate onLoad Code
+                    -- Input or SQL Query for Percent
+                if l_input_percent is not null then
+                    l_percent := l_input_percent;
+                elsif l_sql_percent is not null then
+                    l_sql_percent := 'SELECT (' || l_sql_percent || ') FROM DUAL';
+                    execute immediate l_sql_percent into l_percent;
+                end if;
+                    -- Configurations
+                l_config := 'var config1 = liquidFillGaugeDefaultSettings();' ||
+                            '%CONFIGURATION%';
+                    -- Themes
+                if l_theme = 1 then -- Theme 1
+                    l_temp := 'config1.circleColor = "'   || NVL(l_circleColour, '#FF7777')   || '";'   ||
+                              'config1.textColor = "'     || NVL(l_textColour, '#FF4444')     || '";'   ||
+                              'config1.waveTextColor = "' || NVL(l_waveTextColour, '#FFAAAA') || '";'   ||
+                              'config1.waveColor = "'     || NVL(l_waveColour, '#FFDDDD')     || '";'   ||
+                              'config1.circleThickness = 0.2;'     ||
+                              'config1.textVertPosition = 0.2;'    ||
+                              'config1.waveAnimateTime = 1000;';
+                    l_config := REPLACE(l_config, '%CONFIGURATION%', l_temp);
+                elsif l_theme = 2 then -- Theme 2
+                    l_temp := 'config1.circleColor = "'   || NVL(l_circleColour, '#D4AB6A')   || '";'   ||
+                              'config1.textColor = "'     || NVL(l_textColour, '#553300')     || '";'   ||
+                              'config1.waveTextColor = "' || NVL(l_waveTextColour, '#805615') || '";'   ||
+                              'config1.waveColor = "'     || NVL(l_waveColour, '#AA7D39')     || '";'   ||
+                              'config1.circleThickness = 0.1;'  ||
+                              'config1.circleFillGap = 0.2;'    ||
+                              'config1.textVertPosition = 0.8;' ||
+                              'config1.waveAnimateTime = 2000;' ||
+                              'config1.waveHeight = 0.3;'       ||
+                              'config1.waveCount = 1;';
+                    l_config := REPLACE(l_config, '%CONFIGURATION%', l_temp);
+                elsif l_theme = 3 then -- Theme 3
+                    l_temp := 'config1.circleColor = "'   || NVL(l_circleColour, '#178BCA')   || '";'   ||
+                              'config1.textColor = "'     || NVL(l_textColour, '#045681')     || '";'   ||
+                              'config1.waveTextColor = "' || NVL(l_waveTextColour, '#A4DBf8') || '";'   ||
+                              'config1.waveColor = "'     || NVL(l_waveColour, '#178BCA')     || '";'   ||
+                              'config1.textVertPosition = 0.8;' ||
+                              'config1.waveAnimateTime = 5000;' ||
+                              'config1.waveHeight = 0.15;'      ||
+                              'config1.waveAnimate = false;'    ||
+                              'config1.waveOffset = 0.25;'      ||
+                              'config1.valueCountUp = false;'   ||
+                              'config1.displayPercent = false;';
+                    l_config := REPLACE(l_config, '%CONFIGURATION%', l_temp);
+                elsif l_theme = 4 then -- Theme 4
+                    l_temp := 'config1.circleColor = "'   || NVL(l_circleColour, '#808015')   || '";'   ||
+                              'config1.textColor = "'     || NVL(l_textColour, '#555500')     || '";'   ||
+                              'config1.waveTextColor = "' || NVL(l_waveTextColour, '#FFFFAA') || '";'   ||
+                              'config1.waveColor = "'     || NVL(l_waveColour, '#AAAA39')     || '";'   ||
+                              'config1.circleThickness = 0.15;'    ||
+                              'config1.textVertPosition = 0.8;'    ||
+                              'config1.waveAnimateTime = 1000;'    ||
+                              'config1.waveHeight = 0.05;'         ||
+                              'config1.waveAnimate = true;'        ||
+                              'config1.waveRise = false;'          ||
+                              'config1.waveHeightScaling = false;' ||
+                              'config1.waveOffset = 0.25;'         ||
+                              'config1.textSize = 0.75;'           ||
+                              'config1.waveCount = 3;';
+                    l_config := REPLACE(l_config, '%CONFIGURATION%', l_temp);
+                elsif l_theme = 5 then -- Theme 5
+                    l_temp := 'config1.circleColor = "'   || NVL(l_circleColour, '#6DA398')   || '";'   ||
+                              'config1.textColor = "'     || NVL(l_textColour, '#0E5144')     || '";'   ||
+                              'config1.waveTextColor = "' || NVL(l_waveTextColour, '#6DA398') || '";'   ||
+                              'config1.waveColor = "'     || NVL(l_waveColour, '#246D5F')     || '";'   ||
+                              'config1.circleThickness = 0.4;'   ||
+                              'config1.textVertPosition = 0.52;' ||
+                              'config1.waveAnimateTime = 5000;'  ||
+                              'config1.waveHeight = 0;'          ||
+                              'config1.waveAnimate = false;'     ||
+                              'config1.waveCount = 2;'           ||
+                              'config1.waveOffset = 0.25;'       ||
+                              'config1.textSize = 1.2;'          ||
+                              'config1.minValue = 30;'           ||
+                              'config1.maxValue = 150;';
+                    l_config := REPLACE(l_config, '%CONFIGURATION%', l_temp);
+                end if; 
+                                                                
+                l_onload_code := l_config || 'var gauge1 = loadLiquidFillGauge("' || l_element_item_id || '", ' || l_percent || ', config1' || ');';
+                if p_item.lov_definition is not null then
+                    l_onload_code := l_onload_code || '$("#' || l_element_item_id || '").on("click", function() {' ||
+                                            'var myPromise = function() {  
+                                                return apex.server.plugin ("' || apex_plugin.get_ajax_identifier ||'", 
+                                                                                            { success: function( pData ) {
+                                                                                                    console.log(pData.state);
+                                                                                            }
+                                                                                    }
+                                                                                    );
+                                                                                };' ||
+                                        'var json;
+                                         myPromise().then(function(data) {
+                                             json = JSON.parse(data)
+                                             gauge1.update(json);
+                                             });
+                                             });';
+                end if;                                                                                                                                              
+                -- Add Onload Code
+                apex_javascript.add_onload_code(p_code => l_onload_code);
+            
+                -- Write Item HTML
+                htp.p(l_html_string);
+              END IF;
+            
+              l_result.is_navigable := TRUE;
+              RETURN l_result;
+            
+            END render_item;
+            
+            FUNCTION ajax_item(p_item   IN apex_plugin.t_page_item,
+                               p_plugin IN apex_plugin.t_plugin)
+              RETURN apex_plugin.t_page_item_ajax_result IS
+            
+              -- Plugin Attributes
+              l_result    apex_plugin.t_page_item_ajax_result;
+              l_sql_query p_item.lov_definition%TYPE := p_item.lov_definition;
+              -- Variabless for SQL Query Parse and JSON Write
+              l_column_value_list apex_plugin_util.t_column_value_list2;
+            
+            BEGIN
+              -- Get Data from SQL Source
+              l_column_value_list := apex_plugin_util.get_data2(p_sql_statement  => l_sql_query,
+                                                                p_min_columns    => 1,
+                                                                p_max_columns    => 1,
+                                                                p_component_name => p_item.name);
+              apex_json.open_array;
+              apex_json.write(l_column_value_list(1).value_list(1).number_value);
+              apex_json.close_array;
+            
+            RETURN l_result;
+            
+            END ajax_item;
+            ```
+    }
+    callbacks {
+        apiInterface: function
+        renderProcedureName: render_item
+        ajaxProcedureName: ajax_item
+    }
+    advanced {
+        substituteAttributeValues: true
+    }
+    information {
+        version: 1.0
+        aboutUrl: http://farzadsoltani.com/2017/04/15/gauges-apex-look-gaugaustic/
+        helpText:
+            ```
+            This plugin is a replica of the D3 Liquid Fill Gauge.
+            <br>
+            Based on the D3 Javascript Library, this plugin has its own little taste of APEX and can run on a SQL Query.
+            <br>
+            It is also sensitive to the click event. Clicking on the gauge will cause it to run the query again and update its displayed value.
+            <br>
+            You can also take a look at the plugin documentation altogether on my website.
+            ```
+    }
+
+    standardAttributeConfig (
+        name: hasLov
+        sqlQuery {
+            minColumns: 1
+            maxColumns: 1
+        }
+    )
+
+)
+

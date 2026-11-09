@@ -1,0 +1,1271 @@
+page 399 (
+    name: Detalhamento notas vendas
+    title: Detalhamento Notas Vendas
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: [
+            #DEFAULT#
+            ui-dialog--stretch
+        ]
+    }
+    dialog {
+        width: 1000
+        height: 400
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region nota-venda (
+        name: Nota Venda
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select nv.idnotavenda
+                     , to_number(nv.numeronota) numeronota
+                     , pck_romance.fnc_nomerepresentante(pidrepresentante => nv.idrepresentante) "Representante"
+                     , nv.datanota
+                     , nv.semanadistribuicao/*||'  '||pck_romance.fnc_semanadias(psemana => nv.semanadistribuicao)*/ "Semana Distribuição"
+                     , nv.semanacobranca/*||'  '||pck_romance.fnc_semanadias(psemana => nv.semanacobranca)*/ "Semana Cobrança"
+                     , pck_romance.fnc_nomevendedora(pidvendedora => nv.idvendedora) "Vendedora" 
+                     , pck_romance.fnc_nomeregiaovenda( nv.idregiaovenda ) "Região de Venda"
+                     , nv.idregiaovenda
+                     , nv.valortotalnota
+                     , nv.valortotaldevolucao
+                     , nv.idrepresentante
+                     , nv.idvendedora
+                     , nv.valortotalvenda
+                     , nv.valortotalvendalqd
+                     , nv.basecomissao
+                     , nv.perccomissao
+                     , nv.valorcomissao
+                     , nv.valorpago  valorpago
+                     , nvl(( select sum(p.valorpago)
+                             from pagamentosnotasvendas p
+                             where p.idsemanacobranca = nv.idsemanacobranca
+                               and p.idnotavenda = nv.idnotavenda ),0) pagonasemana
+                     , nv.saldo
+                     , substr(cpf,1,3)||'.'||substr(pp.cpf,4,3)||'.'||substr(pp.cpf,7,3)||'-'||substr(pp.cpf,10) "CPF. Vend."
+                     , pp.documentoestrangeiro "Doc Estrangeiro"
+                     , pck_romance.fnc_nomecidade(pp.idcidade) "Cidade. Vend."
+                     , ( select sn.descricao from situacoesnotavenda sn where sn.idsituacaonotavenda = nv.idsituacaonotavenda ) "Situação"
+                     , decode(nv.quitadapepino,'Q','Quitado','P','Débito','R','Remarcada') "Quitado/Débito"
+                     , nv.dataretorno
+                     , to_number(substr(nv.semanacobranca,1,2)) semanacobranca
+                     , to_number(substr(nv.semanacobranca,4,4)) anocobranca
+                     , pck_romance.fnc_nomerepresentante(idrepresentanteatende) "Repres. Atende"
+                     , decode(nv.enviadocobranca,'S', 'Sim','Não') "Enviado para Cobrança"
+                     , idrepresentanteatende "ID Repres Atende"
+                     , decode(v.ativo,'S','Sim','Não') "Situação Vendedora"
+                     , nv.idsemanacobranca
+                     , pck_util.fnc_idsemana(psemana => to_char(sysdate,'IW/RRRR')) as "Idsemana Atual"
+                     , (select count(1)
+                        from notasvendas n
+                        where n.idvendedora = nv.idvendedora
+                          and n.idnotavenda = nv.idnotavenda) "Qtd Notas"
+                     , (select count(1)
+                        from regioesrepresentantes r
+                        where r.idrepresentante = nv.idrepresentante
+                           and r.idregiaovenda = nv.idregiaovenda) regrepresentante
+                     , pck_romance.fnc_retornatelefones(nv.idvendedora) "Telefones"
+                     , (select sum(ii.quantidade)
+                        from itensnotavenda ii
+                        where ii.idnotavenda = nv.idnotavenda) "Qtd Dist"
+                     , (select sum(i.quantidade - nvl(i.qtddevolvida,0))
+                        from itensnotavenda i
+                        where i.idnotavenda = nv.idnotavenda
+                          and nv.idsituacaonotavenda = 4) "Qtd Vendida"
+                     , pp.nroconsultaspc "Nro Consulta SPC"
+                     , ( select listagg(oo.data|| '-' || oo.observacao,' ') within group (order by 1)
+                         from observacoesnotasvendas oo
+                         where oo.idnotavenda= nv.idnotavenda ) "Histórico Cobrança"
+                     , pck_romance.fnc_nomefilial(nv.idfilial) "Filial"  
+                     , pck_romance.fnc_verificadebito(nv.idvendedora) "Qtd Débito"
+                     , dataacerto
+                     , extract( month from nv.dataacerto) mesacerto
+                     , case
+                         when exists ( select 1
+                                       from classificacoesnotasvendas cn
+                                       where cn.idnotavenda = nv.idnotavenda
+                                         and cn.IDCARACTERISTICANOTAVENDA = 3 ) then
+                           'Sim'
+                         else
+                           'Não'
+                       end promissoriarecebida
+                     , case
+                        when nv.idsemanacobranca - nv.idsemanadistribuicao > 6 and nv.idsituacaonotavenda = 4 then
+                          'Débito Recebido'
+                        when nv.idsemanacobranca - nv.idsemanadistribuicao <= 6 and nv.idsituacaonotavenda = 4 then
+                          'Cobrança da Semana'
+                        else
+                          'Não Acertada'
+                       end identificacao   
+                from notasvendas    nv
+                   , vendedoras v
+                   , pessoas pp
+                where nv.idfilial      = :P0_IDFILIAL
+                  and v.idvendedora    = nv.idvendedora
+                  and pp.idpessoa      = v.idpessoa
+                  and nv.idnotavenda = :P399_IDNOTAVENDA
+                  and ( :P36_NRNOTA is null or nv.numeronota = :P36_NRNOTA  )
+                  and ( :P36_IDREPRESENTANTE is null or ( nv.idrepresentante = :P36_IDREPRESENTANTE or nv.idrepresentanteatende = :P36_IDREPRESENTANTE  ) )
+                  and ( :P36_IDVENDEDORA     is null or nv.idvendedora = :P36_IDVENDEDORA )
+                  and ( :P36_REGIAOVENDA is null or nv.idregiaovenda = :P36_REGIAOVENDA )
+                  and ( :P36_HISTORICO is null or exists ( select 1
+                                                           from observacoesnotasvendas o
+                                                           where lower(o.observacao) like '%'||lower(:P36_HISTORICO)||'%'
+                                                             and o.idnotavenda = nv.idnotavenda))
+                  
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 1450650568221510802
+        }
+
+        column ANOCOBRANCA (
+            type: hidden
+            heading {
+                heading: Anocobranca
+            }
+            layout {
+                sequence: 300
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AD
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column BASECOMISSAO (
+            type: hidden
+            heading {
+                heading: Basecomissao
+            }
+            layout {
+                sequence: 170
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "CPF. Vend." (
+            type: plainText
+            heading {
+                heading: CPF Vendedora
+                alignment: center
+            }
+            layout {
+                sequence: 230
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: W
+            }
+        )
+
+        column "Cidade. Vend." (
+            type: hidden
+            heading {
+                heading: Cidade
+            }
+            layout {
+                sequence: 250
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Y
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column DATAACERTO (
+            type: plainText
+            heading {
+                heading: Data Acerto
+                alignment: center
+            }
+            layout {
+                sequence: 500
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AX
+            }
+        )
+
+        column DATANOTA (
+            type: plainText
+            heading {
+                heading: Data Nota
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DATARETORNO (
+            type: plainText
+            heading {
+                heading: Data Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 280
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: AB
+            }
+        )
+
+        column "Doc Estrangeiro" (
+            type: plainText
+            heading {
+                heading: Doc Estrangeiro
+                alignment: center
+            }
+            layout {
+                sequence: 240
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: X
+            }
+        )
+
+        column "Enviado para Cobrança" (
+            type: plainText
+            heading {
+                heading: Enviado para Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 320
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column Filial (
+            type: plainText
+            heading {
+                heading: Filial
+                alignment: center
+            }
+            layout {
+                sequence: 470
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AU
+            }
+        )
+
+        column "Histórico Cobrança" (
+            type: hidden
+            heading {
+                heading: Histórico Cobrança
+            }
+            layout {
+                sequence: 460
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AT
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "ID Repres Atende" (
+            type: hidden
+            heading {
+                heading: Id repres atende
+            }
+            layout {
+                sequence: 330
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AG
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDENTIFICACAO (
+            type: hidden
+            heading {
+                heading: Identificação Nota
+            }
+            layout {
+                sequence: 560
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: BD
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDNOTAVENDA (
+            type: hidden
+            heading {
+                heading: Idnotavenda
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDREGIAOVENDA (
+            type: hidden
+            heading {
+                heading: Idregiaovenda
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDREPRESENTANTE (
+            type: hidden
+            heading {
+                heading: Idrepresentante
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDSEMANACOBRANCA (
+            type: hidden
+            heading {
+                heading: Idsemanacobranca
+            }
+            layout {
+                sequence: 380
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AL
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDVENDEDORA (
+            type: hidden
+            heading {
+                heading: Idvendedora
+            }
+            layout {
+                sequence: 140
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Idsemana Atual" (
+            type: hidden
+            heading {
+                heading: Idsemana atual
+            }
+            layout {
+                sequence: 390
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AM
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column MESACERTO (
+            type: hidden
+            heading {
+                heading: Mesacerto
+            }
+            layout {
+                sequence: 510
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AY
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column NUMERONOTA (
+            type: plainText
+            heading {
+                heading: Nr Nota
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Nro Consulta SPC" (
+            type: plainText
+            heading {
+                heading: Nro Consulta SPC
+                alignment: center
+            }
+            layout {
+                sequence: 450
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AS
+            }
+        )
+
+        column PAGONASEMANA (
+            type: plainText
+            heading {
+                heading: Pago na Semana
+                alignment: center
+            }
+            layout {
+                sequence: 210
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column PERCCOMISSAO (
+            type: plainText
+            heading {
+                heading: Perc. Comissao
+                alignment: center
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column PROMISSORIARECEBIDA (
+            type: hidden
+            heading {
+                heading: Promissoriarecebida
+            }
+            layout {
+                sequence: 520
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AZ
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Qtd Dist" (
+            type: plainText
+            heading {
+                heading: Qtd Distribuída
+                alignment: center
+            }
+            layout {
+                sequence: 430
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AQ
+            }
+        )
+
+        column "Qtd Débito" (
+            type: plainText
+            heading {
+                heading: Qtd Débito
+                alignment: center
+            }
+            layout {
+                sequence: 490
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AW
+            }
+        )
+
+        column "Qtd Notas" (
+            type: hidden
+            heading {
+                heading: Qtd notas
+            }
+            layout {
+                sequence: 400
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AN
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Qtd Vendida" (
+            type: plainText
+            heading {
+                heading: Qtd Vendida
+                alignment: center
+            }
+            layout {
+                sequence: 440
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AR
+            }
+        )
+
+        column "Quitado/Débito" (
+            type: plainText
+            heading {
+                heading: Quitado&#x2F;débito
+                alignment: center
+            }
+            layout {
+                sequence: 270
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        column REGREPRESENTANTE (
+            type: hidden
+            heading {
+                heading: Reg. Representante
+            }
+            layout {
+                sequence: 410
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AO
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column "Região de Venda" (
+            type: plainText
+            heading {
+                heading: Região Venda
+                alignment: center
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "Repres. Atende" (
+            type: plainText
+            heading {
+                heading: Repres. Atende
+                alignment: center
+            }
+            layout {
+                sequence: 310
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AE
+            }
+        )
+
+        column Representante (
+            type: plainText
+            heading {
+                heading: Representante
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column SALDO (
+            type: plainText
+            heading {
+                heading: Saldo
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: V
+            }
+        )
+
+        column SEMANACOBRANCA (
+            type: plainText
+            heading {
+                heading: Semana Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 290
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column "Semana Cobrança" (
+            type: plainText
+            heading {
+                heading: Semana Cobrança
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column "Semana Distribuição" (
+            type: plainText
+            heading {
+                heading: Semana Distribuição
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column Situação (
+            type: plainText
+            heading {
+                heading: Situação
+                alignment: center
+            }
+            layout {
+                sequence: 260
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column "Situação Vendedora" (
+            type: hidden
+            heading {
+                heading: Situação vendedora
+            }
+            layout {
+                sequence: 370
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AK
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Telefones (
+            type: plainText
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 420
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: AP
+            }
+        )
+
+        column VALORCOMISSAO (
+            type: plainText
+            heading {
+                heading: Valor Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column VALORPAGO (
+            type: plainText
+            heading {
+                heading: Valor Pago
+                alignment: center
+            }
+            layout {
+                sequence: 200
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column VALORTOTALDEVOLUCAO (
+            type: plainText
+            heading {
+                heading: Valor Total Devolução
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column VALORTOTALNOTA (
+            type: plainText
+            heading {
+                heading: Valor Total Nota
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column VALORTOTALVENDA (
+            type: plainText
+            heading {
+                heading: Valor Total Venda
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: FML999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column VALORTOTALVENDALQD (
+            type: hidden
+            heading {
+                heading: Valortotalvendalqd
+            }
+            layout {
+                sequence: 160
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column Vendedora (
+            type: plainText
+            heading {
+                heading: Vendedora
+                alignment: center
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        savedReport 14506905 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn ANOCOBRANCA (
+                sequence: 29
+            )
+
+            displayColumn BASECOMISSAO (
+                sequence: 16
+            )
+
+            displayColumn "CPF. Vend." (
+                sequence: 22
+            )
+
+            displayColumn "Cidade. Vend." (
+                sequence: 24
+            )
+
+            displayColumn DATAACERTO (
+                sequence: 45
+            )
+
+            displayColumn DATANOTA (
+                sequence: 4
+            )
+
+            displayColumn DATARETORNO (
+                sequence: 27
+            )
+
+            displayColumn "Doc Estrangeiro" (
+                sequence: 23
+            )
+
+            displayColumn "Enviado para Cobrança" (
+                sequence: 31
+            )
+
+            displayColumn "Filial" (
+                sequence: 43
+            )
+
+            displayColumn "Histórico Cobrança" (
+                sequence: 42
+            )
+
+            displayColumn "ID Repres Atende" (
+                sequence: 32
+            )
+
+            displayColumn IDENTIFICACAO (
+                sequence: 48
+            )
+
+            displayColumn IDNOTAVENDA (
+                sequence: 1
+            )
+
+            displayColumn IDREGIAOVENDA (
+                sequence: 9
+            )
+
+            displayColumn IDREPRESENTANTE (
+                sequence: 12
+            )
+
+            displayColumn IDSEMANACOBRANCA (
+                sequence: 34
+            )
+
+            displayColumn IDVENDEDORA (
+                sequence: 13
+            )
+
+            displayColumn "Idsemana Atual" (
+                sequence: 35
+            )
+
+            displayColumn MESACERTO (
+                sequence: 46
+            )
+
+            displayColumn NUMERONOTA (
+                sequence: 2
+            )
+
+            displayColumn "Nro Consulta SPC" (
+                sequence: 41
+            )
+
+            displayColumn PAGONASEMANA (
+                sequence: 20
+            )
+
+            displayColumn PERCCOMISSAO (
+                sequence: 17
+            )
+
+            displayColumn PROMISSORIARECEBIDA (
+                sequence: 47
+            )
+
+            displayColumn "Qtd Dist" (
+                sequence: 39
+            )
+
+            displayColumn "Qtd Débito" (
+                sequence: 44
+            )
+
+            displayColumn "Qtd Notas" (
+                sequence: 36
+            )
+
+            displayColumn "Qtd Vendida" (
+                sequence: 40
+            )
+
+            displayColumn "Quitado/Débito" (
+                sequence: 26
+            )
+
+            displayColumn REGREPRESENTANTE (
+                sequence: 37
+            )
+
+            displayColumn "Região de Venda" (
+                sequence: 8
+            )
+
+            displayColumn "Repres. Atende" (
+                sequence: 30
+            )
+
+            displayColumn "Representante" (
+                sequence: 3
+            )
+
+            displayColumn SALDO (
+                sequence: 21
+            )
+
+            displayColumn SEMANACOBRANCA (
+                sequence: 28
+            )
+
+            displayColumn "Semana Cobrança" (
+                sequence: 6
+            )
+
+            displayColumn "Semana Distribuição" (
+                sequence: 5
+            )
+
+            displayColumn "Situação" (
+                sequence: 25
+            )
+
+            displayColumn "Situação Vendedora" (
+                sequence: 33
+            )
+
+            displayColumn "Telefones" (
+                sequence: 38
+            )
+
+            displayColumn VALORCOMISSAO (
+                sequence: 18
+            )
+
+            displayColumn VALORPAGO (
+                sequence: 19
+            )
+
+            displayColumn VALORTOTALDEVOLUCAO (
+                sequence: 11
+            )
+
+            displayColumn VALORTOTALNOTA (
+                sequence: 10
+            )
+
+            displayColumn VALORTOTALVENDA (
+                sequence: 14
+            )
+
+            displayColumn VALORTOTALVENDALQD (
+                sequence: 15
+            )
+
+            displayColumn "Vendedora" (
+                sequence: 7
+            )
+
+        )
+
+    )
+
+    pageItem P399_IDNOTAVENDA (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @nota-venda
+            slot: regionBody
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+)
+

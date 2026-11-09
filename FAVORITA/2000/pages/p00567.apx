@@ -1,0 +1,345 @@
+page 567 (
+    name: Replicar Inventario
+    title: Replicar Inventario
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        resizable: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region new (
+        name: New
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P567_IDFILIAL (
+        type: selectList
+        label {
+            label: Filial de Destino
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select pck_util_fav.fnc_nomefilialfavorita(idfilialfavorita) || ' - ' || idfilialfavorita as d,
+                       idfilialfavorita as r
+                  from filiaisfavorita f
+                where exists ( select 1
+                               from usuariosfiliaisfavorita u
+                               where u.idfilialfavorita = f.idfilialfavorita
+                                 and u.consultar        = 'S' 
+                                 and u.idusuario        = :P0_IDUSUARIO )
+                   and f.idfilialfavorita not in (select idfilial
+                                                    from inventariociclico
+                                                   where idinventariociclico = :P567_IDINVENTARIO)
+                 order by 1
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @new
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P567_IDINVENTARIO (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 20
+            region: @new
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button cancelar (
+        buttonName: Cancelar
+        label: Cancelar
+        layout {
+            sequence: 20
+            region: @new
+            slot: belowBox
+            horizontalAlignment: left
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    button replicar (
+        buttonName: Replicar
+        label: Replicar
+        layout {
+            sequence: 10
+            region: @new
+            slot: belowBox
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction fecha (
+        name: Fecha
+        execution {
+            sequence: 20
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @cancelar
+        }
+
+        action native-dialog-close (
+            action: closeDialog
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction new (
+        name: New
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @replicar
+        }
+
+        action native-confirm (
+            action: confirm
+            settings {
+                message: Confirma replicar este inventario para a filial selecionada?
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process replicar (
+        name: Replicar
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  voperacao_dml     varchar2(1);
+                  vDataIni          date := trunc(sysdate) ;
+                  vMD5              varchar2(32767);
+                  vDataEnc          date;
+                  vSit              number := 1;
+                  vCount            number;
+                  v_IdInventario    number;
+                  v_sku             number;
+                  v_idestoque       number;
+                  v_idprod          number;
+                  v_IdItem          number;
+                  v_zero            number;
+                  vtipoinventario   varchar2(1);
+                  vidcategoria      number;
+                  --
+                begin
+                
+                  voperacao_dml := 'I';
+                  --
+                  select iv.tipoinventario 
+                    into vtipoinventario
+                  from favorita.inventariociclico iv
+                  where iv.idinventariociclico = :P567_IDINVENTARIO;
+                  --
+                  
+                  begin
+                    select count(*) into vCount
+                      from itensinventariociclico i
+                     where idinventariociclico = :P567_IDINVENTARIO
+                       and not exists (select  idprodutodetalhado
+                                         from inventariociclico cc
+                                            , itensinventariociclico ii
+                                        where cc.idinventariociclico = ii.idinventariociclico
+                                          and ii.idprodutodetalhado = i.idprodutodetalhado
+                                          and cc.idtiposituacao not in (5)
+                                          and cc.idfilial = :P567_IDFILIAL) ;
+                  exception
+                    when others then vCount := 0;
+                  end;
+                  
+                  if vCount > 0 then
+                  
+                    FAVORITA.PCK_CADASTROS_FAV.PRC_INVENTARIOCICLICO ( PIDINVENTARIOCICLICO  => v_IdInventario
+                                                                     , PSITUACAO             => vSit
+                                                                     , PIDFILIAL             => :P567_IDFILIAL
+                                                                     , PIDUSUARIO            => :P0_IDUSUARIO 
+                                                                     , PDATACRIACAO          => vDataIni   
+                                                                     , PDATAENCERRAMENTO     => vDataEnc
+                                                                     , PIDUSUARIOENCERRA     => v_zero 
+                                                                     , PTIPOINVENTARIO       => vtipoinventario
+                                                                     , PMD5                  => vMD5
+                                                                     , POPERACAO_DML         => voperacao_dml);
+                  --
+                    if v_IdInventario is not null then
+                       FOR c1 in (select iditensinventariociclico           
+                                       , idinventariociclico                
+                                       , idestoque 
+                                       , idprodutodetalhado                         
+                                       , qtdfisicacontada                   
+                                       , qtdvirtualage                      
+                                       , vlrcusto                           
+                                       , divfisicooptimus                   
+                                       , divfisicofiscal                    
+                                       , divoptimusfiscal                   
+                                       , skuvirtualage                      
+                                       , qtdoptimusfisico                   
+                                       , vlrapagar                          
+                                  from itensinventariociclico i
+                                  where idinventariociclico = :P567_IDINVENTARIO
+                                    and not exists (select  idprodutodetalhado
+                                                      from inventariociclico cc
+                                                         , itensinventariociclico ii
+                                                     where cc.idinventariociclico = ii.idinventariociclico
+                                                       and ii.idprodutodetalhado = i.idprodutodetalhado
+                                                       and cc.idtiposituacao not in (5)
+                                                       and cc.idfilial = :P567_IDFILIAL) )
+                       LOOP
+                          
+                           begin
+                             SELECT skuVirtualAge
+                               INTO v_sku
+                               FROM deparaprodfavoritavirtualage 
+                              WHERE idprodutodetalhado = c1.idprodutodetalhado;
+                
+                           exception
+                             when no_data_found then
+                                v_sku :=  6000000 + c1.idprodutodetalhado;
+                           end;
+                           --
+                           SELECT idEstoque 
+                             INTO v_idestoque
+                             FROM estoques e
+                            WHERE e.idFilialFavorita   = :P567_IDFILIAL
+                              AND e.idProdutoDetalhado = c1.idprodutodetalhado;
+                           --
+                           v_idprod := c1.idprodutodetalhado;
+                           vMD5 := null;
+                           --
+                           FAVORITA.PCK_CADASTROS_FAV.PRC_ITENSINVENTARIOCICLICO ( 
+                                                      PIDITENSINVENTARIOCICLICO => v_IdItem
+                                                    , PIDINVENTARIOCICLICO      => v_IdInventario
+                                                    , PIDESTOQUE                => v_idestoque                
+                                                    , PQTDFISICACONTADA         => v_zero
+                                                    , PIDPRODUTODETALHADO       => v_idprod 
+                                                    , PQTDVIRTUALAGE            => v_zero           
+                                                    , PVLRCUSTO                 => v_zero                 
+                                                    , PDIVFISICOOPTIMUS         => v_zero         
+                                                    , PDIVFISICOFISCAL          => v_zero          
+                                                    , PDIVOPTIMUSFISCAL         => v_zero         
+                                                    , PSKUVIRTUALAGE            => v_sku            
+                                                    , PQTDOPTIMUSFISICO         => v_zero   
+                                                    , PVLRAPAGAR                => v_zero  
+                                                    , PIDCATEGORIA              => v_zero 
+                                                    , PMD5                      => vMD5                     
+                                                    , POPERACAO_DML             => voperacao_dml ) ;
+                                                    
+                       END LOOP;
+                
+                    end if;
+                   
+                  else
+                   
+                    raise_application_error(-20001,'Todos os itens deste inventário já estão sendo inventariados na filial destino!');
+                   
+                  end if;
+                  
+                  
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 100042909335476287
+        }
+    )
+
+    branch (
+        name: VoltaPara526
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 526
+                items: {
+                    P526_IDINVENTARIOCICLICO: &P567_IDINVENTARIO.
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

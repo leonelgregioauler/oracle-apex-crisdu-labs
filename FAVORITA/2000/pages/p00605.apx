@@ -1,0 +1,2767 @@
+page 605 (
+    name: Relatório de Inadimplência
+    title: Relatório de Inadimplência
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    css {
+        inline:
+            ```css
+            .a-IRR-headerLink {
+                color: #ffffff;
+            }
+            
+            .a-IRR-header {
+                background-color: #81bb5f;
+            }
+            
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region inadimplencia-por-canal-de-venda-detalhado (
+        name: Inadimplencia por Canal de Venda - Detalhado
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                with pago_em_dia as (
+                    select ff.tipofilial,
+                           ff.nomefilialfavorita,
+                           sum(GREATEST((case when pp.idsituacao=20 then pp.valorpago else 0 end), 0) * p_sub.fatorconversao) AS valor_pago_em_dia
+                      from favorita.pedidos p_sub,
+                           favorita.vencimentospedidos v_sub,
+                           favorita.pagamentospedidos pp, 
+                           favorita.filiaisfavorita ff,
+                           ( select p.idpedido
+                                  , p.idnotavenda
+                                  , cc.idvalorcaracteristica
+                               from favorita.pedidos p
+                                  , roman.notasvendas n
+                                  , roman.classificacoesnotasvendas cc
+                              where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                                and n.idnotavenda = p.idnotavenda
+                                and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                                     from roman.classificacoesnotasvendas c
+                                                                    where c.idnotavenda = n.idnotavenda
+                                                                      and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                     where v_sub.idpedido = p_sub.idpedido
+                       and p_sub.datacancelamento is null
+                       -- FILTRO ATIVOS/INATIVOS
+                       and (:P605_SIT_REPRE is null
+                       or :P605_SIT_REPRE = 'T'
+                            or (:P605_SIT_REPRE = 'A' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'S'))
+                            or (:P605_SIT_REPRE = 'I' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'N')))
+                       and sacola_do_dianho.idpedido(+) = p_sub.idpedido
+                       and pp.idvencimentopedido = v_sub.idvencimentopedido
+                       and ff.idfilialfavorita = p_sub.idfilialfavorita
+                       and v_sub.situacaovencimento = 'V'
+                       and pp.idsituacao != -1
+                       and trunc(pp.datapagamento) <= trunc(v_sub.datavencimento)
+                       -- filtros de tela
+                       and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                             or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                             or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                             or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                             or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                             or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                       and trunc(v_sub.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                       and (:P605_TIPOPEDIDO is null or p_sub.tipopedido = :P605_TIPOPEDIDO)
+                       and (:P605_FILTRARROMANCE is null or p_sub.idfilialromance in (select fil.idfilialromance
+                                                                                        from favorita.filtrosempresasromance fil
+                                                                                       where fil.idusuario = :P0_IDUSUARIO))
+                       and (   (:P605_CAMPANHA is null)
+                            or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 74))
+                            or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 78))
+                            or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 94))
+                            or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 96))
+                            or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 97)))
+                     group by ff.tipofilial, ff.nomefilialfavorita
+                ),
+                atraso_ate_21 as (
+                    select ff.tipofilial,
+                           ff.nomefilialfavorita,
+                           sum((v_sub.valorpagar - v_sub.valorpago) * p_sub.fatorconversao) as valor_atrasado_ate_21
+                      from favorita.pedidos p_sub,
+                           favorita.vencimentospedidos v_sub,
+                           favorita.filiaisfavorita ff,
+                           ( select p.idpedido
+                                  , p.idnotavenda
+                                  , cc.idvalorcaracteristica
+                               from favorita.pedidos p
+                                  , roman.notasvendas n
+                                  , roman.classificacoesnotasvendas cc
+                              where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                                and n.idnotavenda = p.idnotavenda
+                                and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                                     from roman.classificacoesnotasvendas c
+                                                                    where c.idnotavenda = n.idnotavenda
+                                                                      and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                     where v_sub.idpedido = p_sub.idpedido
+                       and p_sub.datacancelamento is null
+                       -- FILTRO ATIVOS/INATIVOS
+                       and (:P605_SIT_REPRE is null
+                       or :P605_SIT_REPRE = 'T'
+                            or (:P605_SIT_REPRE = 'A' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'S'))
+                            or (:P605_SIT_REPRE = 'I' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'N')))
+                       and sacola_do_dianho.idpedido(+) = p_sub.idpedido
+                       and ff.idfilialfavorita = p_sub.idfilialfavorita
+                       and nvl(v_sub.valorpagar, 0) > 0
+                       and v_sub.valorpagar > v_sub.valorpago
+                       and v_sub.situacaovencimento = 'V'
+                       and trunc(sysdate) - v_sub.datavencimento between 1 and 21
+                       -- filtros de tela
+                       and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                             or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                             or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                             or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                             or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                             or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                       and trunc(v_sub.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                       and (:P605_TIPOPEDIDO is null or p_sub.tipopedido = :P605_TIPOPEDIDO)
+                       and (:P605_FILTRARROMANCE is null or p_sub.idfilialromance in (select fil.idfilialromance
+                                                                                        from favorita.filtrosempresasromance fil
+                                                                                       where fil.idusuario = :P0_IDUSUARIO))
+                       and (   (:P605_CAMPANHA is null)
+                            or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 74))
+                            or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 78))
+                            or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 94))
+                            or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 96))
+                            or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 97)))
+                     group by ff.tipofilial, ff.nomefilialfavorita
+                ),
+                atraso_22_48 as (
+                    select ff.tipofilial,
+                           ff.nomefilialfavorita,
+                           sum((v_sub.valorpagar - v_sub.valorpago) * p_sub.fatorconversao) as valor_atrasado_22_48
+                      from favorita.pedidos p_sub,
+                           favorita.vencimentospedidos v_sub,
+                           favorita.filiaisfavorita ff,
+                           ( select p.idpedido
+                                  , p.idnotavenda
+                                  , cc.idvalorcaracteristica
+                               from favorita.pedidos p
+                                  , roman.notasvendas n
+                                  , roman.classificacoesnotasvendas cc
+                              where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                                and n.idnotavenda = p.idnotavenda
+                                and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                                     from roman.classificacoesnotasvendas c
+                                                                    where c.idnotavenda = n.idnotavenda
+                                                                      and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                     where v_sub.idpedido = p_sub.idpedido
+                       and p_sub.datacancelamento is null
+                       -- FILTRO ATIVOS/INATIVOS
+                       and (:P605_SIT_REPRE is null
+                       or :P605_SIT_REPRE = 'T'
+                            or (:P605_SIT_REPRE = 'A' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'S'))
+                            or (:P605_SIT_REPRE = 'I' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'N')))
+                       and sacola_do_dianho.idpedido(+) = p_sub.idpedido
+                       and ff.idfilialfavorita = p_sub.idfilialfavorita
+                       and nvl(v_sub.valorpagar, 0) > 0
+                       and v_sub.valorpagar > v_sub.valorpago
+                       and v_sub.situacaovencimento = 'V'
+                       and trunc(sysdate) - v_sub.datavencimento between 22 and 48
+                       -- filtros de tela
+                       and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                             or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                             or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                             or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                             or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                             or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                       and trunc(v_sub.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                       and (:P605_TIPOPEDIDO is null or p_sub.tipopedido = :P605_TIPOPEDIDO)
+                       and (:P605_FILTRARROMANCE is null or p_sub.idfilialromance in (select fil.idfilialromance
+                                                                                        from favorita.filtrosempresasromance fil
+                                                                                       where fil.idusuario = :P0_IDUSUARIO))
+                       and (   (:P605_CAMPANHA is null)
+                            or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 74))
+                            or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 78))
+                            or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 94))
+                            or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 96))
+                            or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 97)))
+                     group by ff.tipofilial, ff.nomefilialfavorita
+                ),
+                atraso_mais_48 as (
+                    select ff.tipofilial,
+                           ff.nomefilialfavorita,
+                           sum((v_sub.valorpagar - v_sub.valorpago) * p_sub.fatorconversao) as valor_atrasado_mais_48
+                      from favorita.pedidos p_sub,
+                           favorita.vencimentospedidos v_sub,
+                           favorita.filiaisfavorita ff,
+                           ( select p.idpedido
+                                  , p.idnotavenda
+                                  , cc.idvalorcaracteristica
+                               from favorita.pedidos p
+                                  , roman.notasvendas n
+                                  , roman.classificacoesnotasvendas cc
+                              where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                                and n.idnotavenda = p.idnotavenda
+                                and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                                     from roman.classificacoesnotasvendas c
+                                                                    where c.idnotavenda = n.idnotavenda
+                                                                      and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                     where v_sub.idpedido = p_sub.idpedido
+                       and p_sub.datacancelamento is null
+                       -- FILTRO ATIVOS/INATIVOS
+                       and (:P605_SIT_REPRE is null
+                       or :P605_SIT_REPRE = 'T'
+                            or (:P605_SIT_REPRE = 'A' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'S'))
+                            or (:P605_SIT_REPRE = 'I' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'N')))
+                       and sacola_do_dianho.idpedido(+) = p_sub.idpedido
+                       and ff.idfilialfavorita = p_sub.idfilialfavorita
+                       and nvl(v_sub.valorpagar, 0) > 0
+                       and v_sub.valorpagar > v_sub.valorpago
+                       and v_sub.situacaovencimento = 'V'
+                       and trunc(sysdate) - v_sub.datavencimento > 48
+                       -- filtros de tela
+                       and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                             or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                             or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                             or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                             or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                             or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                       and trunc(v_sub.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                       and (:P605_TIPOPEDIDO is null or p_sub.tipopedido = :P605_TIPOPEDIDO)
+                       and (:P605_FILTRARROMANCE is null or p_sub.idfilialromance in (select fil.idfilialromance
+                                                                                        from favorita.filtrosempresasromance fil
+                                                                                       where fil.idusuario = :P0_IDUSUARIO))
+                       and (   (:P605_CAMPANHA is null)
+                            or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 74))
+                            or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 78))
+                            or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 94))
+                            or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 96))
+                            or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 97)))
+                     group by ff.tipofilial, ff.nomefilialfavorita
+                )
+                select /* canal de vendas */
+                       decode(f.tipofilial, 'C', 'Call Center', 'F', 'Favorita', 'E', 'Estoque', 'L', 'Loja', 'S', 'Site', 'V', 'Venda Direta') as "Canal Venda"
+                     
+                     /* ID da filial */
+                     , f.idfilialfavorita as "ID Filial Fav."    
+                
+                     /* nome da filial */
+                     , f.nomefilialfavorita as "Filial Favorita"
+                     
+                     /* quantidade de vencimentos */
+                     , count(*) as "Qtd Venc."
+                     
+                     /* total a pagar */
+                     , sum(v.valorpagar * p.fatorconversao) as "Total a Pagar"
+                     
+                     /* total pago */
+                     , sum(v.valorpago * p.fatorconversao) as "Total Pago"
+                     , nvl((sum(v.valorpago * p.fatorconversao) * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0),0) as "% Total Pago"
+                     
+                     /* valor pago em dia */
+                     , nvl(ped.valor_pago_em_dia,0) as "Valor Pago Em Dia"
+                     , nvl((ped.valor_pago_em_dia *100) / nullif(sum(v.valorpagar * p.fatorconversao),0),0) as "% Valor Pago Em Dia"
+                     
+                     /* em atraso até 21 dias */
+                     , nvl(a21.valor_atrasado_ate_21,0) as "Atrasado Até 21 Dias"
+                     , nvl((a21.valor_atrasado_ate_21 * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0),0) as "% Atrasado Até 21 Dias"
+                     
+                     /* em atraso entre 22 e 48 dias */
+                     , nvl(a48.valor_atrasado_22_48,0) as "Atrasado Entre 22 e 48 Dias"
+                     , nvl((a48.valor_atrasado_22_48 * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0),0) as "% Atrasado Entre 22 e 48 Dias"  
+                        
+                     /* em atraso a mais de 48 dias */
+                     , nvl(a49.valor_atrasado_mais_48,0) as "Atrasado a Mais de 48 Dias"
+                     , nvl((a49.valor_atrasado_mais_48 * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0),0) as "% Atrasado a Mais de 48 Dias"  
+                          
+                  from favorita.pedidos p,
+                       favorita.vencimentospedidos v,
+                       favorita.filiaisfavorita f,
+                       pago_em_dia ped,
+                       atraso_ate_21 a21,
+                       atraso_22_48 a48,
+                       atraso_mais_48 a49,
+                       ( select p.idpedido
+                              , p.idnotavenda
+                              , cc.idvalorcaracteristica
+                           from favorita.pedidos p
+                              , roman.notasvendas n
+                              , roman.classificacoesnotasvendas cc
+                          where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                            and n.idnotavenda = p.idnotavenda
+                            and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                                 from roman.classificacoesnotasvendas c
+                                                                where c.idnotavenda = n.idnotavenda
+                                                                  and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                 where v.idpedido = p.idpedido
+                   and sacola_do_dianho.idpedido(+) = p.idpedido
+                   and f.idfilialfavorita = p.idfilialfavorita
+                   and p.datacancelamento is null
+                   -- FILTRO ATIVOS/INATIVOS
+                   and (:P605_SIT_REPRE is null
+                       or :P605_SIT_REPRE = 'T'
+                        or (:P605_SIT_REPRE = 'A' and exists (select 1 from catal.representantes r
+                                                                 where r.idrepresentante = p.idrepresentante
+                                                                   and r.ativo = 'S'))
+                        or (:P605_SIT_REPRE = 'I' and exists (select 1 from catal.representantes r
+                                                                 where r.idrepresentante = p.idrepresentante
+                                                                   and r.ativo = 'N')))
+                   and ped.tipofilial(+) = f.tipofilial
+                   and ped.nomefilialfavorita(+) = f.nomefilialfavorita
+                   and a21.tipofilial(+) = f.tipofilial
+                   and a21.nomefilialfavorita(+) = f.nomefilialfavorita
+                   and a48.tipofilial(+) = f.tipofilial
+                   and a48.nomefilialfavorita(+) = f.nomefilialfavorita
+                   and a49.tipofilial(+) = f.tipofilial
+                   and a49.nomefilialfavorita(+) = f.nomefilialfavorita
+                   and nvl(v.valorpagar, 0) > 0
+                   and v.situacaovencimento = 'V'
+                   -- filtros de tela
+                   and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                         or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                         or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                         or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                         or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                         or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                   and trunc(v.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                   and (:P605_TIPOPEDIDO is null or p.tipopedido = :P605_TIPOPEDIDO)
+                   and (:P605_FILTRARROMANCE is null or p.idfilialromance in (select fil.idfilialromance
+                                                                                from favorita.filtrosempresasromance fil
+                                                                               where fil.idusuario = :P0_IDUSUARIO))
+                   and (   (:P605_CAMPANHA is null)
+                        or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                                from favorita.classificacoespedidos cp
+                                                               where cp.idpedido = p.idpedido
+                                                                 and cp.idcaracteristicapedido = 74))
+                        or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                                from favorita.classificacoespedidos cp
+                                                               where cp.idpedido = p.idpedido
+                                                                 and cp.idcaracteristicapedido = 78))
+                        or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                                from favorita.classificacoespedidos cp
+                                                               where cp.idpedido = p.idpedido
+                                                                 and cp.idcaracteristicapedido = 94))
+                        or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                                from favorita.classificacoespedidos cp
+                                                               where cp.idpedido = p.idpedido
+                                                                 and cp.idcaracteristicapedido = 96))
+                        or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                                from favorita.classificacoespedidos cp
+                                                               where cp.idpedido = p.idpedido
+                                                                 and cp.idcaracteristicapedido = 97)))
+                 group by f.tipofilial, f.idfilialfavorita, f.nomefilialfavorita, ped.valor_pago_em_dia, a21.valor_atrasado_ate_21, a48.valor_atrasado_22_48, a49.valor_atrasado_mais_48
+                 order by 1,2
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P605_TIPORELATORIO
+            value: CD
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 1320291231026357219
+        }
+
+        column "% Atrasado Até 21 Dias" (
+            type: plainText
+            heading {
+                heading: % Vencido Até 21 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column "% Atrasado Entre 22 e 48 Dias" (
+            type: plainText
+            heading {
+                heading: % Vencido Entre 22 a 48 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: L
+            }
+        )
+
+        column "% Atrasado a Mais de 48 Dias" (
+            type: plainText
+            heading {
+                heading: % Vencidos 49 ou +
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column "% Total Pago" (
+            type: plainText
+            heading {
+                heading: % Total Pago
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column "% Valor Pago Em Dia" (
+            type: plainText
+            heading {
+                heading: % Pago em Dia
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "Atrasado Até 21 Dias" (
+            type: plainText
+            heading {
+                heading: Vencido Até 21 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "Atrasado Entre 22 e 48 Dias" (
+            type: plainText
+            heading {
+                heading: Vencido Entre 22 a 48 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column "Atrasado a Mais de 48 Dias" (
+            type: plainText
+            heading {
+                heading: Vencidos 49 ou +
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "Canal Venda" (
+            type: plainText
+            heading {
+                heading: Canal Venda
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Filial Favorita" (
+            type: plainText
+            heading {
+                heading: Filial Favorita
+            }
+            layout {
+                sequence: 170
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "ID Filial Fav." (
+            type: plainText
+            heading {
+                heading: Id Filial Fav.
+                alignment: end
+            }
+            layout {
+                sequence: 160
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column "Qtd Venc." (
+            type: plainText
+            heading {
+                heading: Qtd Venc.
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Total Pago" (
+            type: plainText
+            heading {
+                heading: Total Pago
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "Total a Pagar" (
+            type: plainText
+            heading {
+                heading: Total a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "Valor Pago Em Dia" (
+            type: plainText
+            heading {
+                heading: Pago em Dia
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 13203379 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "% Atrasado Até 21 Dias" (
+                sequence: 9
+            )
+
+            displayColumn "% Atrasado Entre 22 e 48 Dias" (
+                sequence: 11
+            )
+
+            displayColumn "% Atrasado a Mais de 48 Dias" (
+                sequence: 13
+            )
+
+            displayColumn "% Total Pago" (
+                sequence: 5
+            )
+
+            displayColumn "% Valor Pago Em Dia" (
+                sequence: 7
+            )
+
+            displayColumn "Atrasado Até 21 Dias" (
+                sequence: 8
+            )
+
+            displayColumn "Atrasado Entre 22 e 48 Dias" (
+                sequence: 10
+            )
+
+            displayColumn "Atrasado a Mais de 48 Dias" (
+                sequence: 12
+            )
+
+            displayColumn "Canal Venda" (
+                sequence: 1
+            )
+
+            displayColumn "Qtd Venc." (
+                sequence: 2
+            )
+
+            displayColumn "Total Pago" (
+                sequence: 4
+            )
+
+            displayColumn "Total a Pagar" (
+                sequence: 3
+            )
+
+            displayColumn "Valor Pago Em Dia" (
+                sequence: 6
+            )
+
+        )
+
+    )
+
+    region inadimplencia-por-canal-de-venda-resumido (
+        name: Inadimplencia por Canal de Venda - Resumido
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                with pago_em_dia as (
+                    select ff.tipofilial,
+                           sum(GREATEST(pp.valorpago, 0) * p_sub.fatorconversao) as valor_pago_em_dia
+                      from favorita.pedidos p_sub,
+                           favorita.vencimentospedidos v_sub,
+                           favorita.pagamentospedidos pp,
+                           favorita.filiaisfavorita ff,
+                           ( select p.idpedido
+                                  , p.idnotavenda
+                                  , cc.idvalorcaracteristica
+                               from favorita.pedidos p
+                                  , roman.notasvendas n
+                                  , roman.classificacoesnotasvendas cc
+                              where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                                and n.idnotavenda = p.idnotavenda
+                                and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                                     from roman.classificacoesnotasvendas c
+                                                                    where c.idnotavenda = n.idnotavenda
+                                                                      and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                     where v_sub.idpedido = p_sub.idpedido
+                       and p_sub.datacancelamento is null
+                       -- FILTRO ATIVOS/INATIVOS
+                       and (:P605_SIT_REPRE is null
+                       or :P605_SIT_REPRE = 'T'
+                            or (:P605_SIT_REPRE = 'A' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'S'))
+                            or (:P605_SIT_REPRE = 'I' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'N')))
+                       and sacola_do_dianho.idpedido(+) = p_sub.idpedido
+                       and pp.idvencimentopedido = v_sub.idvencimentopedido
+                       and ff.idfilialfavorita = p_sub.idfilialfavorita
+                       and v_sub.situacaovencimento = 'V'
+                       and pp.idsituacao != -1
+                       and trunc(pp.datapagamento) <= trunc(v_sub.datavencimento)
+                       -- filtros de tela
+                       and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                             or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                             or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                             or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                             or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                             or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                       and trunc(v_sub.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                       and (:P605_TIPOPEDIDO is null or p_sub.tipopedido = :P605_TIPOPEDIDO)
+                       and (:P605_FILTRARROMANCE is null or p_sub.idfilialromance in (select fil.idfilialromance
+                                                                                        from favorita.filtrosempresasromance fil
+                                                                                       where fil.idusuario = :P0_IDUSUARIO))
+                       and (   (:P605_CAMPANHA is null)
+                            or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 74))
+                            or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 78))
+                            or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 94))
+                            or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 96))
+                            or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 97)))
+                     group by ff.tipofilial
+                ),
+                atraso_ate_21 as (
+                    select ff.tipofilial,
+                           sum((v_sub.valorpagar - v_sub.valorpago) * p_sub.fatorconversao) as valor_atrasado_ate_21
+                      from favorita.pedidos p_sub,
+                           favorita.vencimentospedidos v_sub,
+                           favorita.filiaisfavorita ff,
+                           ( select p.idpedido
+                                  , p.idnotavenda
+                                  , cc.idvalorcaracteristica
+                               from favorita.pedidos p
+                                  , roman.notasvendas n
+                                  , roman.classificacoesnotasvendas cc
+                              where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                                and n.idnotavenda = p.idnotavenda
+                                and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                                     from roman.classificacoesnotasvendas c
+                                                                    where c.idnotavenda = n.idnotavenda
+                                                                      and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                     where v_sub.idpedido = p_sub.idpedido
+                       and p_sub.datacancelamento is null
+                       -- FILTRO ATIVOS/INATIVOS
+                       and (:P605_SIT_REPRE is null
+                       or :P605_SIT_REPRE = 'T'
+                            or (:P605_SIT_REPRE = 'A' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'S'))
+                            or (:P605_SIT_REPRE = 'I' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'N')))
+                       and sacola_do_dianho.idpedido(+) = p_sub.idpedido
+                       and ff.idfilialfavorita = p_sub.idfilialfavorita
+                       and nvl(v_sub.valorpagar, 0) > 0
+                       and v_sub.valorpagar > v_sub.valorpago
+                       and v_sub.situacaovencimento = 'V'
+                       and trunc(sysdate) - v_sub.datavencimento between 1 and 21
+                       -- filtros de tela
+                       and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                             or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                             or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                             or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                             or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                             or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                       and trunc(v_sub.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                       and (:P605_TIPOPEDIDO is null or p_sub.tipopedido = :P605_TIPOPEDIDO)
+                       and (:P605_FILTRARROMANCE is null or p_sub.idfilialromance in (select fil.idfilialromance
+                                                                                        from favorita.filtrosempresasromance fil
+                                                                                       where fil.idusuario = :P0_IDUSUARIO))
+                       and (   (:P605_CAMPANHA is null)
+                            or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 74))
+                            or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 78))
+                            or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 94))
+                            or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 96))
+                            or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 97)))
+                     group by ff.tipofilial
+                ),
+                atraso_22_48 as (
+                    select ff.tipofilial,
+                           sum((v_sub.valorpagar - v_sub.valorpago) * p_sub.fatorconversao) as valor_atrasado_22_48
+                      from favorita.pedidos p_sub,
+                           favorita.vencimentospedidos v_sub,
+                           favorita.filiaisfavorita ff,
+                           ( select p.idpedido
+                                  , p.idnotavenda
+                                  , cc.idvalorcaracteristica
+                               from favorita.pedidos p
+                                  , roman.notasvendas n
+                                  , roman.classificacoesnotasvendas cc
+                              where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                                and n.idnotavenda = p.idnotavenda
+                                and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                                     from roman.classificacoesnotasvendas c
+                                                                    where c.idnotavenda = n.idnotavenda
+                                                                      and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                     where v_sub.idpedido = p_sub.idpedido
+                       and p_sub.datacancelamento is null
+                       -- FILTRO ATIVOS/INATIVOS
+                       and (:P605_SIT_REPRE is null
+                       or :P605_SIT_REPRE = 'T'
+                            or (:P605_SIT_REPRE = 'A' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'S'))
+                            or (:P605_SIT_REPRE = 'I' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'N')))
+                       and sacola_do_dianho.idpedido(+) = p_sub.idpedido
+                       and ff.idfilialfavorita = p_sub.idfilialfavorita
+                       and nvl(v_sub.valorpagar, 0) > 0
+                       and v_sub.valorpagar > v_sub.valorpago
+                       and v_sub.situacaovencimento = 'V'
+                       and trunc(sysdate) - v_sub.datavencimento between 22 and 48
+                       -- filtros de tela
+                       and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                             or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                             or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                             or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                             or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                             or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                       and trunc(v_sub.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                       and (:P605_TIPOPEDIDO is null or p_sub.tipopedido = :P605_TIPOPEDIDO)
+                       and (:P605_FILTRARROMANCE is null or p_sub.idfilialromance in (select fil.idfilialromance
+                                                                                        from favorita.filtrosempresasromance fil
+                                                                                       where fil.idusuario = :P0_IDUSUARIO))
+                       and (   (:P605_CAMPANHA is null)
+                            or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 74))
+                            or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 78))
+                            or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 94))
+                            or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 96))
+                            or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 97)))
+                     group by ff.tipofilial
+                ),
+                atraso_mais_48 as (
+                    select ff.tipofilial,
+                           sum((v_sub.valorpagar - v_sub.valorpago) * p_sub.fatorconversao) as valor_atrasado_mais_48
+                      from favorita.pedidos p_sub,
+                           favorita.vencimentospedidos v_sub,
+                           favorita.filiaisfavorita ff,
+                           ( select p.idpedido
+                                  , p.idnotavenda
+                                  , cc.idvalorcaracteristica
+                               from favorita.pedidos p
+                                  , roman.notasvendas n
+                                  , roman.classificacoesnotasvendas cc
+                              where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                                and n.idnotavenda = p.idnotavenda
+                                and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                                     from roman.classificacoesnotasvendas c
+                                                                    where c.idnotavenda = n.idnotavenda
+                                                                      and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                     where v_sub.idpedido = p_sub.idpedido
+                       and p_sub.datacancelamento is null
+                       -- FILTRO ATIVOS/INATIVOS
+                       and (:P605_SIT_REPRE is null
+                       or :P605_SIT_REPRE = 'T'
+                            or (:P605_SIT_REPRE = 'A' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'S'))
+                            or (:P605_SIT_REPRE = 'I' and exists (select 1 from catal.representantes r
+                                                                     where r.idrepresentante = p_sub.idrepresentante
+                                                                       and r.ativo = 'N')))
+                       and sacola_do_dianho.idpedido(+) = p_sub.idpedido
+                       and ff.idfilialfavorita = p_sub.idfilialfavorita
+                       and nvl(v_sub.valorpagar, 0) > 0
+                       and v_sub.valorpagar > v_sub.valorpago
+                       and v_sub.situacaovencimento = 'V'
+                       and trunc(sysdate) - v_sub.datavencimento > 48
+                       -- filtros de tela
+                       and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                             or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                             or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                             or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                             or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                             or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                       and trunc(v_sub.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                       and (:P605_TIPOPEDIDO is null or p_sub.tipopedido = :P605_TIPOPEDIDO)
+                       and (:P605_FILTRARROMANCE is null or p_sub.idfilialromance in (select fil.idfilialromance
+                                                                                        from favorita.filtrosempresasromance fil
+                                                                                       where fil.idusuario = :P0_IDUSUARIO))
+                       and (   (:P605_CAMPANHA is null)
+                            or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 74))
+                            or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 78))
+                            or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 94))
+                            or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 96))
+                            or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p_sub.idpedido
+                                                                     and cp.idcaracteristicapedido = 97)))
+                     group by ff.tipofilial
+                )
+                select /* canal de vendas */
+                       decode(f.tipofilial, 'C', 'Call Center', 'F', 'Favorita', 'E', 'Estoque', 'L', 'Loja', 'S', 'Site', 'V', 'Venda Direta') as "Canal Venda"
+                     
+                     /* quantidade de vencimentos */
+                     , count(*) as "Qtd Venc."
+                     
+                     /* total a pagar */
+                     , sum(v.valorpagar * p.fatorconversao) as "Total a Pagar"
+                     
+                     /* total pago */
+                     , sum(v.valorpago * p.fatorconversao) as "Total Pago"
+                     , nvl((sum(v.valorpago  * p.fatorconversao) * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0),0) as "% Total Pago"
+                     
+                     /* valor pago em dia */
+                     , nvl(ped.valor_pago_em_dia,0) as "Valor Pago Em Dia"
+                     , nvl((ped.valor_pago_em_dia *100) / nullif(sum(v.valorpagar * p.fatorconversao),0),0) as "% Valor Pago Em Dia"
+                     
+                     /* em atraso até 21 dias */
+                     , nvl(a21.valor_atrasado_ate_21,0) as "Atrasado Até 21 Dias"
+                     , nvl((a21.valor_atrasado_ate_21 * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0),0) as "% Atrasado Até 21 Dias"
+                     
+                     /* em atraso entre 22 e 48 dias */
+                     , nvl(a48.valor_atrasado_22_48,0) as "Atrasado Entre 22 e 48 Dias"
+                     , nvl((a48.valor_atrasado_22_48 * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0),0) as "% Atrasado Entre 22 e 48 Dias"  
+                        
+                     /* em atraso a mais de 48 dias */
+                     , nvl(a49.valor_atrasado_mais_48,0) as "Atrasado a Mais de 48 Dias"
+                     , nvl((a49.valor_atrasado_mais_48 * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0),0) as "% Atrasado a Mais de 48 Dias"  
+                          
+                  from favorita.pedidos p,
+                       favorita.vencimentospedidos v,
+                       favorita.filiaisfavorita f,
+                       pago_em_dia ped,
+                       atraso_ate_21 a21,
+                       atraso_22_48 a48,
+                       atraso_mais_48 a49,
+                       ( select p.idpedido
+                              , p.idnotavenda
+                              , cc.idvalorcaracteristica
+                           from favorita.pedidos p
+                              , roman.notasvendas n
+                              , roman.classificacoesnotasvendas cc
+                          where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                            and n.idnotavenda = p.idnotavenda
+                            and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                                 from roman.classificacoesnotasvendas c
+                                                                where c.idnotavenda = n.idnotavenda
+                                                                  and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                 where v.idpedido = p.idpedido
+                   and p.datacancelamento is null
+                   -- FILTRO ATIVOS/INATIVOS
+                   and (:P605_SIT_REPRE is null
+                       or :P605_SIT_REPRE = 'T'
+                        or (:P605_SIT_REPRE = 'A' and exists (select 1 from catal.representantes r
+                                                                 where r.idrepresentante = p.idrepresentante
+                                                                   and r.ativo = 'S'))
+                        or (:P605_SIT_REPRE = 'I' and exists (select 1 from catal.representantes r
+                                                                 where r.idrepresentante = p.idrepresentante
+                                                                   and r.ativo = 'N')))
+                   and sacola_do_dianho.idpedido(+) = p.idpedido
+                   and f.idfilialfavorita = p.idfilialfavorita
+                   and ped.tipofilial(+) = f.tipofilial
+                   and a21.tipofilial(+) = f.tipofilial
+                   and a48.tipofilial(+) = f.tipofilial
+                   and a49.tipofilial(+) = f.tipofilial
+                   and nvl(v.valorpagar, 0) > 0
+                   and v.situacaovencimento = 'V'
+                   -- filtros de tela
+                   and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                         or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                         or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                         or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                         or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                         or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                   and trunc(v.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                   and (:P605_TIPOPEDIDO is null or p.tipopedido = :P605_TIPOPEDIDO)
+                   and (:P605_FILTRARROMANCE is null or p.idfilialromance in (select fil.idfilialromance
+                                                                                from favorita.filtrosempresasromance fil
+                                                                               where fil.idusuario = :P0_IDUSUARIO))
+                   and (   (:P605_CAMPANHA is null)
+                        or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                                from favorita.classificacoespedidos cp
+                                                               where cp.idpedido = p.idpedido
+                                                                 and cp.idcaracteristicapedido = 74))
+                        or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                                from favorita.classificacoespedidos cp
+                                                               where cp.idpedido = p.idpedido
+                                                                 and cp.idcaracteristicapedido = 78))
+                        or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                                from favorita.classificacoespedidos cp
+                                                               where cp.idpedido = p.idpedido
+                                                                 and cp.idcaracteristicapedido = 94))
+                        or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                                from favorita.classificacoespedidos cp
+                                                               where cp.idpedido = p.idpedido
+                                                                 and cp.idcaracteristicapedido = 96))
+                        or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                                from favorita.classificacoespedidos cp
+                                                               where cp.idpedido = p.idpedido
+                                                                 and cp.idcaracteristicapedido = 97)))
+                 group by f.tipofilial, ped.valor_pago_em_dia, a21.valor_atrasado_ate_21, a48.valor_atrasado_22_48, a49.valor_atrasado_mais_48
+                 order by 1
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P605_TIPORELATORIO
+            value: CR
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 1320289429865357201
+        }
+
+        column "% Atrasado Até 21 Dias" (
+            type: plainText
+            heading {
+                heading: % Vencido Até 21 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column "% Atrasado Entre 22 e 48 Dias" (
+            type: plainText
+            heading {
+                heading: % Vencido Entre 22 a 48 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: S
+            }
+        )
+
+        column "% Atrasado a Mais de 48 Dias" (
+            type: plainText
+            heading {
+                heading: % Vencidos 49 ou +
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: U
+            }
+        )
+
+        column "% Total Pago" (
+            type: plainText
+            heading {
+                heading: % Total Pago
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column "% Valor Pago Em Dia" (
+            type: plainText
+            heading {
+                heading: % Pago em Dia
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        column "Atrasado Até 21 Dias" (
+            type: plainText
+            heading {
+                heading: Vencido Até 21 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column "Atrasado Entre 22 e 48 Dias" (
+            type: plainText
+            heading {
+                heading: Vencido Entre 22 a 48 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "Atrasado a Mais de 48 Dias" (
+            type: plainText
+            heading {
+                heading: Vencidos 49 ou +
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: T
+            }
+        )
+
+        column "Canal Venda" (
+            type: plainText
+            heading {
+                heading: Canal Venda
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "Qtd Venc." (
+            type: plainText
+            heading {
+                heading: Qtd Venc.
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Total Pago" (
+            type: plainText
+            heading {
+                heading: Total Pago
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "Total a Pagar" (
+            type: plainText
+            heading {
+                heading: Total a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column "Valor Pago Em Dia" (
+            type: plainText
+            heading {
+                heading: Pago em Dia
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 13202980 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "% Atrasado Até 21 Dias" (
+                sequence: 9
+            )
+
+            displayColumn "% Atrasado Entre 22 e 48 Dias" (
+                sequence: 11
+            )
+
+            displayColumn "% Atrasado a Mais de 48 Dias" (
+                sequence: 13
+            )
+
+            displayColumn "% Total Pago" (
+                sequence: 5
+            )
+
+            displayColumn "% Valor Pago Em Dia" (
+                sequence: 7
+            )
+
+            displayColumn "Atrasado Até 21 Dias" (
+                sequence: 8
+            )
+
+            displayColumn "Atrasado Entre 22 e 48 Dias" (
+                sequence: 10
+            )
+
+            displayColumn "Atrasado a Mais de 48 Dias" (
+                sequence: 12
+            )
+
+            displayColumn "Canal Venda" (
+                sequence: 1
+            )
+
+            displayColumn "Qtd Venc." (
+                sequence: 2
+            )
+
+            displayColumn "Total Pago" (
+                sequence: 4
+            )
+
+            displayColumn "Total a Pagar" (
+                sequence: 3
+            )
+
+            displayColumn "Valor Pago Em Dia" (
+                sequence: 6
+            )
+
+        )
+
+    )
+
+    region inadimplência-por-empresa (
+        name: Inadimplência por Empresa
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                with 
+                -- #CTE 1
+                pago_em_dia as (
+                    select p.idfilialromance,
+                           p.idrepresentante,
+                           sum(GREATEST(pp.valorpago, 0) * p.fatorconversao) as valor_pago_em_dia
+                      from favorita.pedidos p,
+                           favorita.vencimentospedidos v,
+                           favorita.pagamentospedidos pp,
+                           ( select p.idpedido
+                                  , p.idnotavenda
+                                  , cc.idvalorcaracteristica
+                               from favorita.pedidos p
+                                  , roman.notasvendas n
+                                  , roman.classificacoesnotasvendas cc
+                              where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                                and n.idnotavenda = p.idnotavenda
+                                and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                                     from roman.classificacoesnotasvendas c
+                                                                    where c.idnotavenda = n.idnotavenda
+                                                                      and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                     where v.idpedido = p.idpedido
+                       and p.datacancelamento is null
+                       and sacola_do_dianho.idpedido(+) = p.idpedido
+                       and pp.idvencimentopedido = v.idvencimentopedido
+                       and v.situacaovencimento = 'V'
+                       and trunc(v.datavencimento) >= trunc(pp.datapagamento)
+                       and pp.idsituacao != -1
+                       -- Filtros de tela
+                       and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                             or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                             or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                             or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                             or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                             or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                       and trunc(v.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                       and (:P605_TIPOPEDIDO is null or p.tipopedido = :P605_TIPOPEDIDO)
+                       and (:P605_FILTRARROMANCE is null or p.idfilialromance in ( select fil.idfilialromance
+                                                                                     from favorita.filtrosempresasromance fil
+                                                                                    where fil.idusuario = :P0_IDUSUARIO))
+                       and (   (:P605_CAMPANHA is null)
+                            or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p.idpedido
+                                                                     and cp.idcaracteristicapedido = 74))
+                            or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p.idpedido
+                                                                     and cp.idcaracteristicapedido = 78))
+                            or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p.idpedido
+                                                                     and cp.idcaracteristicapedido = 94))
+                            or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p.idpedido
+                                                                     and cp.idcaracteristicapedido = 96))
+                            or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p.idpedido
+                                                                     and cp.idcaracteristicapedido = 97)))
+                     group by p.idfilialromance, p.idrepresentante
+                ),
+                -- #CTE 2
+                valores_em_atraso as (
+                    select 
+                        p.idfilialromance,
+                        p.idrepresentante,
+                        case 
+                            when (trunc(sysdate) - trunc(v.datavencimento)) between 1 and 21 then 'ATRASO_1_21'
+                            when (trunc(sysdate) - trunc(v.datavencimento)) between 22 and 48 then 'ATRASO_22_48'
+                            when (trunc(sysdate) - trunc(v.datavencimento)) >= 49 then 'ATRASO_49_MAIS'
+                        end as faixa_atraso,
+                        sum((v.valorpagar - v.valorpago)*p.fatorconversao) as valor
+                      from favorita.pedidos p,
+                           favorita.vencimentospedidos v,
+                           ( select p.idpedido
+                                  , p.idnotavenda
+                                  , cc.idvalorcaracteristica
+                               from favorita.pedidos p
+                                  , roman.notasvendas n
+                                  , roman.classificacoesnotasvendas cc
+                              where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                                and n.idnotavenda = p.idnotavenda
+                                and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                                     from roman.classificacoesnotasvendas c
+                                                                    where c.idnotavenda = n.idnotavenda
+                                                                      and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                     where v.idpedido = p.idpedido
+                       and p.datacancelamento is null
+                       and sacola_do_dianho.idpedido(+) = p.idpedido
+                       and v.situacaovencimento = 'V'
+                       and v.valorpagar > v.valorpago
+                       and (trunc(sysdate) - trunc(v.datavencimento)) >= 1
+                       -- Filtros de tela
+                       and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                             or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                             or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                             or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                             or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                             or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                       and trunc(v.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                       and (:P605_TIPOPEDIDO is null or p.tipopedido = :P605_TIPOPEDIDO)
+                       and (:P605_FILTRARROMANCE is null or p.idfilialromance in (select fil.idfilialromance
+                                                                                    from favorita.filtrosempresasromance fil
+                                                                                   where fil.idusuario = :P0_IDUSUARIO))
+                       and (   (:P605_CAMPANHA is null)
+                            or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p.idpedido
+                                                                     and cp.idcaracteristicapedido = 74))
+                            or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p.idpedido
+                                                                     and cp.idcaracteristicapedido = 78))
+                            or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p.idpedido
+                                                                     and cp.idcaracteristicapedido = 94))
+                            or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p.idpedido
+                                                                     and cp.idcaracteristicapedido = 96))
+                            or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                                    from favorita.classificacoespedidos cp
+                                                                   where cp.idpedido = p.idpedido
+                                                                     and cp.idcaracteristicapedido = 97)))
+                     group by p.idfilialromance, p.idrepresentante, 
+                              case 
+                                  when (trunc(sysdate) - trunc(v.datavencimento)) between 1 and 21 then 'ATRASO_1_21'
+                                  when (trunc(sysdate) - trunc(v.datavencimento)) between 22 and 48 then 'ATRASO_22_48'
+                                  when (trunc(sysdate) - trunc(v.datavencimento)) >= 49 then 'ATRASO_49_MAIS'
+                              end
+                ),
+                -- #CTE 3
+                agregado_atraso as (
+                    select 
+                        idfilialromance,
+                        idrepresentante,
+                        sum(case when faixa_atraso = 'ATRASO_1_21' then valor else 0 end) as valor_atrasado_entre_1_e_21,
+                        sum(case when faixa_atraso = 'ATRASO_22_48' then valor else 0 end) as valor_atrasado_entre_22_e_48,
+                        sum(case when faixa_atraso = 'ATRASO_49_MAIS' then valor else 0 end) as valor_atrasado_a_mais_de_48_dias
+                      from valores_em_atraso
+                     group by idfilialromance, idrepresentante
+                )
+                -- #CTE 4 (para uso da query dos subtotais)
+                , pago_em_dia_filial as (
+                    select
+                        idfilialromance,
+                        sum(valor_pago_em_dia) as total_pago_em_dia
+                    from pago_em_dia
+                    group by idfilialromance
+                )
+                
+                -- #CTE 5 (para uso da query dos subtotais)
+                , agregado_atraso_filial as (
+                    select
+                        idfilialromance,
+                        sum(valor_atrasado_entre_1_e_21) as total_atrasado_1_21,
+                        sum(valor_atrasado_entre_22_e_48) as total_atrasado_22_48,
+                        sum(valor_atrasado_a_mais_de_48_dias) as total_atrasado_49_mais
+                    from agregado_atraso
+                    group by idfilialromance
+                )
+                
+                -- Query Oficial
+                select
+                    p.idfilialromance as "ID Filial",
+                    favorita.pck_util_fav.fnc_nomefilialromance(p.idfilialromance) as "Filial Romance",
+                    favorita.pck_util_fav.fnc_nomerepresentante(p.idrepresentante) as "Distribuidor",
+                    p.idrepresentante as "ID Distribuidor",
+                    count(v.idvencimentopedido) as "Qtd. Venc.",
+                    sum(v.valorpagar * p.fatorconversao) as "Total a Pagar",
+                    
+                    sum(v.valorpago * p.fatorconversao) as "Total Pago",
+                    round(((sum(v.valorpago * p.fatorconversao) * 100) / sum(v.valorpagar * p.fatorconversao)),2) as "% Total Pago",
+                    
+                    nvl(pag.valor_pago_em_dia, 0) as "Total Pago Em Dia",
+                    round(((nvl(pag.valor_pago_em_dia, 0) * 100) / sum(v.valorpagar * p.fatorconversao)),2) as "% Total Pago Em Dia",
+                    
+                    nvl(atr.valor_atrasado_entre_1_e_21, 0) as "Vencido Até 21 Dias",
+                    round(((nvl(atr.valor_atrasado_entre_1_e_21, 0) * 100) / sum(v.valorpagar * p.fatorconversao)),2) as "% Vencido Até 21 Dias",
+                
+                    nvl(atr.valor_atrasado_entre_22_e_48, 0) as "Vencido Entre 22 a 48 Dias",
+                    round(((nvl(atr.valor_atrasado_entre_22_e_48, 0) * 100) / sum(v.valorpagar * p.fatorconversao)),2) as "% Vencido Entre 22 a 48 Dias",
+                
+                    nvl(atr.valor_atrasado_a_mais_de_48_dias, 0) as "Vencido a Mais de 48 Dias",
+                    round(((nvl(atr.valor_atrasado_a_mais_de_48_dias, 0) * 100) / sum(v.valorpagar * p.fatorconversao)),2) as "% Vencido a Mais de 48 Dias",
+                
+                    1 as ordem -- <<< Essa é a coluna auxiliar de ordenação
+                from favorita.pedidos p,
+                     favorita.vencimentospedidos v,
+                     pago_em_dia pag,
+                     agregado_atraso atr,
+                     ( select p.idpedido
+                            , p.idnotavenda
+                            , cc.idvalorcaracteristica
+                         from favorita.pedidos p
+                            , roman.notasvendas n
+                            , roman.classificacoesnotasvendas cc
+                        where :P605_SACOLA is not null -- (Maicon)Fiz essa manha para não pesar no relatório!
+                          and n.idnotavenda = p.idnotavenda
+                          and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                               from roman.classificacoesnotasvendas c
+                                                              where c.idnotavenda = n.idnotavenda
+                                                                and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                where v.idpedido = p.idpedido
+                  and sacola_do_dianho.idpedido(+) = p.idpedido
+                  and pag.idfilialromance(+) = p.idfilialromance 
+                  and pag.idrepresentante(+) = p.idrepresentante
+                  and atr.idfilialromance(+) = p.idfilialromance
+                  and atr.idrepresentante(+) = p.idrepresentante
+                  and v.situacaovencimento = 'V'
+                  and p.datacancelamento is null
+                  and v.valorpagar > 0
+                  -- FILTRO ATIVOS/INATIVOS
+                  and (:P605_SIT_REPRE is null
+                       or :P605_SIT_REPRE = 'T'
+                       or (:P605_SIT_REPRE = 'A' and exists (select 1 from catal.representantes r
+                                                                where r.idrepresentante = p.idrepresentante
+                                                                  and r.ativo = 'S'))
+                       or (:P605_SIT_REPRE = 'I' and exists (select 1 from catal.representantes r
+                                                                where r.idrepresentante = p.idrepresentante
+                                                                  and r.ativo = 'N')))
+                  -- Filtros de tela
+                  and (    (:P605_SACOLA is null)                                                 -- não filtra por sacola
+                        or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)      -- somente 1ª sacola
+                        or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)      -- somente 2ª sacola
+                        or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)      -- somente 3ª sacola
+                        or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)      -- todos a partir da 4ª sacola
+                        or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null)) -- sem sacola
+                  and trunc(v.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                  and (:P605_TIPOPEDIDO is null or p.tipopedido = :P605_TIPOPEDIDO)
+                  and (:P605_FILTRARROMANCE is null or p.idfilialromance in ( select fil.idfilialromance
+                                                                                from favorita.filtrosempresasromance fil
+                                                                               where fil.idusuario = :P0_IDUSUARIO))
+                  and (   (:P605_CAMPANHA is null)
+                       or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                               from favorita.classificacoespedidos cp
+                                                              where cp.idpedido = p.idpedido
+                                                                and cp.idcaracteristicapedido = 74))
+                       or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                               from favorita.classificacoespedidos cp
+                                                              where cp.idpedido = p.idpedido
+                                                                and cp.idcaracteristicapedido = 78))
+                       or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                               from favorita.classificacoespedidos cp
+                                                              where cp.idpedido = p.idpedido
+                                                                and cp.idcaracteristicapedido = 94))
+                       or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                               from favorita.classificacoespedidos cp
+                                                              where cp.idpedido = p.idpedido
+                                                                and cp.idcaracteristicapedido = 96))
+                       or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                               from favorita.classificacoespedidos cp
+                                                              where cp.idpedido = p.idpedido
+                                                                and cp.idcaracteristicapedido = 97)))
+                group by
+                    p.idfilialromance,
+                    p.idrepresentante,
+                    pag.valor_pago_em_dia,
+                    atr.valor_atrasado_entre_1_e_21,
+                    atr.valor_atrasado_entre_22_e_48,
+                    atr.valor_atrasado_a_mais_de_48_dias
+                
+                union all
+                -- Sub Totais por Filial
+                select
+                    p.idfilialromance as "ID Filial",
+                    favorita.pck_util_fav.fnc_nomefilialromance(p.idfilialromance) as "Filial Romance",
+                    'Sub Total' as "Distribuidor",
+                    null as "ID Distribuidor",
+                    count(distinct v.idvencimentopedido) as "Qtd. Venc.",
+                    sum(v.valorpagar * p.fatorconversao) as "Total a Pagar",
+                    sum(v.valorpago * p.fatorconversao) as "Total Pago",
+                    round(((sum(v.valorpago * p.fatorconversao) * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0)),2) as "% Total Pago",
+                    
+                    nvl(pf.total_pago_em_dia, 0) as "Total Pago Em Dia",
+                    round(((nvl(pf.total_pago_em_dia,0) * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0)),2) as "% Total Pago Em Dia",
+                    
+                    nvl(af.total_atrasado_1_21, 0) as "Vencido Até 21 Dias",
+                    round(((nvl(af.total_atrasado_1_21,0) * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0)),2) as "% Vencido Até 21 Dias",
+                
+                    nvl(af.total_atrasado_22_48, 0) as "Vencido Entre 22 a 48 Dias",
+                    round(((nvl(af.total_atrasado_22_48,0) * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0)),2) as "% Vencido Entre 22 a 48 Dias",
+                
+                    nvl(af.total_atrasado_49_mais, 0) as "Vencido a Mais de 48 Dias",
+                    round(((nvl(af.total_atrasado_49_mais,0) * 100) / nullif(sum(v.valorpagar * p.fatorconversao),0)),2) as "% Vencido a Mais de 48 Dias",
+                
+                    2 as ordem
+                from favorita.pedidos p,
+                     favorita.vencimentospedidos v,
+                     pago_em_dia_filial pf,
+                     agregado_atraso_filial af,
+                     ( select p.idpedido
+                            , p.idnotavenda
+                            , cc.idvalorcaracteristica
+                         from favorita.pedidos p,
+                              roman.notasvendas n,
+                              roman.classificacoesnotasvendas cc
+                        where :P605_SACOLA is not null
+                          and n.idnotavenda = p.idnotavenda
+                          and cc.idclassificacaonotavenda = (select max(c.idclassificacaonotavenda)
+                                                               from roman.classificacoesnotasvendas c
+                                                              where c.idnotavenda = n.idnotavenda
+                                                                and c.idcaracteristicanotavenda = 52)) sacola_do_dianho
+                where v.idpedido = p.idpedido
+                  and sacola_do_dianho.idpedido(+) = p.idpedido
+                  and pf.idfilialromance(+) = p.idfilialromance
+                  and af.idfilialromance(+) = p.idfilialromance
+                  and v.situacaovencimento = 'V'
+                  and v.valorpagar > 0
+                  and p.datacancelamento is null
+                  -- FILTRO ATIVOS/INATIVOS
+                  and (:P605_SIT_REPRE is null
+                       or :P605_SIT_REPRE = 'T'
+                       or (:P605_SIT_REPRE = 'A' and exists (select 1 from catal.representantes r
+                                                                where r.idrepresentante = p.idrepresentante
+                                                                  and r.ativo = 'S'))
+                       or (:P605_SIT_REPRE = 'I' and exists (select 1 from catal.representantes r
+                                                                where r.idrepresentante = p.idrepresentante
+                                                                  and r.ativo = 'N')))
+                  -- Filtros de tela
+                  and (    (:P605_SACOLA is null)
+                        or (:P605_SACOLA = 1 and sacola_do_dianho.idvalorcaracteristica = 1)
+                        or (:P605_SACOLA = 2 and sacola_do_dianho.idvalorcaracteristica = 2)
+                        or (:P605_SACOLA = 3 and sacola_do_dianho.idvalorcaracteristica = 3)
+                        or (:P605_SACOLA = 4 and sacola_do_dianho.idvalorcaracteristica > 3)
+                        or (:P605_SACOLA = 5 and sacola_do_dianho.idvalorcaracteristica is null))
+                  and trunc(v.datavencimento) between to_date(:P605_DATAINICIO, 'DD/MM/YYYY') and to_date(:P605_DATAFIM, 'DD/MM/YYYY')
+                  and (:P605_TIPOPEDIDO is null or p.tipopedido = :P605_TIPOPEDIDO)
+                  and (:P605_FILTRARROMANCE is null or p.idfilialromance in ( select fil.idfilialromance
+                                                                                from favorita.filtrosempresasromance fil
+                                                                               where fil.idusuario = :P0_IDUSUARIO))
+                  and (   (:P605_CAMPANHA is null)
+                       or (:P605_CAMPANHA = 'P' and exists ( select 1
+                                                               from favorita.classificacoespedidos cp
+                                                              where cp.idpedido = p.idpedido
+                                                                and cp.idcaracteristicapedido = 74))
+                       or (:P605_CAMPANHA = 'V' and exists ( select 1
+                                                               from favorita.classificacoespedidos cp
+                                                              where cp.idpedido = p.idpedido
+                                                                and cp.idcaracteristicapedido = 78))
+                       or (:P605_CAMPANHA = 'W' and exists ( select 1
+                                                               from favorita.classificacoespedidos cp
+                                                              where cp.idpedido = p.idpedido
+                                                                and cp.idcaracteristicapedido = 94))
+                       or (:P605_CAMPANHA = 'B' and exists ( select 1
+                                                               from favorita.classificacoespedidos cp
+                                                              where cp.idpedido = p.idpedido
+                                                                and cp.idcaracteristicapedido = 96))
+                       or (:P605_CAMPANHA = 'A' and exists ( select 1
+                                                               from favorita.classificacoespedidos cp
+                                                              where cp.idpedido = p.idpedido
+                                                                and cp.idcaracteristicapedido = 97)))
+                group by p.idfilialromance,
+                         pf.total_pago_em_dia,
+                         af.total_atrasado_1_21,
+                         af.total_atrasado_22_48,
+                         af.total_atrasado_49_mais
+                order by 1, ordem, 2;
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P605_TIPORELATORIO
+            value: E
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 10000
+        }
+        actionsMenu {
+            savePublicReport: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 762995511925907028
+        }
+
+        column "% Total Pago" (
+            type: plainText
+            heading {
+                heading: % Total Pago
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AB
+            }
+        )
+
+        column "% Total Pago Em Dia" (
+            type: plainText
+            heading {
+                heading: % Pago em Dia
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AC
+            }
+        )
+
+        column "% Vencido Até 21 Dias" (
+            type: plainText
+            heading {
+                heading: % Vencido Até 21 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AD
+            }
+        )
+
+        column "% Vencido Entre 22 a 48 Dias" (
+            type: plainText
+            heading {
+                heading: % Vencido Entre 22 a 48 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AE
+            }
+        )
+
+        column "% Vencido a Mais de 48 Dias" (
+            type: plainText
+            heading {
+                heading: % Vencidos 49 ou +
+                alignment: center
+            }
+            layout {
+                sequence: 160
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AF
+            }
+        )
+
+        column Distribuidor (
+            type: plainText
+            heading {
+                heading: Distribuidor
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Filial Romance" (
+            type: plainText
+            heading {
+                heading: Filial Romance
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column "ID Distribuidor" (
+            type: plainText
+            heading {
+                heading: ID Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AG
+            }
+        )
+
+        column "ID Filial" (
+            type: plainText
+            heading {
+                heading: ID Filial
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AI
+            }
+        )
+
+        column ORDEM (
+            type: hidden
+            heading {
+                heading: Ordem
+            }
+            layout {
+                sequence: 170
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AH
+            }
+        )
+
+        column "Qtd. Venc." (
+            type: plainText
+            heading {
+                heading: Qtd. Venc.
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Q
+            }
+        )
+
+        column "Total Pago" (
+            type: plainText
+            heading {
+                heading: Total Pago
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "Total Pago Em Dia" (
+            type: plainText
+            heading {
+                heading: Pago em Dia
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: R
+            }
+        )
+
+        column "Total a Pagar" (
+            type: plainText
+            heading {
+                heading: Total a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column "Vencido Até 21 Dias" (
+            type: plainText
+            heading {
+                heading: Vencido Até 21 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Y
+            }
+        )
+
+        column "Vencido Entre 22 a 48 Dias" (
+            type: plainText
+            heading {
+                heading: Vencido Entre 22 a 48 Dias
+                alignment: center
+            }
+            layout {
+                sequence: 130
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: Z
+            }
+        )
+
+        column "Vencido a Mais de 48 Dias" (
+            type: plainText
+            heading {
+                heading: Vencidos 49 ou +
+                alignment: center
+            }
+            layout {
+                sequence: 150
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: AA
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 13194500 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn "% Total Pago" (
+                sequence: 8
+            )
+
+            displayColumn "% Total Pago Em Dia" (
+                sequence: 10
+            )
+
+            displayColumn "% Vencido Até 21 Dias" (
+                sequence: 12
+            )
+
+            displayColumn "% Vencido Entre 22 a 48 Dias" (
+                sequence: 14
+            )
+
+            displayColumn "% Vencido a Mais de 48 Dias" (
+                sequence: 16
+            )
+
+            displayColumn "Distribuidor" (
+                sequence: 4
+            )
+
+            displayColumn "Filial Romance" (
+                sequence: 2
+            )
+
+            displayColumn "ID Distribuidor" (
+                sequence: 3
+            )
+
+            displayColumn "ID Filial" (
+                sequence: 1
+            )
+
+            displayColumn "Qtd. Venc." (
+                sequence: 5
+            )
+
+            displayColumn "Total Pago" (
+                sequence: 7
+            )
+
+            displayColumn "Total Pago Em Dia" (
+                sequence: 9
+            )
+
+            displayColumn "Total a Pagar" (
+                sequence: 6
+            )
+
+            displayColumn "Vencido Até 21 Dias" (
+                sequence: 11
+            )
+
+            displayColumn "Vencido Entre 22 a 48 Dias" (
+                sequence: 13
+            )
+
+            displayColumn "Vencido a Mais de 48 Dias" (
+                sequence: 15
+            )
+
+            highlight ir-condition (
+                name: Sub Total
+                condition {
+                    column: "Distribuidor"
+                    value: Sub Total
+                }
+                colors {
+                    background: #d9f2d9
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+        )
+
+    )
+
+    region new (
+        name: New
+        type: staticContent
+        layout {
+            sequence: 50
+            slot: body
+        }
+        appearance {
+            template: @/inline-dialog
+            templateOptions: [
+                #DEFAULT#
+                js-dialog-size600x400
+            ]
+        }
+    )
+
+    region opções (
+        name: "Opções "
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P605_CAMPANHA (
+        type: selectList
+        label {
+            label: <b>Campanha:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Prospecção;T,Venda Ativa;V,WhastApp;W,Belém Pronta Entrega;B,Ativa WhatsApp;A
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 60
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+    )
+
+    pageItem P605_DATAFIM (
+        type: datePicker
+        label {
+            label: <b>Data Final:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P605_DATAINICIO (
+        type: datePicker
+        label {
+            label: <b>Data Inicial:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        validation {
+            valueRequired: true
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P605_FILTRARROMANCE (
+        type: selectList
+        label {
+            label: <b>Franquia Romance:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Selecionar;S
+            nullDisplayValue: - Todas -
+        }
+        layout {
+            sequence: 70
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P605_SACOLA (
+        type: selectList
+        label {
+            label: <b>Sacola:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:1ª Sacola;1,2ª Sacola;2,3ª Sacola;3,4ª Sacola e Superior;4,Sem Sacola;5
+            nullDisplayValue: "- Todos - "
+        }
+        layout {
+            sequence: 50
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+    )
+
+    pageItem P605_SIT_REPRE (
+        type: selectList
+        label {
+            label: <b>Situação Distribuidor:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Ativo;A,Inativo;I
+            nullDisplayValue: Ambos
+            nullReturnValue: T
+        }
+        layout {
+            sequence: 80
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+    )
+
+    pageItem P605_TIPOPEDIDO (
+        type: selectList
+        label {
+            label: <b>Tipo Pedido:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Pedido;P,Romance Casa;R,Troca;T
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 40
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+    )
+
+    pageItem P605_TIPORELATORIO (
+        type: selectList
+        label {
+            label: <b>Relatório:</b>
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Por Franquia;E,Por Canal de Venda Resumido;CR,Por Canal de Venda Detalhado;CD
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @opções
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        validation {
+            valueRequired: true
+        }
+        default {
+            type: static
+            staticValue: E
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Filtrar
+        layout {
+            sequence: 100
+            region: @opções
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+        advanced {
+            customAttributes: style="background-color: #81bb5f;   color:white;   border:1px solid #68aa42;   border-radius: 2px";
+        }
+    )
+
+    button empresasromance (
+        buttonName: EMPRESASROMANCE
+        label: Franquia Romance
+        layout {
+            sequence: 90
+            region: @opções
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 443
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+)
+

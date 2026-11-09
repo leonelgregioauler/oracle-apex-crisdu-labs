@@ -1,0 +1,4461 @@
+page 246 (
+    name: Prospecção / Venda Ativa
+    title: Prospecção / Venda Ativa
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region ações (
+        name: Ações
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region ações-especiais (
+        name: Ações Especiais
+        type: staticContent
+        layout {
+            sequence: 40
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                from dual
+                where exists ( select 1
+                               from roman.usuariosgruposatendimento ug
+                               where ug.usuario = v('APP_USER')
+                                 and ug.idgrupoatendimento = 25 )
+                ```
+        }
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region relação-de-clientes-prospecção (
+        name: Relação de Clientes Prospecção
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select /*+ FIRST_ROWS(50) */ roman.pck_romance.fnc_nomevendedora(n.idvendedora) cliente
+                 , to_char(sum(n.valorpago),'999G999G999G999G990D00') totalpago
+                 , to_char((sum(n.valorpago)/count(1)),'999G999G999G999G990D00') media
+                 , null gerartarefa
+                 , null vernotas
+                 , n.idvendedora
+                 , ( select count(1)
+                     from roman.notasvendas nv
+                     where nv.idvendedora = n.idvendedora ) qtdnotas
+                 , v.idpessoa vercadastro
+                 , pck_util_fav.fnc_retornadataatendimento(n.idvendedora) dataretorno
+                 , roman.pck_romance.fnc_cpfvendedora(n.idvendedora) cpf
+                -- , roman.pck_romance.fnc_retornatelefones(n.idvendedora) telefones
+                 , (select listagg(distinct(telefone),' / ') within group (order by 1) 
+                      from catal.telefonespessoas t
+                     where t.idpessoa = v.idpessoa) telefones
+                 --, apex_item.hidden(01,n.idvendedora,null)||
+                 , apex_item.CHECKBOX2(2,n.idvendedora, null)CHECK1
+                from roman.notasvendas n
+                 , vendedoras v
+                where v.idvendedora = n.idvendedora
+                  and v.ativo = 'S'
+                  and n.idsituacaonotavenda = 3
+                  and :P246_TIPORELATORIO = 'P'
+                  and exists ( select 1
+                               from roman.notasvendas n
+                               where n.idsituacaonotavenda = 3
+                                 and n.idvendedora = v.idvendedora
+                                 and trunc(n.datanota) > trunc(sysdate - 100)) 
+                  and ( :P246_DEBITO is null or ( :P246_DEBITO = 'S' and ( select sum(n.saldo)
+                                                                           from roman.notasvendas n
+                                                                           where n.idvendedora = v.idvendedora
+                                                                             and n.idsituacaonotavenda = 4 ) > 0 )
+                                             or ( :P246_DEBITO = 'N' and ( select sum(n.saldo)
+                                                                           from roman.notasvendas n
+                                                                           where n.idvendedora = v.idvendedora
+                                                                             and n.idsituacaonotavenda = 4 ) = 0 ) )
+                  and ( :P246_DATAINICIO is null 
+                       or trunc(n.dataretorno) between to_date(:P246_DATAINICIO) and to_date(:P246_DATAFIM) )
+                  and not exists ( select 1
+                                   from pedidos p
+                                   where p.idvendedora = n.idvendedora )
+                  and not exists ( select 1
+                                   from catal.pedidos p
+                                   where p.idvendedora = n.idvendedora ) 
+                  and not exists ( select 1
+                                   from catal.funcionarios ff
+                                   where ff.idpessoa = v.idpessoa )
+                  and n.idfilial = :P246_IDFILIALROMANCE
+                  and ( :P246_IDREPRESENTANTE is null or n.idrepresentante = :P246_IDREPRESENTANTE )
+                  and ( :P246_IDCIDADE is null or exists ( select 1
+                                                           from pessoas p
+                                                           where p.idpessoa = v.idpessoa
+                                                             and p.idcidade = :P246_IDCIDADE ) )
+                  and not exists (select 1
+                                   from tarefas t
+                                   where t.idpessoa = v.idpessoa
+                                     and (( t.idtipotarefa = 8 and t.idpais  = 1) or ( t.idtipotarefa = 47 and t.idpais  = 2) or ( t.idtipotarefa = 51 and t.idpais  = 4))
+                                     and (t.idsituacao in (0,10,20,50)
+                                       or (t.idsituacao = 30 and trunc(sysdate) - trunc(nvl(t.dataconclusao,t.datainclusao)) < 15)))
+                 /*
+                  and not exists ( select 1
+                                     from tarefas t
+                                     where t.idtipotarefa = 8
+                                       and t.idsituacao in (0,10,20)
+                                       and t.idpessoa = v.idpessoa 
+                                        or exists ( select 1
+                                                    from tarefas t
+                                                    where t.idtipotarefa = 8
+                                                      and t.idsituacao in (30)
+                                                      and t.idpessoa = v.idpessoa
+                                                      and trunc(sysdate) - trunc(t.dataconclusao) < 90))
+                  */
+                  having (:P246_MEDIAINI is null or  (sum(n.valorpago)/count(1)) between to_char(:P246_MEDIAINI,'999G999G999G999G990D00') 
+                                                                                     and to_char(:P246_MEDIAFIM,'999G999G999G999G990D00'))
+                  
+                  and ( :P246_QTDNOTAS is null or ((( select count(1)
+                                                      from roman.notasvendas nv
+                                                      where nv.idvendedora = n.idvendedora ) = :P246_QTDNOTAS and :P246_TIPOQTD = 0)
+                                                   or (( select count(1)
+                                                        from roman.notasvendas nv
+                                                        where nv.idvendedora = n.idvendedora ) > :P246_QTDNOTAS and :P246_TIPOQTD = 1)
+                                                   or (( select count(1)
+                                                        from roman.notasvendas nv
+                                                        where nv.idvendedora = n.idvendedora ) < :P246_QTDNOTAS and :P246_TIPOQTD = 2)))
+                  and ( :P246_REDESPACHOTOTAL = 0 or ( exists( select 1
+                                                               from catal.pessoas cp
+                                                               where cp.idpessoa = v.idpessoa
+                                                                 and exists ( select *
+                                                                              from favorita.totalexpressinfo t
+                                                                              where to_number(nvl(regexp_replace(cp.cep, '[^0-9]', ''),'0')) between t.cepinicial and t.cepfinal)) and :P246_REDESPACHOTOTAL= 1)
+                                                  or not ( exists( select 1
+                                                                   from catal.pessoas cp
+                                                                   where cp.idpessoa = v.idpessoa
+                                                                     and exists ( select *
+                                                                                  from favorita.totalexpressinfo t
+                                                                                  where to_number(nvl(regexp_replace(cp.cep, '[^0-9]', ''),'0')) between t.cepinicial and t.cepfinal)) and :P246_REDESPACHOTOTAL= 2) )
+                group by n.idvendedora, v.idpessoa
+                order by 1 
+                  
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            htmlDomId: partnerslRR
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P246_TIPORELATORIO
+            value: P
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            searchField: false
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            selectColumns: false
+            rowsPerPage: false
+            sort: false
+            controlBreak: false
+            highlight: false
+            compute: false
+            aggregate: false
+            chart: false
+            groupBy: false
+            pivot: false
+            flashback: false
+            savePublicReport: true
+            reset: false
+            help: false
+            subscription: false
+        }
+        download {
+            formats: csv
+            sendAsEmail: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 566836311025532603
+        }
+
+        column CHECK1 (
+            type: plainText
+            heading {
+                heading: <input type="checkbox"id="selectUnselectAll"title="Select/Unselect All">
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column CLIENTE (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: CPF
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column DATARETORNO (
+            type: plainText
+            heading {
+                heading: Data de Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column GERARTAREFA (
+            type: plainText
+            heading {
+                heading: Gerartarefa
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column IDVENDEDORA (
+            type: plainText
+            heading {
+                heading: Idvendedora
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column MEDIA (
+            type: plainText
+            heading {
+                heading: " Média de Pgto"
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column QTDNOTAS (
+            type: plainText
+            heading {
+                heading: Qtd. Notas
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column TELEFONES (
+            type: plainText
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column TOTALPAGO (
+            type: plainText
+            heading {
+                heading: Total Pago
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column VERCADASTRO (
+            type: link
+            heading {
+                heading: Ver Cadastro
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 85
+                    items: {
+                        P85_IDPESSOA: #VERCADASTRO#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil-alt.png" class="apex-edit-pencil-alt" alt="">
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column VERNOTAS (
+            type: link
+            heading {
+                heading: Ver Notas
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 247
+                    items: {
+                        P247_IDVENDEDORA: #IDVENDEDORA#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-view.png" class="apex-edit-view" alt="">
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        savedReport 5668466 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CHECK1 (
+                sequence: 1
+            )
+
+            displayColumn CLIENTE (
+                sequence: 4
+            )
+
+            displayColumn CPF (
+                sequence: 7
+            )
+
+            displayColumn DATARETORNO (
+                sequence: 5
+            )
+
+            displayColumn MEDIA (
+                sequence: 10
+            )
+
+            displayColumn QTDNOTAS (
+                sequence: 6
+            )
+
+            displayColumn TELEFONES (
+                sequence: 8
+            )
+
+            displayColumn TOTALPAGO (
+                sequence: 9
+            )
+
+            displayColumn VERCADASTRO (
+                sequence: 3
+            )
+
+            displayColumn VERNOTAS (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    region relação-de-clientes-prospecção-2 (
+        name: Relação de Clientes Prospecção
+        type: tabform
+        source {
+            sqlQuery:
+                ```sql
+                select /*+ FIRST_ROWS(50) */ roman.pck_romance.fnc_nomevendedora(n.idvendedora) cliente
+                 , to_char(sum(n.valorpago),'999G999G999G999G990D00') totalpago
+                 , to_char((sum(n.valorpago)/count(1)),'999G999G999G999G990D00') media
+                 , null gerartarefa
+                 , null vernotas
+                 , n.idvendedora
+                 , ( select count(1)
+                     from roman.notasvendas nv
+                     where nv.idvendedora = n.idvendedora ) qtdnotas
+                 , v.idpessoa vercadastro
+                 , pck_util_fav.fnc_retornadataatendimento(n.idvendedora) dataretorno
+                 , roman.pck_romance.fnc_cpfvendedora(n.idvendedora) cpf
+                 , roman.pck_romance.fnc_retornatelefones(n.idvendedora) telefones
+                from roman.notasvendas n
+                 , vendedoras v
+                where v.idvendedora = n.idvendedora
+                  and v.ativo = 'S'
+                  and n.idsituacaonotavenda = 3
+                  and :P246_TIPORELATORIO = 'P'
+                  and exists ( select 1
+                               from roman.notasvendas n
+                               where n.idsituacaonotavenda = 3
+                                 and n.idvendedora = v.idvendedora
+                                 and trunc(n.datanota) > trunc(sysdate - 100)) 
+                  and ( :P246_DEBITO is null or ( :P246_DEBITO = 'S' and ( select sum(n.saldo)
+                                                                           from roman.notasvendas n
+                                                                           where n.idvendedora = v.idvendedora
+                                                                             and n.idsituacaonotavenda = 4 ) > 0 )
+                                             or ( :P246_DEBITO = 'N' and ( select sum(n.saldo)
+                                                                           from roman.notasvendas n
+                                                                           where n.idvendedora = v.idvendedora
+                                                                             and n.idsituacaonotavenda = 4 ) = 0 ) )
+                  and ( :P246_DATAINICIO is null 
+                       or trunc(n.dataretorno) between to_date(:P246_DATAINICIO) and to_date(:P246_DATAFIM) )
+                  and not exists ( select 1
+                                   from pedidos p
+                                   where p.idvendedora = n.idvendedora )
+                  and not exists ( select 1
+                                   from catal.pedidos p
+                                   where p.idvendedora = n.idvendedora ) 
+                  and not exists ( select 1
+                                   from catal.funcionarios ff
+                                   where ff.idpessoa = v.idpessoa )
+                  and n.idfilial = :P246_IDFILIALROMANCE
+                  and ( :P246_IDREPRESENTANTE is null or n.idrepresentante = :P246_IDREPRESENTANTE )
+                  and ( :P246_IDCIDADE is null or exists ( select 1
+                                                           from pessoas p
+                                                           where p.idpessoa = v.idpessoa
+                                                             and p.idcidade = :P246_IDCIDADE ) )
+                  and not exists (select 1
+                                   from tarefas t
+                                   where t.idpessoa = v.idpessoa
+                                     and (( t.idtipotarefa = 8 and t.idpais  = 1) or ( t.idtipotarefa = 47 and t.idpais  = 2) or ( t.idtipotarefa = 51 and t.idpais  = 4))
+                                     and (t.idsituacao in (0,10,20,50)
+                                       or (t.idsituacao = 30 and trunc(sysdate) - trunc(nvl(t.dataconclusao,t.datainclusao)) < 30)))
+                 /*
+                  and not exists ( select 1
+                                     from tarefas t
+                                     where t.idtipotarefa = 8
+                                       and t.idsituacao in (0,10,20)
+                                       and t.idpessoa = v.idpessoa 
+                                        or exists ( select 1
+                                                    from tarefas t
+                                                    where t.idtipotarefa = 8
+                                                      and t.idsituacao in (30)
+                                                      and t.idpessoa = v.idpessoa
+                                                      and trunc(sysdate) - trunc(t.dataconclusao) < 90))
+                  */
+                  having (:P246_MEDIAINI is null or  (sum(n.valorpago)/count(1)) between to_char(:P246_MEDIAINI,'999G999G999G999G990D00') 
+                                                                                     and to_char(:P246_MEDIAFIM,'999G999G999G999G990D00'))
+                  
+                  and ( :P246_QTDNOTAS is null or ((( select count(1)
+                                                      from roman.notasvendas nv
+                                                      where nv.idvendedora = n.idvendedora ) = :P246_QTDNOTAS and :P246_TIPOQTD = 0)
+                                                   or (( select count(1)
+                                                        from roman.notasvendas nv
+                                                        where nv.idvendedora = n.idvendedora ) > :P246_QTDNOTAS and :P246_TIPOQTD = 1)
+                                                   or (( select count(1)
+                                                        from roman.notasvendas nv
+                                                        where nv.idvendedora = n.idvendedora ) < :P246_QTDNOTAS and :P246_TIPOQTD = 2)))
+                  and ( :P246_REDESPACHOTOTAL = 0 or ( exists( select 1
+                                                               from catal.pessoas cp
+                                                               where cp.idpessoa = v.idpessoa
+                                                                 and exists ( select *
+                                                                              from favorita.totalexpressinfo t
+                                                                              where to_number(nvl(regexp_replace(cp.cep, '[^0-9]', ''),'0')) between t.cepinicial and t.cepfinal)) and :P246_REDESPACHOTOTAL= 1)
+                                                  or not ( exists( select 1
+                                                                   from catal.pessoas cp
+                                                                   where cp.idpessoa = v.idpessoa
+                                                                     and exists ( select *
+                                                                                  from favorita.totalexpressinfo t
+                                                                                  where to_number(nvl(regexp_replace(cp.cep, '[^0-9]', ''),'0')) between t.cepinicial and t.cepfinal)) and :P246_REDESPACHOTOTAL= 2) )
+                group by n.idvendedora, v.idpessoa
+                order by 1 
+                  
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+        reportLayout {
+            numberOfRows: 50
+        }
+        componentAppearance {
+            template: @/standard
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado, verifique os filtros informados!
+        }
+
+        column CLIENTE (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 3
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CPF (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            heading {
+                heading: Cpf
+                alignment: center
+            }
+            layout {
+                sequence: 7
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column DATARETORNO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Data de Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 4
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column GERARTAREFA (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            type: simpleCheckbox
+            heading {
+                heading: Gerar Tarefa
+                alignment: center
+            }
+            lov {
+                checkboxValues: S
+            }
+            layout {
+                sequence: 11
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDVENDEDORA (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 6
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column MEDIA (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: " Média de Pgto"
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column QTDNOTAS (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Qtd Notas
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column TELEFONES (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 8
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column TOTALPAGO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Total Pago
+                alignment: center
+            }
+            layout {
+                sequence: 9
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VERCADASTRO (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            type: link
+            heading {
+                heading: Ver Cadastro
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 85
+                    items: {
+                        P85_IDPESSOA: #VERCADASTRO#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil-alt.png" class="apex-edit-pencil-alt" alt="">
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VERNOTAS (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            type: link
+            heading {
+                heading: Ver Notas
+                alignment: center
+            }
+            layout {
+                sequence: 1
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 247
+                    items: {
+                        P247_IDVENDEDORA: #IDVENDEDORA#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-view.png" class="apex-edit-view" alt="">
+            }
+            sorting {
+                sortable: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+    )
+
+    region relação-de-clientes-prospecção-manaus (
+        name: Relação de Clientes Prospecção Manaus
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select /*+ FIRST_ROWS(50) */ roman.pck_romance.fnc_nomevendedora(n.idvendedora) cliente
+                 , to_char(sum(n.valorpago),'999G999G999G999G990D00') totalpago
+                 , to_char((sum(n.valorpago)/count(1)),'999G999G999G999G990D00') media
+                 , null gerartarefa
+                 , null vernotas
+                 , n.idvendedora
+                 , ( select count(1)
+                     from roman.notasvendas nv
+                     where nv.idvendedora = n.idvendedora ) qtdnotas
+                 , v.idpessoa vercadastro
+                 , pck_util_fav.fnc_retornadataatendimento(n.idvendedora) dataretorno
+                 , roman.pck_romance.fnc_cpfvendedora(n.idvendedora) cpf
+                 --, roman.pck_romance.fnc_retornatelefones(n.idvendedora) telefones
+                 , (select listagg(distinct(telefone),' / ') within group (order by 1) 
+                      from catal.telefonespessoas t
+                     where t.idpessoa = v.idpessoa) telefones
+                 --, apex_item.hidden(01,n.idvendedora,null)||
+                 , apex_item.CHECKBOX2(2,n.idvendedora, null)CHECK1
+                from roman.notasvendas n
+                 , vendedoras v
+                where v.idvendedora = n.idvendedora
+                  and v.ativo = 'S'
+                  and n.idsituacaonotavenda = 3
+                  and :P246_TIPORELATORIO = 'A'
+                  and exists ( select 1
+                               from roman.notasvendas n
+                               where n.idsituacaonotavenda = 3
+                                 and n.idvendedora = v.idvendedora
+                                 and trunc(n.datanota) > trunc(sysdate - 100)) 
+                  and ( :P246_DEBITO is null or ( :P246_DEBITO = 'S' and ( select sum(n.saldo)
+                                                                           from roman.notasvendas n
+                                                                           where n.idvendedora = v.idvendedora
+                                                                             and n.idsituacaonotavenda = 4 ) > 0 )
+                                             or ( :P246_DEBITO = 'N' and ( select sum(n.saldo)
+                                                                           from roman.notasvendas n
+                                                                           where n.idvendedora = v.idvendedora
+                                                                             and n.idsituacaonotavenda = 4 ) = 0 ) )
+                  and ( :P246_DATAINICIO is null 
+                       or trunc(n.dataretorno) between to_date(:P246_DATAINICIO) and to_date(:P246_DATAFIM) )
+                  and not exists ( select 1
+                                   from pedidos p
+                                   where p.idvendedora = n.idvendedora )
+                  and not exists ( select 1
+                                   from catal.pedidos p
+                                   where p.idvendedora = n.idvendedora ) 
+                  and not exists ( select 1
+                                   from catal.funcionarios ff
+                                   where ff.idpessoa = v.idpessoa )
+                  and n.idfilial = 140
+                  and ( :P246_IDREPRESENTANTE is null or n.idrepresentante = :P246_IDREPRESENTANTE )
+                  and ( :P246_IDCIDADE is null or exists ( select 1
+                                                           from pessoas p
+                                                           where p.idpessoa = v.idpessoa
+                                                             and p.idcidade = :P246_IDCIDADE ) )
+                  and not exists (select 1
+                                   from tarefas t
+                                   where t.idpessoa = v.idpessoa
+                                     and ( t.idtipotarefa = 68 and t.idpais  = 1)
+                                     and (t.idsituacao in (0,10,20,50)
+                                       or (t.idsituacao = 30 and trunc(sysdate) - trunc(nvl(t.dataconclusao,t.datainclusao)) < 30)))
+                 /*
+                  and not exists ( select 1
+                                     from tarefas t
+                                     where t.idtipotarefa = 8
+                                       and t.idsituacao in (0,10,20)
+                                       and t.idpessoa = v.idpessoa 
+                                        or exists ( select 1
+                                                    from tarefas t
+                                                    where t.idtipotarefa = 8
+                                                      and t.idsituacao in (30)
+                                                      and t.idpessoa = v.idpessoa
+                                                      and trunc(sysdate) - trunc(t.dataconclusao) < 90))
+                  */
+                  having (:P246_MEDIAINI is null or  (sum(n.valorpago)/count(1)) between to_char(:P246_MEDIAINI,'999G999G999G999G990D00') 
+                                                                                     and to_char(:P246_MEDIAFIM,'999G999G999G999G990D00'))
+                  
+                  and ( :P246_QTDNOTAS is null or ((( select count(1)
+                                                      from roman.notasvendas nv
+                                                      where nv.idvendedora = n.idvendedora ) = :P246_QTDNOTAS and :P246_TIPOQTD = 0)
+                                                   or (( select count(1)
+                                                        from roman.notasvendas nv
+                                                        where nv.idvendedora = n.idvendedora ) > :P246_QTDNOTAS and :P246_TIPOQTD = 1)
+                                                   or (( select count(1)
+                                                        from roman.notasvendas nv
+                                                        where nv.idvendedora = n.idvendedora ) < :P246_QTDNOTAS and :P246_TIPOQTD = 2)))
+                  and ( :P246_REDESPACHOTOTAL = 0 or ( exists( select 1
+                                                               from catal.pessoas cp
+                                                               where cp.idpessoa = v.idpessoa
+                                                                 and exists ( select *
+                                                                              from favorita.totalexpressinfo t
+                                                                              where to_number(nvl(regexp_replace(cp.cep, '[^0-9]', ''),'0')) between t.cepinicial and t.cepfinal)) and :P246_REDESPACHOTOTAL= 1)
+                                                  or not ( exists( select 1
+                                                                   from catal.pessoas cp
+                                                                   where cp.idpessoa = v.idpessoa
+                                                                     and exists ( select *
+                                                                                  from favorita.totalexpressinfo t
+                                                                                  where to_number(nvl(regexp_replace(cp.cep, '[^0-9]', ''),'0')) between t.cepinicial and t.cepfinal)) and :P246_REDESPACHOTOTAL= 2) )
+                group by n.idvendedora, v.idpessoa
+                order by 1 
+                  
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            htmlDomId: partnerslRR
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P246_TIPORELATORIO
+            value: A
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            includeSearchBar: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 567049065149889103
+        }
+
+        column CHECK1 (
+            type: plainText
+            heading {
+                heading: <input type="checkbox"id="selectUnselectAll"title="Select/Unselect All">
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column CLIENTE (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: CPF
+                alignment: center
+            }
+            layout {
+                sequence: 100
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column DATARETORNO (
+            type: plainText
+            heading {
+                heading: Data de Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column GERARTAREFA (
+            type: plainText
+            heading {
+                heading: Gerartarefa
+                alignment: center
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column IDVENDEDORA (
+            type: plainText
+            heading {
+                heading: Idvendedora
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column MEDIA (
+            type: plainText
+            heading {
+                heading: Média de Pgto
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column QTDNOTAS (
+            type: plainText
+            heading {
+                heading: Qtd. Notas
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column TELEFONES (
+            type: plainText
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column TOTALPAGO (
+            type: plainText
+            heading {
+                heading: Total Pago
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column VERCADASTRO (
+            type: link
+            heading {
+                heading: Ver Cadastro
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 85
+                    items: {
+                        P85_IDPESSOA: #VERCADASTRO#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil-alt.png" class="apex-edit-pencil-alt" alt="">
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column VERNOTAS (
+            type: link
+            heading {
+                heading: Ver Notas
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 247
+                    items: {
+                        P247_IDVENDEDORA: #IDVENDEDORA#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-view.png" class="apex-edit-view" alt="">
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        savedReport 5670584 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CHECK1 (
+                sequence: 1
+            )
+
+            displayColumn CLIENTE (
+                sequence: 4
+            )
+
+            displayColumn CPF (
+                sequence: 7
+            )
+
+            displayColumn DATARETORNO (
+                sequence: 5
+            )
+
+            displayColumn MEDIA (
+                sequence: 10
+            )
+
+            displayColumn QTDNOTAS (
+                sequence: 6
+            )
+
+            displayColumn TELEFONES (
+                sequence: 8
+            )
+
+            displayColumn TOTALPAGO (
+                sequence: 9
+            )
+
+            displayColumn VERCADASTRO (
+                sequence: 3
+            )
+
+            displayColumn VERNOTAS (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    region relação-de-clientes-venda-ativa (
+        name: Relação de Clientes Venda Ativa
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select /*+ FIRST_ROWS(50) */ p.vendedora cliente
+                     , to_char(sum(p.valorpago),'999G999G999G999G990D00') totalpago
+                     , to_char((sum(p.valorpago)/count(1)),'999G999G999G999G990D00') media
+                     , to_char(sum(p.saldodevedor),'999G999G999G999G990D00') saldodevedor
+                     , null gerartarefa
+                     , p.idvendedora
+                     , count(idpedido) qtdpedidos
+                     , v.idpessoa vercadastro
+                     , pck_util_fav.fnc_retornadataatendimento(p.idvendedora) dataretorno
+                     , null vertarefa
+                     , v.idpessoa
+                     , p.cpf
+                     --, roman.pck_romance.fnc_retornatelefones(p.idvendedora) telefones
+                  , (select listagg(distinct(telefone),' / ') within group (order by 1) 
+                      from catal.telefonespessoas t
+                     where t.idpessoa = v.idpessoa) telefones
+                     , apex_item.CHECKBOX2(2,p.idvendedora, null)CHECK1
+                from vw_pedidos_fav p
+                   , vendedoras v
+                where p.ididioma           = 1
+                  and v.idvendedora        = p.idvendedora
+                  and v.ativo              = 'S'
+                  and :P246_TIPORELATORIO  = 'V'
+                  and ( select sum(n.saldo)
+                        from roman.notasvendas n
+                        where n.idvendedora = v.idvendedora
+                          and n.idsituacaonotavenda = 4 ) = 0
+                  and ( :P246_DATAINICIO is null 
+                       or exists ( select 1
+                                   from roman.notasvendas nv
+                                   where nv.idvendedora = v.idvendedora
+                                     and nv.idsituacaonotavenda = 3
+                                     and trunc(nv.dataretorno) between to_date(:P246_DATAINICIO) and to_date(:P246_DATAFIM) ) )
+                  and ( :P246_DEBITO is null or ( :P246_DEBITO = 'S' and (select sum(pf.saldodevedor)
+                                                                          from vw_pedidos_fav pf
+                                                                          where pf.ididioma = 1
+                                                                            and pf.idvendedora = p.idvendedora) > 0 )
+                                             or ( :P246_DEBITO = 'N' and nvl((select sum(pf.saldodevedor)
+                                                                              from vw_pedidos_fav pf
+                                                                              where pf.ididioma = 1
+                                                                                and pf.idvendedora = p.idvendedora),0) = 0 ) )
+                  and ( :P246_TAREFA is null or ( :P246_TAREFA = 'S' and exists ( select 1
+                                                                                  from tarefas t
+                                                                                  where t.idpessoa = v.idpessoa
+                                                                                    and t.idtipotarefa IN (11,12,34) ) )
+                                             or ( :P246_TAREFA = 'N' and not exists ( select 1
+                                                                                      from tarefas t
+                                                                                      where t.idpessoa = v.idpessoa 
+                                                                                        and t.idtipotarefa IN (11,12,34) ) ) )
+                  and p.idfilialromance    = :P246_IDFILIALROMANCE
+                  and ( :P246_IDREPRESENTANTE is null or p.idrepresentante    = :P246_IDREPRESENTANTE )
+                  and ( :P246_IDCIDADE is null or exists ( select 1
+                                                           from pessoas p
+                                                           where p.idpessoa = v.idpessoa
+                                                             and p.idcidade = :P246_IDCIDADE ) )
+                  and p.codpedidocancelado = 'N'
+                  and not exists ( select 1
+                                   from tarefas t
+                                   where t.idtipotarefa IN (11,12,34)
+                                     and t.idsituacao in (0,10)
+                                     and t.idpessoa = v.idpessoa )
+                  and trunc(sysdate) - ( select max(trunc(dataemissao))
+                                         from vw_pedidos_fav pp
+                                         where pp.idvendedora = p.idvendedora
+                                           and pp.ididioma    = 1
+                                           and pp.codpedidocancelado = 'N' ) >= ( select valor
+                                                                                  from parametros pr
+                                                                                  where pr.nome = 'QTDDIASPARAVENDAATIVA' )
+                  and ( :P246_REDESPACHOTOTAL = 0 or ( exists( select 1
+                                                               from catal.pessoas cp
+                                                               where cp.idpessoa = v.idpessoa
+                                                                 and exists ( select *
+                                                                              from favorita.totalexpressinfo t
+                                                                              where to_number(nvl(regexp_replace(cp.cep, '[^0-9]', ''),'0')) between t.cepinicial and t.cepfinal)) and :P246_REDESPACHOTOTAL= 1)
+                                                  or not ( exists( select 1
+                                                                   from catal.pessoas cp
+                                                                   where cp.idpessoa = v.idpessoa
+                                                                     and exists ( select *
+                                                                                  from favorita.totalexpressinfo t
+                                                                                  where to_number(nvl(regexp_replace(cp.cep, '[^0-9]', ''),'0')) between t.cepinicial and t.cepfinal)) and :P246_REDESPACHOTOTAL= 2) )
+                group by p.vendedora, v.idpessoa , p.idvendedora, p.cpf
+                ```
+        }
+        layout {
+            sequence: 50
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            htmlDomId: partnerslRR
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P246_TIPORELATORIO
+            value: V
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            searchField: false
+            rowsPerPageSelector: true
+        }
+        actionsMenu {
+            filter: false
+            selectColumns: false
+            rowsPerPage: false
+            sort: false
+            controlBreak: false
+            highlight: false
+            compute: false
+            aggregate: false
+            chart: false
+            groupBy: false
+            pivot: false
+            flashback: false
+            savePublicReport: true
+            reset: false
+            help: false
+            subscription: false
+        }
+        download {
+            formats: csv
+            sendAsEmail: false
+        }
+        advanced {
+            savedReportMappingIdentifier: 566970751430033519
+        }
+
+        column CHECK1 (
+            type: plainText
+            heading {
+                heading: <input type="checkbox"id="selectUnselectAll"title="Select/Unselect All">
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column CLIENTE (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: CPF
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column DATARETORNO (
+            type: plainText
+            heading {
+                heading: Data Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column GERARTAREFA (
+            type: plainText
+            heading {
+                heading: Gerartarefa
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column IDPESSOA (
+            type: plainText
+            heading {
+                heading: Idpessoa
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column IDVENDEDORA (
+            type: plainText
+            heading {
+                heading: Idvendedora
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column MEDIA (
+            type: plainText
+            heading {
+                heading: " Média de Pgto"
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column QTDPEDIDOS (
+            type: plainText
+            heading {
+                heading: Qtd. Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column SALDODEVEDOR (
+            type: plainText
+            heading {
+                heading: Total Devedor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column TELEFONES (
+            type: plainText
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column TOTALPAGO (
+            type: plainText
+            heading {
+                heading: Total Pago
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column VERCADASTRO (
+            type: link
+            heading {
+                heading: Ver Cadastro
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 85
+                    items: {
+                        P85_IDPESSOA: #VERCADASTRO#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil-alt.png" class="apex-edit-pencil-alt" alt="">
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column VERTAREFA (
+            type: plainText
+            heading {
+                heading: Vertarefa
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        savedReport 5669862 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CHECK1 (
+                sequence: 1
+            )
+
+            displayColumn CLIENTE (
+                sequence: 3
+            )
+
+            displayColumn CPF (
+                sequence: 4
+            )
+
+            displayColumn DATARETORNO (
+                sequence: 6
+            )
+
+            displayColumn MEDIA (
+                sequence: 9
+            )
+
+            displayColumn QTDPEDIDOS (
+                sequence: 7
+            )
+
+            displayColumn SALDODEVEDOR (
+                sequence: 10
+            )
+
+            displayColumn TELEFONES (
+                sequence: 5
+            )
+
+            displayColumn TOTALPAGO (
+                sequence: 8
+            )
+
+            displayColumn VERCADASTRO (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    region relação-de-clientes-venda-ativa-2 (
+        name: Relação de Clientes Venda Ativa
+        type: tabform
+        source {
+            sqlQuery:
+                ```sql
+                select /*+ FIRST_ROWS(50) */ p.vendedora cliente
+                     , to_char(sum(p.valorpago),'999G999G999G999G990D00') totalpago
+                     , to_char((sum(p.valorpago)/count(1)),'999G999G999G999G990D00') media
+                     , to_char(sum(p.saldodevedor),'999G999G999G999G990D00') saldodevedor
+                     , null gerartarefa
+                     , p.idvendedora
+                     , count(idpedido) qtdpedidos
+                     , v.idpessoa vercadastro
+                     , pck_util_fav.fnc_retornadataatendimento(p.idvendedora) dataretorno
+                     , null vertarefa
+                     , v.idpessoa
+                     , p.cpf
+                     , roman.pck_romance.fnc_retornatelefones(p.idvendedora) telefones
+                from vw_pedidos_fav p
+                   , vendedoras v
+                where p.ididioma           = 1
+                  and v.idvendedora        = p.idvendedora
+                  and v.ativo              = 'S'
+                  and :P246_TIPORELATORIO  = 'V'
+                  and ( select sum(n.saldo)
+                        from roman.notasvendas n
+                        where n.idvendedora = v.idvendedora
+                          and n.idsituacaonotavenda = 4 ) = 0
+                  and ( :P246_DATAINICIO is null 
+                       or exists ( select 1
+                                   from roman.notasvendas nv
+                                   where nv.idvendedora = v.idvendedora
+                                     and nv.idsituacaonotavenda = 3
+                                     and trunc(nv.dataretorno) between to_date(:P246_DATAINICIO) and to_date(:P246_DATAFIM) ) )
+                  and ( :P246_DEBITO is null or ( :P246_DEBITO = 'S' and (select sum(pf.saldodevedor)
+                                                                          from vw_pedidos_fav pf
+                                                                          where pf.ididioma = 1
+                                                                            and pf.idvendedora = p.idvendedora) > 0 )
+                                             or ( :P246_DEBITO = 'N' and nvl((select sum(pf.saldodevedor)
+                                                                              from vw_pedidos_fav pf
+                                                                              where pf.ididioma = 1
+                                                                                and pf.idvendedora = p.idvendedora),0) = 0 ) )
+                  and ( :P246_TAREFA is null or ( :P246_TAREFA = 'S' and exists ( select 1
+                                                                                  from tarefas t
+                                                                                  where t.idpessoa = v.idpessoa
+                                                                                    and t.idtipotarefa IN (11,12,34) ) )
+                                             or ( :P246_TAREFA = 'N' and not exists ( select 1
+                                                                                      from tarefas t
+                                                                                      where t.idpessoa = v.idpessoa 
+                                                                                        and t.idtipotarefa IN (11,12,34) ) ) )
+                  and p.idfilialromance    = :P246_IDFILIALROMANCE
+                  and ( :P246_IDREPRESENTANTE is null or p.idrepresentante    = :P246_IDREPRESENTANTE )
+                  and ( :P246_IDCIDADE is null or exists ( select 1
+                                                           from pessoas p
+                                                           where p.idpessoa = v.idpessoa
+                                                             and p.idcidade = :P246_IDCIDADE ) )
+                  and p.codpedidocancelado = 'N'
+                  and not exists ( select 1
+                                   from tarefas t
+                                   where t.idtipotarefa IN (11,12,34)
+                                     and t.idsituacao in (0,10)
+                                     and t.idpessoa = v.idpessoa )
+                  and trunc(sysdate) - ( select max(trunc(dataemissao))
+                                         from vw_pedidos_fav pp
+                                         where pp.idvendedora = p.idvendedora
+                                           and pp.ididioma    = 1
+                                           and pp.codpedidocancelado = 'N' ) >= ( select valor
+                                                                                  from parametros pr
+                                                                                  where pr.nome = 'QTDDIASPARAVENDAATIVA' )
+                  and ( :P246_REDESPACHOTOTAL = 0 or ( exists( select 1
+                                                               from catal.pessoas cp
+                                                               where cp.idpessoa = v.idpessoa
+                                                                 and exists ( select *
+                                                                              from favorita.totalexpressinfo t
+                                                                              where to_number(nvl(regexp_replace(cp.cep, '[^0-9]', ''),'0')) between t.cepinicial and t.cepfinal)) and :P246_REDESPACHOTOTAL= 1)
+                                                  or not ( exists( select 1
+                                                                   from catal.pessoas cp
+                                                                   where cp.idpessoa = v.idpessoa
+                                                                     and exists ( select *
+                                                                                  from favorita.totalexpressinfo t
+                                                                                  where to_number(nvl(regexp_replace(cp.cep, '[^0-9]', ''),'0')) between t.cepinicial and t.cepfinal)) and :P246_REDESPACHOTOTAL= 2) )
+                group by p.vendedora, v.idpessoa , p.idvendedora, p.cpf
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: never
+        }
+        reportLayout {
+            numberOfRows: 50
+        }
+        componentAppearance {
+            template: @/standard
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado, verifique os filtros informados!
+        }
+
+        column CLIENTE (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 2
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column CPF (
+            reportColumnQueryId: 12
+            derivedColumn: N
+            heading {
+                heading: CPF
+                alignment: center
+            }
+            layout {
+                sequence: 3
+                columnAlignment: center
+            }
+        )
+
+        column DATARETORNO (
+            reportColumnQueryId: 9
+            derivedColumn: N
+            heading {
+                heading: Data de Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column GERARTAREFA (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            type: simpleCheckbox
+            heading {
+                heading: Gerar Tarefa
+                alignment: center
+            }
+            lov {
+                checkboxValues: S
+            }
+            layout {
+                sequence: 11
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column IDPESSOA (
+            reportColumnQueryId: 11
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 13
+            }
+            sorting {
+                sortable: false
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column IDVENDEDORA (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 12
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column MEDIA (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: " Média de Pgto"
+                alignment: center
+            }
+            layout {
+                sequence: 9
+                columnAlignment: end
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column QTDPEDIDOS (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            heading {
+                heading: Qtd Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column SALDODEVEDOR (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Total Devedor
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column TELEFONES (
+            reportColumnQueryId: 13
+            derivedColumn: N
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+        )
+
+        column TOTALPAGO (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Total Pago
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: center
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VERCADASTRO (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            type: link
+            heading {
+                heading: Ver Cadastro
+                alignment: center
+            }
+            layout {
+                sequence: 1
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 85
+                    items: {
+                        P85_IDPESSOA: #VERCADASTRO#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil-alt.png" class="apex-edit-pencil-alt" alt="">
+            }
+            sorting {
+                sortable: false
+            }
+        )
+
+        column VERTAREFA (
+            reportColumnQueryId: 10
+            derivedColumn: N
+            type: link
+            heading {
+                heading: Ver Tarefa(S)
+                alignment: center
+            }
+            layout {
+                sequence: 5
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 292
+                    items: {
+                        P292_IDPESSOA: #IDPESSOA#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-view.png" class="apex-edit-view" alt="">
+            }
+            sorting {
+                sortable: false
+            }
+            serverSideCondition {
+                type: item=value
+                item: P246_TAREFA
+                value: S
+            }
+        )
+
+    )
+
+    region relação-de-clientes-venda-ativa-manaus (
+        name: Relação de Clientes Venda Ativa Manaus
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select /*+ FIRST_ROWS(50) */ p.vendedora cliente
+                     , to_char(sum(p.valorpago),'999G999G999G999G990D00') totalpago
+                     , to_char((sum(p.valorpago)/count(1)),'999G999G999G999G990D00') media
+                     , to_char(sum(p.saldodevedor),'999G999G999G999G990D00') saldodevedor
+                     , null gerartarefa
+                     , p.idvendedora
+                     , count(idpedido) qtdpedidos
+                     , v.idpessoa vercadastro
+                     , pck_util_fav.fnc_retornadataatendimento(p.idvendedora) dataretorno
+                     , null vertarefa
+                     , v.idpessoa
+                     , p.cpf
+                     --, roman.pck_romance.fnc_retornatelefones(p.idvendedora) telefones
+                    , (select listagg(distinct(telefone),' / ') within group (order by 1) 
+                      from catal.telefonespessoas t
+                     where t.idpessoa = v.idpessoa) telefones
+                     , apex_item.CHECKBOX2(2,p.idvendedora, null)CHECK1
+                from vw_pedidos_fav p
+                   , vendedoras v
+                where p.ididioma           = 1
+                  and v.idvendedora        = p.idvendedora
+                  and v.ativo              = 'S'
+                  and :P246_TIPORELATORIO  = 'B'
+                  and ( select sum(n.saldo)
+                        from roman.notasvendas n
+                        where n.idvendedora = v.idvendedora
+                          and n.idsituacaonotavenda = 4 ) = 0
+                  and ( :P246_DATAINICIO is null 
+                       or exists ( select 1
+                                   from roman.notasvendas nv
+                                   where nv.idvendedora = v.idvendedora
+                                     and nv.idsituacaonotavenda = 3
+                                     and trunc(nv.dataretorno) between to_date(:P246_DATAINICIO) and to_date(:P246_DATAFIM) ) )
+                  and ( :P246_DEBITO is null or ( :P246_DEBITO = 'S' and (select sum(pf.saldodevedor)
+                                                                          from vw_pedidos_fav pf
+                                                                          where pf.ididioma = 1
+                                                                            and pf.idvendedora = p.idvendedora) > 0 )
+                                             or ( :P246_DEBITO = 'N' and nvl((select sum(pf.saldodevedor)
+                                                                              from vw_pedidos_fav pf
+                                                                              where pf.ididioma = 1
+                                                                                and pf.idvendedora = p.idvendedora),0) = 0 ) )
+                  and ( :P246_TAREFA is null or ( :P246_TAREFA = 'S' and exists ( select 1
+                                                                                  from tarefas t
+                                                                                  where t.idpessoa = v.idpessoa
+                                                                                    and t.idtipotarefa IN (67,12,34) ) )
+                                             or ( :P246_TAREFA = 'N' and not exists ( select 1
+                                                                                      from tarefas t
+                                                                                      where t.idpessoa = v.idpessoa 
+                                                                                        and t.idtipotarefa IN (67,12,34) ) ) )
+                  and p.idfilialromance    = 140
+                  and ( :P246_IDREPRESENTANTE is null or p.idrepresentante    = :P246_IDREPRESENTANTE )
+                  and ( :P246_IDCIDADE is null or exists ( select 1
+                                                           from pessoas p
+                                                           where p.idpessoa = v.idpessoa
+                                                             and p.idcidade = :P246_IDCIDADE ) )
+                  and p.codpedidocancelado = 'N'
+                  and not exists ( select 1
+                                   from tarefas t
+                                   where t.idtipotarefa IN (67,12,34)
+                                     and t.idsituacao in (0,10)
+                                     and t.idpessoa = v.idpessoa )
+                  and trunc(sysdate) - ( select max(trunc(dataemissao))
+                                         from vw_pedidos_fav pp
+                                         where pp.idvendedora = p.idvendedora
+                                           and pp.ididioma    = 1
+                                           and pp.codpedidocancelado = 'N' ) >= ( select valor
+                                                                                  from parametros pr
+                                                                                  where pr.nome = 'QTDDIASPARAVENDAATIVA' )
+                  and ( :P246_REDESPACHOTOTAL = 0 or ( exists( select 1
+                                                               from catal.pessoas cp
+                                                               where cp.idpessoa = v.idpessoa
+                                                                 and exists ( select *
+                                                                              from favorita.totalexpressinfo t
+                                                                              where to_number(nvl(regexp_replace(cp.cep, '[^0-9]', ''),'0')) between t.cepinicial and t.cepfinal)) and :P246_REDESPACHOTOTAL= 1)
+                                                  or not ( exists( select 1
+                                                                   from catal.pessoas cp
+                                                                   where cp.idpessoa = v.idpessoa
+                                                                     and exists ( select *
+                                                                                  from favorita.totalexpressinfo t
+                                                                                  where to_number(nvl(regexp_replace(cp.cep, '[^0-9]', ''),'0')) between t.cepinicial and t.cepfinal)) and :P246_REDESPACHOTOTAL= 2) )
+                group by p.vendedora, v.idpessoa , p.idvendedora, p.cpf
+                ```
+        }
+        layout {
+            sequence: 60
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent4
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            htmlDomId: partnerslRR
+            regionDisplaySelector: true
+        }
+        serverSideCondition {
+            type: item=value
+            item: P246_TIPORELATORIO
+            value: B
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        searchBar {
+            searchField: false
+            rowsPerPageSelector: true
+        }
+        advanced {
+            savedReportMappingIdentifier: 567050701796889120
+        }
+
+        column CHECK1 (
+            type: plainText
+            heading {
+                heading: <input type="checkbox"id="selectUnselectAll"title="Select/Unselect All">
+                alignment: center
+            }
+            layout {
+                sequence: 140
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: N
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column CLIENTE (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: A
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column CPF (
+            type: plainText
+            heading {
+                heading: CPF
+                alignment: center
+            }
+            layout {
+                sequence: 120
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: L
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column DATARETORNO (
+            type: plainText
+            heading {
+                heading: Data de Retorno
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: I
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column GERARTAREFA (
+            type: plainText
+            heading {
+                heading: Gerartarefa
+                alignment: center
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column IDPESSOA (
+            type: plainText
+            heading {
+                heading: Idpessoa
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column IDVENDEDORA (
+            type: plainText
+            heading {
+                heading: Idvendedora
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column MEDIA (
+            type: plainText
+            heading {
+                heading: Média de Pgto
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column QTDPEDIDOS (
+            type: plainText
+            heading {
+                heading: Qtd. Pedidos
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column SALDODEVEDOR (
+            type: plainText
+            heading {
+                heading: Total Devedor
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: D
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column TELEFONES (
+            type: plainText
+            heading {
+                heading: Telefones
+                alignment: center
+            }
+            layout {
+                sequence: 130
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: M
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column TOTALPAGO (
+            type: plainText
+            heading {
+                heading: Total Pago
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+        )
+
+        column VERCADASTRO (
+            type: link
+            heading {
+                heading: Ver Cadastro
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            link {
+                target: {
+                    page: 85
+                    items: {
+                        P85_IDPESSOA: #VERCADASTRO#
+                    }
+                    action: resetPagination
+                }
+                linkText: <img src="#IMAGE_PREFIX#app_ui/img/icons/apex-edit-pencil-alt.png" class="apex-edit-pencil-alt" alt="">
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column VERTAREFA (
+            type: plainText
+            heading {
+                heading: Vertarefa
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 5670684 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn CHECK1 (
+                sequence: 1
+            )
+
+            displayColumn CLIENTE (
+                sequence: 3
+            )
+
+            displayColumn CPF (
+                sequence: 4
+            )
+
+            displayColumn DATARETORNO (
+                sequence: 6
+            )
+
+            displayColumn MEDIA (
+                sequence: 9
+            )
+
+            displayColumn QTDPEDIDOS (
+                sequence: 7
+            )
+
+            displayColumn SALDODEVEDOR (
+                sequence: 10
+            )
+
+            displayColumn TELEFONES (
+                sequence: 5
+            )
+
+            displayColumn TOTALPAGO (
+                sequence: 8
+            )
+
+            displayColumn VERCADASTRO (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    pageItem P246_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: Até
+            alignment: left
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: Retorno de
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 10
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_DEBITO (
+        type: radioGroup
+        label {
+            label: Com débito
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        source {
+            used: always
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_IDCIDADE (
+        type: selectOne
+        label {
+            label: Cidade
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(c.nomecidade)||'/'||e.sigla display
+                     , c.idcidade return
+                from catal.cidades c
+                   , catal.estados e
+                where c.idestado = e.idestado
+                  and e.idpais   = 1
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_IDFILIALROMANCE (
+        type: selectOne
+        label {
+            label: Filial
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sharedComponent
+            lov: @lov-filiaisromance
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_IDREPRESENTANTE (
+        type: selectOne
+        label {
+            label: Distribuidor
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select /*+ rule*/ roman.pck_romance.fnc_nomerepresentante(r.idrepresentante)
+                                 ||' - '||p.cpf 
+                                 ||' - '|| roman.pck_romance.fnc_nomefilial(roman.pck_romance.fnc_filialgerente(r.idgerente)) display_value
+                     , r.idrepresentante return_value
+                from catal.representantes r
+                   , catal.pessoas p
+                where p.idpessoa = r.idpessoa
+                  and ( :P246_IDFILIALROMANCE is null or r.idgerente = ( select idgerente 
+                                                                         from gerentes g
+                                                                         where g.idfilial = :P246_IDFILIALROMANCE ) )
+                order by 1;
+                ```
+        }
+        cascadingLov {
+            parentItems: P246_IDFILIALROMANCE
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_IDUSUARIO (
+        type: selectOne
+        label {
+            label: Atendente Responsável
+            alignment: left
+        }
+        settings {
+            infiniteScroll: false
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select initcap(p.nomepessoa)||' ('||( select p.nome from catal.paises p where p.idpais = u.ididioma)||')' display_value
+                     , u.idusuario return_value
+                from usuarios u
+                   , pessoas p
+                where u.idpessoa = p.idpessoa
+                  and u.ativo    = 'S'
+                  and exists ( select 1
+                               from roman.usuariosgruposatendimento ug
+                               where ug.idgrupoatendimento in (4,33,34)
+                                 and ug.usuario            = u.usuario )
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 150
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_MEDIAFIM (
+        type: numberField
+        label {
+            label: até
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 100
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: 999G999G999G999G990D00
+            width: 30
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_MEDIAINI (
+        type: numberField
+        label {
+            label: Media Pgto
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 90
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: 999G999G999G999G990D00
+            width: 30
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_QTDDIASEMISSAO (
+        type: displayOnly
+        label {
+            label: Qtd Dias Ultimo Pedido
+            alignment: left
+        }
+        layout {
+            sequence: 130
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select valor||' dias' return_value
+                from parametros p
+                where p.nome = 'QTDDIASPARAVENDAATIVA'
+                ```
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_QTDNOTAS (
+        type: numberField
+        label {
+            label: Qtd Notas
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 120
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        source {
+            used: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_REDESPACHOTOTAL (
+        type: radioGroup
+        label {
+            label: Redespachototal
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Todos;0,Sim;1,Não;2
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 140
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: 0
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_TAREFA (
+        type: radioGroup
+        label {
+            label: Com Tarefa
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Sim;S,Não;N
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        source {
+            used: always
+        }
+        default {
+            type: static
+            staticValue: N
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_TIPOQTD (
+        type: radioGroup
+        label {
+            label: Tipo Quantidade
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Igual a;0,Maior que;1,Menor que;2
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 110
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P246_TIPORELATORIO (
+        type: radioGroup
+        label {
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:Prospecção;P,Venda Ativa;V
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        default {
+            type: static
+            staticValue: P
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button acompanhar-venda-ativa (
+        buttonName: ACOMPANHAR_VENDA_ATIVA
+        label: <span style="font-size: 12px">Acompanhar Venda Ativ.</span>
+        layout {
+            sequence: 50
+            region: @ações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 344
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 160
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button gerar-tarefas (
+        buttonName: GERAR_TAREFAS
+        label: Gerar Tarefas
+        layout {
+            sequence: 10
+            region: @ações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--success
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button gerar-tarefas-prospec-ativa (
+        buttonName: GERAR_TAREFAS_PROSPEC_ATIVA
+        label: <span style="font-size: 12px">Gerar Tarefas Prospec Ativ.</span>
+        layout {
+            sequence: 60
+            region: @ações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--iconRight
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button pedidos-pos-prospec (
+        buttonName: PEDIDOS_POS_PROSPEC
+        label: <span style="font-size: 14px">Primeiro Pós Prospec.</span>
+        layout {
+            sequence: 40
+            region: @ações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--iconRight
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 301
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button tarefa-especial (
+        buttonName: TAREFA_ESPECIAL
+        label: Tarefa Especial
+        layout {
+            sequence: 10
+            region: @ações-especiais
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--primary
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 370
+                items: {
+                    P370_DEBITO: &P246_DEBITO.
+                    P370_IDFILIALROMANCE: &P246_IDFILIALROMANCE.
+                    P370_IDREPRESENTANTE: &P246_IDREPRESENTANTE.
+                    P370_QTDNOTAS: &P246_QTDNOTAS.
+                    P370_DATAINICIO: &P246_DATAINICIO.
+                    P370_DATAFIM: &P246_DATAFIM.
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button ver-pedidos (
+        buttonName: VER_PEDIDOS
+        label: <span style="font-size: 12px">Pedidos Pós Prospecção</span>
+        layout {
+            sequence: 20
+            region: @ações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--primary
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 250
+                items: {
+                    P250_TIPORELATORIO: P
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button ver-pedidos-venda-ativa (
+        buttonName: VER_PEDIDOS_VENDA_ATIVA
+        label: <span style="font-size: 12px">Pedidos Pós Venda Ativa</span>
+        layout {
+            sequence: 30
+            region: @ações
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--warning
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 250
+                items: {
+                    P250_TIPORELATORIO: V
+                }
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction selectunselectall (
+        name: selectUnselectAll
+        execution {
+            sequence: 20
+            eventScope: dynamic
+            staticContainer: #partnerslRR
+        }
+        when {
+            selectionType: jQuerySelector
+            jquerySelector: #selectUnselectAll
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    if ( $( '#selectUnselectAll' ).is(':checked')){
+                        $('input[type=checkbox][name=f02]').attr('checked',true);
+                    }
+                    else {
+                        $('input[type=checkbox][name=f02]').attr('checked',false);
+                    }
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction tipo-de-relatorio (
+        name: Tipo de Relatorio
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P246_TIPORELATORIO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P246_TIPORELATORIO
+            value: V
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P246_MEDIAINI
+                    P246_MEDIAFIM
+                    P246_QTDNOTAS
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-hide-2 (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P246_QTDDIASEMISSAO
+                    P246_TAREFA
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P246_QTDDIASEMISSAO
+                    P246_TAREFA
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+        action native-show-2 (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P246_MEDIAINI
+                    P246_MEDIAFIM
+                    P246_QTDNOTAS
+                ]
+            }
+            execution {
+                sequence: 20
+                fireWhenEventResultIs: false
+            }
+        )
+
+    )
+
+    process gerar-tarefas-de-prospecção (
+        name: Gerar Tarefas de Prospecção
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidtarefa             number;
+                  vdatainclusao         date          := sysdate;
+                  vidsituacao           number        := 50;
+                  vobservacao           varchar2(500);
+                  vidusuario            number        := :P246_IDUSUARIO;
+                  vidtipotarefa         number        := 8;
+                  vidpessoa             number;
+                  vidgrupoatendimento   number        := 4;
+                  vtelefone             varchar2(30);
+                  vidpais               number;
+                  vidvendedora          number;  
+                  --
+                  vnumber               number;
+                  vvarchar              varchar2(5);
+                  vdata                 date;
+                  vexiste               varchar2(1);
+                  --
+                begin
+                  --
+                  if APEX_APPLICATION.G_F02.COUNT > 0 then 
+                  --
+                    FOR i in 1..APEX_APPLICATION.G_F02.COUNT 
+                    LOOP
+                      --
+                      vidvendedora := to_number(APEX_APPLICATION.G_F02(i));
+                    --
+                    select idpessoa
+                      into vidpessoa
+                      from vendedoras
+                     where idvendedora = vidvendedora;
+                    --
+                    select idpais
+                    into vidpais
+                    from pessoas 
+                    where idpessoa = vidpessoa;
+                    --
+                   vobservacao := roman.pck_romance.fnc_retornatelefones(vidvendedora);
+                    --
+                    begin
+                      --
+                      select telefone
+                        into vtelefone
+                        from telefonespessoas t
+                       where t.idpessoa = vidpessoa
+                         and rownum = 1;
+                      --
+                    exception 
+                      when NO_DATA_FOUND then
+                        vtelefone := null;
+                    end;
+                    --
+                    if vidpais = 1 then
+                      --
+                      vidtipotarefa := 8;
+                      vidgrupoatendimento := 4;
+                      --
+                    elsif vidpais = 2 then
+                      --
+                      vidtipotarefa := 47;
+                      vidgrupoatendimento := 33;
+                      --
+                    elsif vidpais = 4 then
+                      --
+                      vidtipotarefa := 51;
+                      vidgrupoatendimento := 34;
+                      --
+                    end if;
+                    --
+                    if vidusuario is null then
+                      --
+                      vidsituacao := 0;
+                      --
+                    else
+                      --
+                      vidsituacao := 50;
+                      --
+                    end if;
+                    --
+                    pck_tarefas_fav.prc_tarefas ( pidtarefa                 => vidtarefa,
+                                                  pidtipotarefa             => vidtipotarefa,
+                                                  pidticketcallcenter       => vnumber,
+                                                  ptelefone                 => vtelefone,
+                                                  pdatainclusao             => vdatainclusao,
+                                                  pprioridade               => vnumber,
+                                                  pidsituacao               => vidsituacao,
+                                                  pobservacao               => vobservacao,
+                                                  pidusuario                => vidusuario,
+                                                  pidpessoa                 => vidpessoa,
+                                                  pidgrupoatendimento       => vidgrupoatendimento,
+                                                  pdatainicio               => vdata,
+                                                  pdataconclusao            => vdata,
+                                                  pnumeroposicaoatendimento => vvarchar,
+                                                  pidpedido                 => vnumber,
+                                                  pcodigoarea               => vnumber,
+                                                  pidpais                   => vidpais,
+                                                  pmd5                      => vvarchar,
+                                                  poperacao_dml             => 'I' );
+                    --
+                    end loop;
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Tarefa(s) Gerada(s) com Sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 566968960855033501
+        }
+        serverSideCondition {
+            whenButtonPressed: @gerar-tarefas
+            type: item=value
+            item: P246_TIPORELATORIO
+            value: P
+        }
+    )
+
+    process gerar-tarefas-de-prospecção-manaus (
+        name: Gerar Tarefas de Prospecção Manaus
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidtarefa             number;
+                  vdatainclusao         date          := sysdate;
+                  vidsituacao           number        := 0;
+                  vobservacao           varchar2(500);
+                  vidusuario            number        := :P246_IDUSUARIO;
+                  vidtipotarefa         number        := 8;
+                  vidpessoa             number;
+                  vidgrupoatendimento   number        := 4;
+                  vtelefone             varchar2(30);
+                  vidpais               number;
+                  vidvendedora          number;  
+                  --
+                  vnumber               number;
+                  vvarchar              varchar2(5);
+                  vdata                 date;
+                  vexiste               varchar2(1);
+                  --
+                begin
+                  --
+                  if APEX_APPLICATION.G_F02.COUNT > 0 then 
+                  --
+                    FOR i in 1..APEX_APPLICATION.G_F02.COUNT 
+                    LOOP
+                      --
+                      vidvendedora := to_number(APEX_APPLICATION.G_F02(i));
+                    --
+                    select idpessoa
+                      into vidpessoa
+                      from vendedoras
+                     where idvendedora = vidvendedora;
+                    --
+                    select idpais
+                    into vidpais
+                    from pessoas 
+                    where idpessoa = vidpessoa;
+                    --
+                   vobservacao := roman.pck_romance.fnc_retornatelefones(vidvendedora);
+                    --
+                    begin
+                      --
+                      select telefone
+                        into vtelefone
+                        from telefonespessoas t
+                       where t.idpessoa = vidpessoa
+                         and rownum = 1;
+                      --
+                    exception 
+                      when NO_DATA_FOUND then
+                        vtelefone := null;
+                    end;
+                    --
+                    if vidpais = 1 then
+                      --
+                      vidtipotarefa := 68;
+                      vidgrupoatendimento := 4;
+                      --
+                    end if;
+                    --
+                    pck_tarefas_fav.prc_tarefas ( pidtarefa                 => vidtarefa,
+                                                  pidtipotarefa             => vidtipotarefa,
+                                                  pidticketcallcenter       => vnumber,
+                                                  ptelefone                 => vtelefone,
+                                                  pdatainclusao             => vdatainclusao,
+                                                  pprioridade               => vnumber,
+                                                  pidsituacao               => vidsituacao,
+                                                  pobservacao               => vobservacao,
+                                                  pidusuario                => vidusuario,
+                                                  pidpessoa                 => vidpessoa,
+                                                  pidgrupoatendimento       => vidgrupoatendimento,
+                                                  pdatainicio               => vdata,
+                                                  pdataconclusao            => vdata,
+                                                  pnumeroposicaoatendimento => vvarchar,
+                                                  pidpedido                 => vnumber,
+                                                  pcodigoarea               => vnumber,
+                                                  pidpais                   => vidpais,
+                                                  pmd5                      => vvarchar,
+                                                  poperacao_dml             => 'I' );
+                    --
+                    end loop;
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 40
+        }
+        successMessage {
+            successMessage: Tarefa(s) Gerada(s) com Sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 567106945256146601
+        }
+        serverSideCondition {
+            whenButtonPressed: @gerar-tarefas
+            type: item=value
+            item: P246_TIPORELATORIO
+            value: A
+        }
+    )
+
+    process gerar-tarefas-de-venda-ativa (
+        name: Gerar Tarefas de Venda Ativa
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidtarefa             number;
+                  vdatainclusao         date          := sysdate;
+                  vidsituacao           number        := 50;
+                  vobservacao           varchar2(500);
+                  vidusuario            number := :P246_IDUSUARIO;
+                  vidtipotarefa         number;
+                  vidpessoa             number;
+                  vidgrupoatendimento   number        := 4;
+                  vtelefone             varchar2(30);
+                  vidpais               number;
+                  vidvendedora          number;
+                  --
+                  vnumber               number;
+                  vvarchar              varchar2(5);
+                  vdata                 date;
+                  vexiste               varchar2(1);
+                  --
+                begin
+                  --
+                  if APEX_APPLICATION.G_F02.COUNT > 0 then 
+                  --
+                    FOR i in 1..APEX_APPLICATION.G_F02.COUNT 
+                    LOOP
+                      --
+                      vidvendedora := to_number(APEX_APPLICATION.G_F02(i));
+                    --
+                    select idpessoa
+                    into vidpessoa
+                    from vendedoras
+                    where idvendedora = vidvendedora;
+                    --
+                    select idpais
+                    into vidpais
+                    from pessoas 
+                    where idpessoa = vidpessoa;
+                    --
+                    vobservacao := roman.pck_romance.fnc_retornatelefones(vidvendedora);
+                    --
+                    if vidpais = 1 then
+                      vidtipotarefa := 11; -- Venda Ativa
+                      vidgrupoatendimento := 4;
+                    elsif vidpais = 2 then
+                      vidtipotarefa := 12; -- Venda Ativa uruguay
+                      vidgrupoatendimento := 33;
+                    elsif vidpais =  4 then
+                      vidtipotarefa := 34; -- Venda Ativa Paraguay
+                      vidgrupoatendimento := 34;
+                    end if;
+                    --
+                    begin
+                      --
+                      select telefone
+                      into vtelefone
+                      from telefonespessoas t
+                      where t.idpessoa = vidpessoa
+                        and rownum = 1;
+                      --
+                    exception 
+                      when NO_DATA_FOUND then
+                        vtelefone := null;
+                    end;
+                    --
+                    if vidusuario is null then
+                      --
+                      vidsituacao := 0;
+                      --
+                    else
+                      --
+                      vidsituacao := 50;
+                      --
+                    end if;
+                    --
+                    pck_tarefas_fav.prc_tarefas ( pidtarefa                 => vidtarefa,
+                                                  pidtipotarefa             => vidtipotarefa,
+                                                  pidticketcallcenter       => vnumber,
+                                                  ptelefone                 => vtelefone,
+                                                  pdatainclusao             => vdatainclusao,
+                                                  pprioridade               => vnumber,
+                                                  pidsituacao               => vidsituacao,
+                                                  pobservacao               => vobservacao,
+                                                  pidusuario                => vidusuario,
+                                                  pidpessoa                 => vidpessoa,
+                                                  pidgrupoatendimento       => vidgrupoatendimento,
+                                                  pdatainicio               => vdata,
+                                                  pdataconclusao            => vdata,
+                                                  pnumeroposicaoatendimento => vvarchar,
+                                                  pidpedido                 => vnumber,
+                                                  pcodigoarea               => vnumber,
+                                                  pidpais                   => vidpais,
+                                                  pmd5                      => vvarchar,
+                                                  poperacao_dml             => 'I' );
+                    --
+                    end loop;
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: Tarefa(s) Gerada(s) com Sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 566972234738033534
+        }
+        serverSideCondition {
+            whenButtonPressed: @gerar-tarefas
+            type: item=value
+            item: P246_TIPORELATORIO
+            value: V
+        }
+    )
+
+    process gerar-tarefas-de-venda-ativa-manaus (
+        name: Gerar Tarefas de Venda Ativa Manaus
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  vidtarefa             number;
+                  vdatainclusao         date          := sysdate;
+                  vidsituacao           number        := 0;
+                  vobservacao           varchar2(500);
+                  vidusuario            number := :P246_IDUSUARIO;
+                  vidtipotarefa         number;
+                  vidpessoa             number;
+                  vidgrupoatendimento   number        := 4;
+                  vtelefone             varchar2(30);
+                  vidpais               number;
+                  vidvendedora          number;
+                  --
+                  vnumber               number;
+                  vvarchar              varchar2(5);
+                  vdata                 date;
+                  vexiste               varchar2(1);
+                  --
+                begin
+                  --
+                  if APEX_APPLICATION.G_F02.COUNT > 0 then 
+                  --
+                    FOR i in 1..APEX_APPLICATION.G_F02.COUNT 
+                    LOOP
+                      --
+                      vidvendedora := to_number(APEX_APPLICATION.G_F02(i));
+                    --
+                    select idpessoa
+                    into vidpessoa
+                    from vendedoras
+                    where idvendedora = vidvendedora;
+                    --
+                    select idpais
+                    into vidpais
+                    from pessoas 
+                    where idpessoa = vidpessoa;
+                    --
+                    vobservacao := roman.pck_romance.fnc_retornatelefones(vidvendedora);
+                    --
+                    if vidpais = 1 then
+                      vidtipotarefa := 67; -- Venda Ativa Manaus
+                      vidgrupoatendimento := 4;
+                    --
+                    end if;
+                    --
+                    begin
+                      --
+                      select telefone
+                      into vtelefone
+                      from telefonespessoas t
+                      where t.idpessoa = vidpessoa
+                        and rownum = 1;
+                      --
+                    exception 
+                      when NO_DATA_FOUND then
+                        vtelefone := null;
+                    end;
+                    --
+                    pck_tarefas_fav.prc_tarefas ( pidtarefa                 => vidtarefa,
+                                                  pidtipotarefa             => vidtipotarefa,
+                                                  pidticketcallcenter       => vnumber,
+                                                  ptelefone                 => vtelefone,
+                                                  pdatainclusao             => vdatainclusao,
+                                                  pprioridade               => vnumber,
+                                                  pidsituacao               => vidsituacao,
+                                                  pobservacao               => vobservacao,
+                                                  pidusuario                => vidusuario,
+                                                  pidpessoa                 => vidpessoa,
+                                                  pidgrupoatendimento       => vidgrupoatendimento,
+                                                  pdatainicio               => vdata,
+                                                  pdataconclusao            => vdata,
+                                                  pnumeroposicaoatendimento => vvarchar,
+                                                  pidpedido                 => vnumber,
+                                                  pcodigoarea               => vnumber,
+                                                  pidpais                   => vidpais,
+                                                  pmd5                      => vvarchar,
+                                                  poperacao_dml             => 'I' );
+                    --
+                    end loop;
+                    --
+                  end if;
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 50
+        }
+        advanced {
+            executionMappingIdentifier: 567107032359146602
+        }
+        serverSideCondition {
+            whenButtonPressed: @gerar-tarefas
+            type: item=value
+            item: P246_TIPORELATORIO
+            value: B
+        }
+    )
+
+    process gerar-tarefas-prospec-ativa (
+        name: GERAR_TAREFAS_PROSPEC_ATIVA
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  -- Call the procedure
+                  pck_tarefas_fav.prc_geratarefasdia;
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+        }
+        successMessage {
+            successMessage: Tarefas Geradas
+        }
+        error {
+            errorMessage: Erro ao gerar tarefas, favor abrir um evento
+        }
+        advanced {
+            executionMappingIdentifier: 5129025219232166406
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERAR_TAREFAS_PROSPEC_ATIVA
+        }
+    )
+
+    branch (
+        name: Go To Page 246
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 246
+                items: {
+                    P246_IDFILIALROMANCE: &P246_IDFILIALROMANCE.
+                    P246_IDREPRESENTANTE: &P246_IDREPRESENTANTE.
+                    P246_MEDIAINI: &P246_MEDIAINI.
+                    P246_MEDIAFIM: &P246_MEDIAFIM.
+                    P246_QTDNOTAS: &P246_QTDNOTAS.
+                    P246_TIPORELATORIO: &P246_TIPORELATORIO.
+                    P246_DEBITO: &P246_DEBITO.
+                    P246_TAREFA: &P246_TAREFA.
+                    P246_DATAINICIO: &P246_DATAINICIO.
+                    P246_DATAFIM: &P246_DATAFIM.
+                    P246_IDCIDADE: &P246_IDCIDADE.
+                    P246_IDUSUARIO: &P246_IDUSUARIO.
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+)
+

@@ -1,0 +1,859 @@
+page 584 (
+    name: Imprime Nora ComprasRemesasTransferências
+    alias: IMPRIME-NORA-COMPRASREMESASTRANSFERÊNCIAS
+    title: Imprime Nora Fiscal Remessa
+    appearance {
+        pageTemplate: @minimal-pedido
+        templateOptions: #DEFAULT#
+    }
+
+    region impressao-nota (
+        name: IMPRESSAO_NOTA
+        title: Impressão Nota Fiscal
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent5
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                -- aqui verifica se é remessa Normal
+                select 1 
+                  from dual
+                 where favorita.pck_util_fav.fnc_identifica_remessa_saldo_60(:P584_IDCOMPRATRANSFERENCIA) = 'NORMAL';
+                ```
+        }
+    )
+
+    region imprime-direto-remessa-de-pedido-saldo (
+        name: Imprime Direto Remessa de Pedido Saldo 60
+        type: plSqlDynamicContent
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                    -- variáveis de controle 
+                    l_mime_type        varchar2(100);
+                    l_filename         varchar2(255);
+                    l_blob             blob;
+                    v_chave_nfe        varchar2(100);
+                    v_numero_nfe       number;
+                    v_emp_virtualAge   number;
+                    
+                begin
+                    -- Seta a variável que controla a região aviso nota não encontrada
+                    :P584_MOSTRA_AVISO := 'N';
+                
+                   begin
+                        select a.invoice_code, a.access_key
+                          into v_numero_nfe, v_chave_nfe
+                          from favorita.tb_invoices_api a
+                         where a.orderid_so = :P74_IDCOMPRATRANSFERENCIA
+                           and rownum = 1;
+                    exception
+                        when others then
+                            -- #1.1 - chave ainda não disponivel, então busca a empresa virtualAGE
+                            select ff.idempresavirtualage
+                              into v_emp_virtualAge
+                              from favorita.filiaisfavorita ff
+                             where ff.idfilialfavorita = :P74_IDFILIALFAVORITAORIGEM;
+                
+                            -- #1.2 - Chama a rotina criada pelo Gui(gerente), para guardar a chave nfe
+                            favorita.pck_integracaogeral_fav.prc_buscatransferencias_va(pidempresava => v_emp_virtualAge,
+                                                                                        pdatabase => trunc(sysdate));
+                
+                            -- #1.3 - Tenta pela 2ª vez: verifica se a chave da nota fiscal já está disponível
+                            select a.invoice_code, a.access_key
+                              into v_numero_nfe, v_chave_nfe
+                              from favorita.tb_invoices_api a
+                             where a.orderid_so = :P74_IDCOMPRATRANSFERENCIA;
+                    end;
+                
+                    -- #2 - Busca o PDF da danf da nota fiscal na tabela dos pdfs.    
+                    begin
+                        select 'application/pdf',
+                               'danfe.pdf',
+                               a.attach_data
+                          into l_mime_type,
+                               l_filename,
+                               l_blob
+                          from favorita.tb_invoices_api_danf_pdf a
+                         where a.access_key = v_chave_nfe
+                           and a.status_erro is null
+                           and rownum = 1;
+                    exception
+                        when others then
+                            
+                            -- #2.1 - tem a chave mas ainda não fez dowload do PDF da nota
+                            begin
+                                -- Chama a pck para baixar o PDF para a tabela favorita.tb_invoices_api_danf_pdf
+                                favorita.pck_integracaogeral_fav.prc_busca_pdf_nota_fiscal_va(v_chave_nfe);
+                
+                                select 'application/pdf',
+                                       'danfe.pdf',
+                                       a.attach_data
+                                  into l_mime_type,
+                                       l_filename,
+                                       l_blob
+                                  from favorita.tb_invoices_api_danf_pdf a
+                                 where a.access_key = v_chave_nfe
+                                   and a.status_erro is null
+                                   and rownum = 1;
+                            exception
+                                when others then
+                                    return;
+                            end;
+                    end;
+                    
+                    -- #4 - imprime o arquivo blob
+                    sys.htp.init;
+                    owa_util.mime_header(l_mime_type, false);
+                    htp.p('Content-Length: ' || dbms_lob.getlength(l_blob));
+                    htp.p('Content-Disposition: inline; filename="' || l_filename || '"');
+                    owa_util.http_header_close;
+                    wpg_docload.download_file(l_blob);
+                    apex_application.stop_apex_engine;
+                
+                -- tratamento de erros
+                exception
+                    when others then
+                        -- Se deu erro, é por que não encontrou a nota então Seta a variável que controla a região aviso nota não encontrada
+                        :P584_MOSTRA_AVISO := 'S';
+                        --:P584_MSG1 := 'Nota fiscal não localizada na base de dados!';
+                        --:P584_MSG2 := 'Será necessário fazer o reprocessamento do envio da nota pelo VA.';
+                end;
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: contentBody
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <div style="font-family: Arial, sans-serif; font-size: 20px; color: #81bb5f; text-align: center; padding: 10px; border: 1px solid #81bb5f; background-color: #f5fbf1;">
+                  <br>
+                  <strong>Atenção!</strong>
+                  <br><br>
+                  Ocorreu um erro ao imprimir o pdf da nota fiscal de remessa tipo saldo 60.
+                  <br><br><br>
+                </div>
+                ```
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                -- aqui verifica se é remessa saldo 60
+                select 1 
+                  from dual
+                 where favorita.pck_util_fav.fnc_identifica_remessa_saldo_60(:P584_IDCOMPRATRANSFERENCIA) = 'SALDO_60';
+                ```
+        }
+    )
+
+    region lista-de-impressao (
+        name: LISTA_DE_IMPRESSAO
+        title: Pedido(s) para impressão
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                -- P584_IMPRESSAO_POR: 1 (Maior Nota Remessa)
+                select pr.volume         as valume
+                     , pp.idpedido       as id_pedido
+                     , pp.numeropedido   as numero_pedido
+                     , nf.numero         as numero_nota_fiscal
+                     , nf.valortotalnota as valor_total_nota
+                     , favorita.pck_util_fav.fnc_nomevendedora(pp.idvendedora)         as nome_consultora
+                     , favorita.pck_util_fav.fnc_nomerepresentante(pp.idrepresentante) as nome_distribuidor
+                     , apex_item.CHECKBOX2(2,pp.idpedido, null)                        as check_1
+                  from favorita.pedidosremessasct pr
+                     , favorita.pedidos pp
+                     , crisdu.notasfiscais nf
+                 where pp.idpedido = pr.idpedido
+                   and nf.idpedidofavorita(+) = pp.idpedido
+                   and pr.idcompratransferencia = :P584_IDCOMPRATRANSFERENCIA
+                       -- P584_IMPRESSAO_POR: 1 (Maior Nota Remessa)
+                   and :P584_IMPRESSAO_POR = 1
+                       -- busca a maior nota da remessa
+                   and nf.idnotafiscal = ( select n.idnotafiscal
+                                             from crisdu.notasfiscais n
+                                            where n.idpedidofavorita in (select p.idpedido
+                                                                           from favorita.pedidosremessasct p
+                                                                          where p.idcompratransferencia = :P584_IDCOMPRATRANSFERENCIA)
+                                           order by n.valortotalnota desc
+                                           fetch first 1 rows only)
+                 
+                 union
+                
+                -- P584_IMPRESSAO_POR: 2 (Maior Nota volume)
+                select aux.volume
+                     , aux.id_pedido
+                     , aux.numero_pedido
+                     , aux.numero_nota_fiscal
+                     , aux.valor_total_nota
+                     , aux.nome_consultora
+                     , aux.nome_distribuidor
+                     , aux.check_1
+                  from (  select pr.volume         as volume
+                               , pp.idpedido       as id_pedido
+                               , pp.numeropedido   as numero_pedido
+                               , nf.numero         as numero_nota_fiscal
+                               , nf.valortotalnota as valor_total_nota
+                               , favorita.pck_util_fav.fnc_nomevendedora(pp.idvendedora)         as nome_consultora
+                               , favorita.pck_util_fav.fnc_nomerepresentante(pp.idrepresentante) as nome_distribuidor
+                               , apex_item.CHECKBOX2(2,pp.idpedido, null)                        as check_1
+                               , row_number() over (partition by pr.volume order by nf.valortotalnota desc nulls last) as rn
+                            from favorita.pedidosremessasct pr
+                               , favorita.pedidos pp
+                               , crisdu.notasfiscais nf
+                           where pp.idpedido = pr.idpedido
+                             and nf.idpedidofavorita(+) = pp.idpedido
+                             and pr.idcompratransferencia = :P584_IDCOMPRATRANSFERENCIA) aux
+                 where aux.rn = 1
+                       -- P584_IMPRESSAO_POR: 2 (Maior Nota por volume)
+                   and :P584_IMPRESSAO_POR = 2
+                       -- filtro por um volume ou todos
+                   and ( :P584_VOLUME is null or aux.volume = :P584_VOLUME )
+                 
+                union
+                
+                -- P584_IMPRESSAO_POR: 3 (Valume)
+                select pr.volume         as valume
+                     , pp.idpedido       as id_pedido
+                     , pp.numeropedido   as numero_pedido
+                     , nf.numero         as numero_nota_fiscal
+                     , nf.valortotalnota as valor_total_nota
+                     , favorita.pck_util_fav.fnc_nomevendedora(pp.idvendedora)         as nome_consultora
+                     , favorita.pck_util_fav.fnc_nomerepresentante(pp.idrepresentante) as nome_distribuidor
+                     , apex_item.CHECKBOX2(2,pp.idpedido, null)                        as check_1
+                  from favorita.pedidosremessasct pr
+                     , favorita.pedidos pp
+                     , crisdu.notasfiscais nf
+                 where pp.idpedido = pr.idpedido
+                   and nf.idpedidofavorita(+) = pp.idpedido
+                   and pr.idcompratransferencia = :P584_IDCOMPRATRANSFERENCIA
+                       -- P584_IMPRESSAO_POR: 3 (Volume)
+                   and :P584_IMPRESSAO_POR = 3
+                       -- filtra por um volume ou todos
+                   and ( :P584_VOLUME is null or pr.volume = :P584_VOLUME)
+                
+                 order by 1;
+                ```
+        }
+        layout {
+            sequence: 10
+            parentRegion: @impressao-nota
+            slot: subRegions
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            htmlDomId: partnerslRR
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 1073806284947132403
+        }
+
+        column CHECK_1 (
+            type: plainText
+            heading {
+                heading: <input type="checkbox"id="selectUnselectAll"title="Select/Unselect All">
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: I
+            }
+            enableUsersTo {
+                hide: false
+                sort: false
+                filter: false
+                highlight: false
+                controlBreak: false
+                aggregate: false
+                compute: false
+                chart: false
+                groupBy: false
+                pivot: false
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column ID_PEDIDO (
+            type: plainText
+            heading {
+                heading: ID Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column NOME_CONSULTORA (
+            type: plainText
+            heading {
+                heading: Nome Consultora
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column NOME_DISTRIBUIDOR (
+            type: plainText
+            heading {
+                heading: Nome Distribuidor
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column NUMERO_NOTA_FISCAL (
+            type: plainText
+            heading {
+                heading: Número Nota Fiscal
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column NUMERO_PEDIDO (
+            type: plainText
+            heading {
+                heading: Número Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column VALOR_TOTAL_NOTA (
+            type: plainText
+            heading {
+                heading: R$ Valor Total Nota
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column VALUME (
+            type: plainText
+            heading {
+                heading: Valume
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        pageHeader {
+            pageHeaderText: Pedido(s) para impressão
+        }
+
+        savedReport 10738277 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 100000
+            }
+
+            displayColumn CHECK_1 (
+                sequence: 1
+            )
+
+            displayColumn NOME_CONSULTORA (
+                sequence: 7
+            )
+
+            displayColumn NOME_DISTRIBUIDOR (
+                sequence: 6
+            )
+
+            displayColumn NUMERO_NOTA_FISCAL (
+                sequence: 4
+            )
+
+            displayColumn NUMERO_PEDIDO (
+                sequence: 3
+            )
+
+            displayColumn VALOR_TOTAL_NOTA (
+                sequence: 5
+            )
+
+            displayColumn VALUME (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    pageItem P584_IDCOMPRATRANSFERENCIA (
+        type: hidden
+        layout {
+            sequence: 30
+            region: @impressao-nota
+            slot: regionBody
+        }
+        source {
+            used: always
+        }
+        sessionState {
+            storage: user
+        }
+    )
+
+    pageItem P584_IMPRESSAO_POR (
+        type: radioGroup
+        label {
+            label: <b>Impressao Por:</b>
+            alignment: left
+        }
+        settings {
+            noOfCols: 5
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC2:Maior Nota Remessa;1,Maior Nota Volume;2,Volumes;3
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @impressao-nota
+            slot: regionBody
+            alignment: left
+            column: 1
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        default {
+            type: static
+            staticValue: 3
+        }
+    )
+
+    pageItem P584_MOSTRA_AVISO (
+        type: hidden
+        layout {
+            sequence: 50
+            region: @impressao-nota
+            slot: regionBody
+        }
+    )
+
+    pageItem P584_SESSION_PAG_618 (
+        type: hidden
+        layout {
+            sequence: 40
+            region: @impressao-nota
+            slot: regionBody
+        }
+        source {
+            type: functionBody
+            plsqlFunctionBody:
+                ```plsql
+                declare
+                    l_url     varchar2(2000);
+                    l_app     number := 2000;
+                    l_session number := v('APP_SESSION');
+                begin
+                    l_url := APEX_UTIL.PREPARE_URL(
+                        p_url => 'f?p=' || l_app || ':618:'||l_session||'::NO::',
+                        p_checksum_type => 'SESSION');
+                    
+                    return l_url;
+                end;
+                ```
+        }
+    )
+
+    pageItem P584_VOLUME (
+        type: textField
+        label {
+            label: <b>Volume:</b>
+            alignment: left
+        }
+        layout {
+            sequence: 20
+            region: @impressao-nota
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+    )
+
+    button buscar-notas (
+        buttonName: BUSCAR_NOTAS
+        label: Buscar Notas
+        layout {
+            sequence: 60
+            region: @impressao-nota
+            slot: regionBody
+            column: 1
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+                t-Button--gapTop
+                t-Button--gapBottom
+            ]
+            icon: fa-filter
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+        advanced {
+            customAttributes: style="background-color: #81bb5f;   color:white;   border:1px solid #68aa42;   border-radius: 2px";
+        }
+    )
+
+    button imprimir (
+        buttonName: IMPRIMIR
+        label: Imprimir
+        layout {
+            sequence: 70
+            region: @impressao-nota
+            slot: regionBody
+            startNewRow: false
+            column: 2
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+                t-Button--gapTop
+                t-Button--gapBottom
+            ]
+            icon: fa-print
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+        advanced {
+            customAttributes: style="background-color: #81bb5f;   color:white;   border:1px solid #68aa42;   border-radius: 2px";
+        }
+    )
+
+    dynamicAction exibe-esconde-campos-na-página (
+        name: Exibe/Esconde Campos Na página
+        execution {
+            sequence: 20
+        }
+        when {
+            selectionType: items
+            items: P584_IMPRESSAO_POR
+        }
+
+        action hide-1-maior-nota-remessa (
+            name: Hide (1 - Maior Nota Remessa)
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P584_VOLUME
+            }
+            execution {
+                sequence: 10
+            }
+            clientSideCondition {
+                type: item=value
+                item: P584_IMPRESSAO_POR
+                value: 1
+            }
+        )
+
+        action hide-2-maior-nota-valume (
+            name: Hide (2 - Maior Nota Valume)
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P584_IDPEDIDO
+            }
+            execution {
+                sequence: 30
+            }
+            clientSideCondition {
+                type: item=value
+                item: P584_IMPRESSAO_POR
+                value: 2
+            }
+        )
+
+        action hide-3-valume (
+            name: Hide (3 - Valume)
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: P584_IDPEDIDO
+            }
+            execution {
+                sequence: 50
+            }
+            clientSideCondition {
+                type: item=value
+                item: P584_IMPRESSAO_POR
+                value: 3
+            }
+        )
+
+        action show-2-maior-nota-valume (
+            name: Show (2 - Maior Nota Valume)
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P584_VOLUME
+            }
+            execution {
+                sequence: 20
+            }
+            clientSideCondition {
+                type: item=value
+                item: P584_IMPRESSAO_POR
+                value: 2
+            }
+        )
+
+        action show-3-valume (
+            name: Show (3 - Valume)
+            action: show
+            affectedElements {
+                selectionType: items
+                items: P584_VOLUME
+            }
+            execution {
+                sequence: 40
+            }
+            clientSideCondition {
+                type: item=value
+                item: P584_IMPRESSAO_POR
+                value: 3
+            }
+        )
+
+    )
+
+    dynamicAction selectunselectall (
+        name: selectUnselectAll
+        execution {
+            sequence: 10
+            eventScope: dynamic
+            staticContainer: #partnerslRR
+        }
+        when {
+            selectionType: jQuerySelector
+            jquerySelector: #selectUnselectAll
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    if ( $( '#selectUnselectAll' ).is(':checked')){
+                        $('input[type=checkbox][name=f02]').attr('checked',true);
+                    }
+                    else {
+                        $('input[type=checkbox][name=f02]').attr('checked',false);
+                    }
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    validation nota-fiscal-não-selecionada-grava-pedido-selecionado (
+        name: Nota Fiscal Não Selecionada/Grava Pedido Selecionado
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: functionBodyReturningBoolean
+            plsqlFunctionBody:
+                ```plsql
+                begin
+                    -- Verifica se existe ao menos uma nota selecionada
+                    if APEX_APPLICATION.G_F02.COUNT > 0 then 
+                        return true;
+                    else
+                        return false;
+                    end if;
+                end;
+                ```
+        }
+        error {
+            errorMessage: Atenção: selecione ao menos uma nota na grade para continuar com a impressão.
+        }
+        serverSideCondition {
+            whenButtonPressed: @imprimir
+        }
+    )
+
+    process imprimir-grava-pedidos-selecionados-para-imprimir (
+        name: (IMPRIMIR) Grava Pedidos Selecionados Para Imprimir
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                
+                    -- Remove todos os pedidos da lista de impressão do usuário atual
+                    delete from favorita.pedidos_selecionados_p584 where usuario = v('APP_USER');
+                    
+                    -- Insere os pedidos selecionados na tabela auxiliar para posterior impressão (página 2000.618)
+                	for i IN 1..APEX_APPLICATION.G_F02.COUNT loop
+                		-- Grava na tabela auxiliar os pedidos para depois imprimir na página 2000.618
+                		insert into favorita.pedidos_selecionados_p584 values(APEX_APPLICATION.G_F02(i),v('APP_USER'));
+                
+                	end loop;
+                
+                    -- Confirma as alterações
+                    commit;
+                
+                -- Tratamento de erro para captura de exceções na rotina
+                -- Em caso de erro, exibe mensagem amigável e o código do erro
+                exception
+                    when others then
+                        apex_error.add_error(
+                            p_message => 'Ops! Ocorreu um erro no processo Grava Pedidos Selecionados Para Imprimir. Erro: ' || SQLERRM || ' - Código: ' || SQLCODE,
+                            p_display_location => apex_error.c_inline_in_notification
+                        );
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 1073807574194132416
+        }
+        serverSideCondition {
+            whenButtonPressed: @imprimir
+        }
+    )
+
+    branch (
+        name: GoTo 618
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 618
+            }
+        }
+        serverSideCondition {
+            whenButtonPressed: @imprimir
+        }
+    )
+
+)
+

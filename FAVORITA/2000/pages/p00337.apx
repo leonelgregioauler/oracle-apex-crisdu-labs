@@ -1,0 +1,962 @@
+page 337 (
+    name: Controle de Comissões Distribuidoras Parceiras
+    title: Controle de Comissões Distribuidoras Parceiras
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            function deletapgto(pid)
+            {
+            
+              var answer = confirm("Confirma exlusão do pagamento da comissão?")
+              if (answer)
+                {
+                  document.getElementById('P337_IDDELETAR').value = pid;
+                  apex.submit('DELETAR');
+                }
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+    advanced {
+        reloadOnSubmit: always
+    }
+
+    region comissões-a-pagar (
+        name: Comissões A Pagar
+        type: tabform
+        source {
+            sqlQuery:
+                ```sql
+                select p.numeropedido 
+                     , p.representante
+                     , p.vendedora
+                     , p.dataemissao
+                     , p.valortotal
+                     , ( p.valortotal - ( p.valortotal * 0.96 )) valorcomissao
+                     , p.idpedido
+                from vw_pedidos_fav p
+                where p.ididioma = 1
+                  and p.datacancelamento is null
+                  and (:P337_IDFILIALROMANCE is null or p.idfilialromance = :P337_IDFILIALROMANCE )
+                  and exists ( select 1
+                               from pedidosremessasct pr
+                               where pr.idpedido = p.idpedido
+                                 and exists ( select 1
+                                              from vencimentoscomprastransf vc
+                                              where vc.idcompratransferencia = pr.idcompratransferencia
+                                                and vc.situacaovencimento    = 'V'
+                                                and round(vc.valorpago,2)    = round(vc.valorvencimento,2)
+                                                and vc.valorvencimento       > 0 ) )
+                  and exists ( select 1
+                               from roman.vw_filiais f
+                               where f.idfilial   = p.idfilialromance
+                                 and f.tipofilial = 'P' )
+                  and not exists ( select 1
+                                   from PAGAMENTOSCOMISSOESPARCEIRAS pg
+                                   where pg.idpedido = p.idpedido )            
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent2
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P337_COMISSAO
+            value: A
+        }
+        reportLayout {
+            numberOfRows: 100
+        }
+        componentAppearance {
+            template: @/standard
+            showNullValuesAs: -
+        }
+        pagination {
+            type: setPaginationSelectList
+        }
+
+        column CHECK$01 (
+            reportColumnQueryId: 8
+            derivedColumn: Y
+            type: rowSelector
+            heading {
+                heading: &nbsp;
+                alignment: center
+            }
+            layout {
+                sequence: 1
+            }
+        )
+
+        column DATAEMISSAO (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            heading {
+                heading: Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 6
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+        )
+
+        column IDPEDIDO (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            type: hiddenSavesState
+            layout {
+                sequence: 3
+            }
+        )
+
+        column NUMEROPEDIDO (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            heading {
+                heading: Nr Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 2
+                columnAlignment: center
+            }
+        )
+
+        column REPRESENTANTE (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 4
+            }
+        )
+
+        column VALORCOMISSAO (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            heading {
+                heading: Valor da Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 8
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column VALORTOTAL (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            heading {
+                heading: Valor Revista
+                alignment: center
+            }
+            layout {
+                sequence: 7
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+        )
+
+        column VENDEDORA (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 5
+            }
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region pedidos-de-distribuidoras-parceiras (
+        name: Pedidos de Distribuidoras Parceiras
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.idpedido
+                     , p.representante
+                     , p.vendedora
+                     , p.dataemissao
+                     , p.dataentrega
+                     , p.valortotal
+                     , ( select sum(it.valorapagar)
+                         from vw_itenspedidos_fav it
+                         where it.idpedido = p.idpedido 
+                           and it.ididioma = 1 ) valorapagar
+                     , pg.datapagamento datapgtocomissao
+                     , pg.valorpago valorcomissao
+                     , pg.nomeusuario usuariopagou
+                     , '<a href="javascript: deletapgto('||p.idpedido||')"> Excluir Pgto</a>' excluir
+                from vw_pedidos_fav p
+                   , vw_pgtocomissoesparceiras_fav pg
+                where p.idpedido = pg.idpedido
+                  and p.ididioma = 1
+                  and exists ( select 1
+                               from roman.vw_filiais f
+                               where f.idfilial   = p.idfilialromance
+                                 and f.tipofilial = 'P' )
+                  and ( :P337_IDFILIALROMANCE is null or p.idfilialromance = :P337_IDFILIALROMANCE )
+                  and ( :P337_DATAINICIO is null or trunc(pg.datapagamento) between to_date(:P337_DATAINICIO) and to_date(:P337_DATAFIM) )
+                order by 1
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        serverSideCondition {
+            type: item=value
+            item: P337_COMISSAO
+            value: P
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000
+        }
+        messages {
+            whenNoDataFound: Nenhum resultado encontrado!
+        }
+        advanced {
+            savedReportMappingIdentifier: 1422733428940768205
+        }
+
+        column DATAEMISSAO (
+            type: plainText
+            heading {
+                heading: Data de Emissão
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        column DATAENTREGA (
+            type: plainText
+            heading {
+                heading: Data de Entrega
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column DATAPGTOCOMISSAO (
+            type: plainText
+            heading {
+                heading: Data Pagamento Comissão
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: DD/MM/RRRR HH24:MI:SS
+            }
+            source {
+                dataType: date
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column EXCLUIR (
+            type: plainText
+            heading {
+                heading: Excluir
+                alignment: center
+            }
+            layout {
+                sequence: 110
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+            security {
+                escapeSpecialChars: false
+            }
+        )
+
+        column IDPEDIDO (
+            type: plainText
+            heading {
+                heading: Nr Pedido
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column REPRESENTANTE (
+            type: plainText
+            heading {
+                heading: Distribuidor
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column USUARIOPAGOU (
+            type: plainText
+            heading {
+                heading: Pago Por
+                alignment: center
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column VALORAPAGAR (
+            type: plainText
+            heading {
+                heading: Valor a Pagar
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column VALORCOMISSAO (
+            type: plainText
+            heading {
+                heading: Valor Comissão Paga
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: I
+            }
+        )
+
+        column VALORTOTAL (
+            type: plainText
+            heading {
+                heading: Valor Total
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column VENDEDORA (
+            type: plainText
+            heading {
+                heading: Cliente
+                alignment: center
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 14227440 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn DATAEMISSAO (
+                sequence: 4
+            )
+
+            displayColumn DATAENTREGA (
+                sequence: 5
+            )
+
+            displayColumn DATAPGTOCOMISSAO (
+                sequence: 8
+            )
+
+            displayColumn EXCLUIR (
+                sequence: 11
+            )
+
+            displayColumn IDPEDIDO (
+                sequence: 1
+            )
+
+            displayColumn REPRESENTANTE (
+                sequence: 2
+            )
+
+            displayColumn USUARIOPAGOU (
+                sequence: 10
+            )
+
+            displayColumn VALORAPAGAR (
+                sequence: 7
+            )
+
+            displayColumn VALORCOMISSAO (
+                sequence: 9
+            )
+
+            displayColumn VALORTOTAL (
+                sequence: 6
+            )
+
+            displayColumn VENDEDORA (
+                sequence: 3
+            )
+
+            aggregate (
+                column: VALORCOMISSAO
+            )
+
+            controlBreak (
+                column: REPRESENTANTE
+                layout {
+                    sequence: 1
+                }
+            )
+
+        )
+
+    )
+
+    pageItem P337_COMISSAO (
+        type: radioGroup
+        label {
+            label: Comissão
+            alignment: left
+        }
+        lov {
+            type: staticValues
+            staticValues: STATIC:A Pagar;A,Paga;P
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P337_DATAFIM (
+        type: datePickerJquery
+        label {
+            label: até
+            alignment: left
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P337_DATAINICIO (
+        type: datePickerJquery
+        label {
+            label: De
+            alignment: left
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            formatMask: DD/MM/RRRR
+            width: 15
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P337_IDDELETAR (
+        type: hidden
+        settings {
+            valueProtected: false
+        }
+        layout {
+            sequence: 10
+            region: @pedidos-de-distribuidoras-parceiras
+            slot: regionBody
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P337_IDFILIALROMANCE (
+        type: selectList
+        label {
+            label: Empresa Parceira
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select f.nome
+                     , f.idfilial
+                from roman.vw_filiais f
+                where f.ativo = 'S'
+                  and f.tipofilial = 'P'
+                order by 1
+                ```
+            displayExtraValues: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P337_VALORTOTAL (
+        type: numberField
+        label {
+            label: Valor Total a Pagar
+            alignment: left
+        }
+        settings {
+            numberAlignment: end
+            virtualKeyboard: text
+        }
+        layout {
+            sequence: 10
+            region: @comissões-a-pagar
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            width: 30
+        }
+        source {
+            type: sqlQuerySingleValue
+            sqlQuery:
+                ```sql
+                select nvl(to_char(sum(p.valortotal - ( p.valortotal * 0.96 ) ),'999G999G999G990D00'),0) valorcomissao
+                from vw_pedidos_fav p
+                where p.ididioma = 1
+                  and p.idfilialromance = :P337_IDFILIALROMANCE 
+                  and exists ( select 1
+                               from pedidosremessasct pr
+                               where pr.idpedido = p.idpedido
+                                 and exists ( select 1
+                                              from vencimentoscomprastransf vc
+                                              where vc.idcompratransferencia = pr.idcompratransferencia
+                                                and vc.situacaovencimento    = 'V'
+                                                and round(vc.valorpago,2)    = round(vc.valorvencimento,2)
+                                                and vc.valorvencimento       > 0 ) )
+                  and exists ( select 1
+                               from roman.vw_filiais f
+                               where f.idfilial   = p.idfilialromance
+                                 and f.tipofilial = 'P' )
+                  and not exists ( select 1
+                                   from PAGAMENTOSCOMISSOESPARCEIRAS pg
+                                   where pg.idpedido = p.idpedido )
+                ```
+            used: always
+        }
+        readOnly {
+            type: always
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button buscar (
+        buttonName: BUSCAR
+        label: Buscar
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    button pagar-comissao (
+        buttonName: PAGAR_COMISSAO
+        label: Pagar Comissão
+        layout {
+            sequence: 10
+            region: @comissões-a-pagar
+            slot: create
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction tipo-comissão (
+        name: Tipo Comissão
+        execution {
+            sequence: 10
+        }
+        when {
+            selectionType: items
+            items: P337_COMISSAO
+        }
+        clientSideCondition {
+            type: item=value
+            item: P337_COMISSAO
+            value: P
+        }
+
+        action native-hide (
+            action: hide
+            affectedElements {
+                selectionType: items
+                items: [
+                    P337_DATAINICIO
+                    P337_DATAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+                fireWhenEventResultIs: false
+            }
+        )
+
+        action native-show (
+            action: show
+            affectedElements {
+                selectionType: items
+                items: [
+                    P337_DATAINICIO
+                    P337_DATAFIM
+                ]
+            }
+            execution {
+                sequence: 10
+            }
+        )
+
+    )
+
+    process deleta-pagamento-de-comissão (
+        name: Deleta Pagamento de Comissão
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  voperacao_dml varchar2(1);
+                  --
+                begin
+                  --
+                  if v('REQUEST') = 'DELETAR' then
+                    voperacao_dml := 'D';
+                  end if;
+                  --
+                  pck_pedidos_fav.prc_pgtocomissoesparceiras(pidpedido => :P337_IDDELETAR,
+                                                             pidusuario => :P0_IDUSUARIO,
+                                                             poperacao_dml => voperacao_dml);
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+        }
+        successMessage {
+            successMessage: Pagamento de Comissão deletado com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 1422736462201768235
+        }
+        serverSideCondition {
+            type: request=Value
+            value: DELETAR
+        }
+    )
+
+    process realiza-pagamento-de-comissões (
+        name: Realiza Pagamento de Comissões
+        type: executeCode
+        editableRegion: @comissões-a-pagar
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  --
+                  voperacao_dml varchar2(1);
+                  --
+                begin
+                  --
+                  if v('REQUEST') = 'PAGAR_COMISSAO' then
+                    voperacao_dml := 'I';
+                  end if;
+                  --
+                  pck_pedidos_fav.prc_pgtocomissoesparceiras(pidpedido => :IDPEDIDO,
+                                                             pidusuario => :P0_IDUSUARIO,
+                                                             poperacao_dml => voperacao_dml);
+                  --
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        successMessage {
+            successMessage: Comissão Paga com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 1422735940793768230
+        }
+        serverSideCondition {
+            type: request=Value
+            value: PAGAR_COMISSAO
+        }
+    )
+
+    branch (
+        execution {
+            sequence: 10
+        }
+        behavior {
+            target: {
+                page: 337
+                items: {
+                    P337_IDFILIALROMANCE: &P337_IDFILIALROMANCE.
+                    P337_COMISSAO: &P337_COMISSAO.
+                    P337_DATAINICIO: &P337_DATAINICIO.
+                    P337_DATAFIM: &P337_DATAFIM.
+                }
+                action: resetPagination
+            }
+        }
+    )
+
+)
+

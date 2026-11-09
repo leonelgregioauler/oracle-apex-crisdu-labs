@@ -1,0 +1,853 @@
+page 646 (
+    name: Consulta Ciclos de Cobertura de Venda
+    title: Consulta Ciclos de Cobertura de Venda
+    appearance {
+        pageTemplate: @/right-side-column
+        templateOptions: #DEFAULT#
+    }
+    css {
+        inline:
+            ```css
+            #INTGRID {
+                background: rgba(212, 237, 218, 0.8);
+                border: 0px;
+                border: 1px solid rgba(144, 238, 144, 0.8);
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region aviso (
+        name: Aviso
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--removeHeader js-removeLandmark
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            htmlDomId: INTGRID
+        }
+        headerAndFooter {
+            headerText:
+                ```html
+                <div style="font-family: Arial, sans-serif; font-size: 20px; color: rgba(34, 73, 50, 0.9); text-align: center; padding: 0px; border: 0px solid rgba(144, 238, 144, 0.8); background-color: rgba(212, 237, 218, 0.8);">
+                    Os relatórios desta página estão considerando o período &P646_DATA_INICIO. até &P646_DATA_FIM..
+                </div>
+                
+                ```
+        }
+    )
+
+    region ciclos-de-venda (
+        name: Ciclos de venda
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select aux.loja
+                     , aux.produto
+                     , sum(aux.disponivel) disponivel
+                     , sum(aux.quantidadevendida) quantidadevendida
+                     , round(roman.pck_romance.FNC_DIVISOR_ZERO( sum(aux.disponivel), sum(aux.quantidadevendida)),2) cobertura
+                    -- , round(sum(aux.disponivel) / sum(aux.quantidadevendida),2) cobertura
+                     , sum(aux.disp_cd_abastecedor) disp_cd_abastecedor
+                     , (select cc.nomecategoria
+                        from favorita.produtos p
+                            , favorita.vw_categoriassite_fav cc
+                            , favorita.vw_categorias_fav c
+                        where p.idproduto = aux.idproduto
+                          and c.idcategoriasite = cc.idcategoriasite (+)
+                          and c.idcategoria = p.idcategoria
+                        and rownum=1) as "Categoria Site" --T10905630
+                  from ( select x.idproduto
+                              , (select initcap(p.nomeproduto) from favorita.produtos p where p.idproduto = x.idproduto) as produto
+                              , x.disponivel
+                              , x.quantidadevendida
+                              , round((x.disponivel / x.quantidadevendida),2) cobertura
+                              , favorita.pck_util_fav.fnc_nomefilialfavorita(x.filial) loja
+                              , disp_cd_abastecedor
+                              , favorita.pck_util_fav.fnc_nomeprodutodetalhado(x.idprodutodetalhado,1) as "Produto Detalhado"
+                           from ( select p.idproduto
+                                       , favorita.pck_util_fav.fnc_nomeproduto(p.idproduto,1,'S') nomeproduto
+                                       , sum(favorita.pck_estoque_fav.fnc_estoquedisponivel(pidestoque => e.idestoque))  disponivel 
+                                       , nvl(sum( venda.quantidadevendida ),0) quantidadevendida
+                                       , venda.idfilialfavorita_est filial
+                                       , p.idprodutodetalhado
+                                       , ( select favorita.pck_estoque_fav.fnc_estoquedisponivel(pidestoque => et.idestoque)
+                                             from atendimentosestoques ae
+                                                , filiaisfavorita fav
+                                                , estoques et
+                                            where ae.idfilialfavoritadestino = venda.idfilialfavorita_est 
+                                              and fav.idfilialfavorita = ae.idfilialfavoritaorigem
+                                              and et.idfilialfavorita = ae.idfilialfavoritaorigem
+                                              and et.idprodutodetalhado = p.idprodutodetalhado
+                                              and fav.tipofilial = 'E' ) disp_cd_abastecedor
+                                    from ( select w.idproduto filial
+                                                , w.idprodutodetalhado       
+                                                , w.idestoque idestoque
+                                                , sum( w.quantidadevendida ) quantidadevendida
+                                                , w.idfilialfavorita_est
+                                             from favorita.mv_itensvendidos_fav w
+                                            where (:P646_PRODUTO is null or w.idproduto = :P646_PRODUTO) 
+                                              and (     ( w.idfilialfavorita_est = :P646_FILIAL and pck_util.fnc_verificaacesso(58312,v('APP_USER')) = 'S')
+                                                    or  ( w.idfilialfavorita_est = :P646_FILIAL and w.idfilialfavorita_est = ( select f.idfilialfavorita
+                                                                                                                                 from favorita.filiaisfavorita f
+                                                                                                                                 where f.tipofilial = 'L' 
+                                                                                                                                   and f.idfilialfavorita = ( select u.Idfilialfavorita
+                                                                                                                                                                from catal.usuarios u 
+                                                                                                                                                               where u.usuario = v('APP_USER')))))
+                                              and w.dataemissao between :P646_DATA_INICIO and :P646_DATA_FIM
+                                            group by w.idproduto
+                                                   , w.idprodutodetalhado
+                                                   , w.idestoque
+                                                   ,w.idfilialfavorita_est ) venda
+                              , favorita.estoques e
+                              , favorita.produtosdetalhados p
+                          where e.idestoque  = venda.idestoque
+                            and e.idprodutodetalhado  = p.idprodutodetalhado
+                            and (:P646_PRODUTO is null or p.idproduto = :P646_PRODUTO)
+                            and (    e.idfilialfavorita = :P646_FILIAL and pck_util.fnc_verificaacesso(58312,v('APP_USER')) = 'S' 
+                                  or e.idfilialfavorita = :P646_FILIAL and e.idfilialfavorita = ( select f.idfilialfavorita
+                                                                                                    from favorita.filiaisfavorita f
+                                                                                                   where f.tipofilial = 'L' 
+                                                                                                     and f.idfilialfavorita = ( select u.Idfilialfavorita
+                                                                                                                                  from  catal.usuarios u 
+                                                                                                                                 where u.usuario = v('APP_USER') ))) 
+                          group by p.idproduto
+                                 , p.idprodutodetalhado
+                                 , venda.idfilialfavorita_est ) x 
+                     ) aux
+                 group by aux.loja
+                        , aux.idproduto
+                        , aux.produto
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 45692094078105939
+        }
+
+        column COBERTURA (
+            type: plainText
+            heading {
+                heading: Cobertura
+                alignment: center
+            }
+            layout {
+                sequence: 60
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: M
+            }
+        )
+
+        column "Categoria Site" (
+            type: plainText
+            heading {
+                heading: Categoria Site
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: P
+            }
+        )
+
+        column DISPONIVEL (
+            type: plainText
+            heading {
+                heading: Disponível
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column DISP_CD_ABASTECEDOR (
+            type: plainText
+            heading {
+                heading: Disp Cd Abastecedor
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: N
+            }
+        )
+
+        column LOJA (
+            type: plainText
+            heading {
+                heading: Loja
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: F
+            }
+        )
+
+        column PRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 20
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column QUANTIDADEVENDIDA (
+            type: plainText
+            heading {
+                heading: Quantidade Vendida
+                alignment: end
+            }
+            layout {
+                sequence: 50
+                columnAlignment: end
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: O
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 297
+            height: 210
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+
+        savedReport 459333 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn COBERTURA (
+                sequence: 5
+            )
+
+            displayColumn "Categoria Site" (
+                sequence: 3
+            )
+
+            displayColumn DISPONIVEL (
+                sequence: 4
+            )
+
+            displayColumn DISP_CD_ABASTECEDOR (
+                sequence: 6
+            )
+
+            displayColumn LOJA (
+                sequence: 1
+            )
+
+            displayColumn PRODUTO (
+                sequence: 2
+            )
+
+        )
+
+    )
+
+    region ciclos-de-venda-detalhado (
+        name: Ciclos de venda (Detalhado)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select x.idproduto
+                     , (select initcap(p.nomeproduto) from favorita.produtos p where p.idproduto = x.idproduto) as nomeproduto--x.nomeproduto
+                     , x.disponivel
+                     , x.quantidadevendida
+                     , round(roman.pck_romance.FNC_DIVISOR_ZERO( x.disponivel, x.quantidadevendida),2) cobertura
+                     --, round((x.disponivel / x.quantidadevendida),2) cobertura
+                     , favorita.pck_util_fav.fnc_nomefilialfavorita(x.filial)
+                     , disp_cd_abastecedor
+                     , favorita.pck_util_fav.fnc_nomeprodutodetalhado(x.idprodutodetalhado,1) as "Produto Detalhado"
+                     , (select cc.nomecategoria
+                        from favorita.produtos p
+                            , favorita.vw_categoriassite_fav cc
+                            , favorita.vw_categorias_fav c
+                        where p.idproduto = x.idproduto
+                          and c.idcategoriasite = cc.idcategoriasite (+)
+                          and c.idcategoria = p.idcategoria
+                        and rownum=1) as "Categoria Site" --T10905630
+                from ( select p.idproduto
+                            , favorita.pck_util_fav.fnc_nomeproduto(p.idproduto,1,'S') nomeproduto
+                            , sum(favorita.pck_estoque_fav.fnc_estoquedisponivel(pidestoque => e.idestoque))  disponivel 
+                            , nvl(sum( venda.quantidadevendida ),0) quantidadevendida
+                            , venda.idfilialfavorita_est filial
+                            , p.idprodutodetalhado
+                            , ( select favorita.pck_estoque_fav.fnc_estoquedisponivel(pidestoque => et.idestoque)
+                                from atendimentosestoques ae
+                                   , filiaisfavorita fav
+                                   , estoques et
+                                where ae.idfilialfavoritadestino = venda.idfilialfavorita_est 
+                                  and fav.idfilialfavorita = ae.idfilialfavoritaorigem
+                                  and et.idfilialfavorita = ae.idfilialfavoritaorigem
+                                  and et.idprodutodetalhado = p.idprodutodetalhado
+                                  and fav.tipofilial = 'E' ) disp_cd_abastecedor
+                       from ( select w.idproduto filial
+                                   , w.idprodutodetalhado       
+                                   , w.idestoque idestoque
+                                   , sum( w.quantidadevendida ) quantidadevendida
+                                   , w.idfilialfavorita_est
+                              from favorita.mv_itensvendidos_fav w
+                              where  (:P646_PRODUTO is null or w.idproduto = :P646_PRODUTO) 
+                                and ( w.idfilialfavorita_est = :P646_FILIAL  and pck_util.fnc_verificaacesso(58312,v('APP_USER')) = 'S'  
+                                  or  w.idfilialfavorita_est = :P646_FILIAL and w.idfilialfavorita_est = ( select f.idfilialfavorita
+                                                               from favorita.filiaisfavorita f
+                                                               where f.tipofilial = 'L' 
+                                                                 and f.idfilialfavorita = ( select u.Idfilialfavorita
+                                                                                                                from  catal.usuarios u 
+                                                                                                                 where u.usuario = v('APP_USER') ) ) )
+                                and w.dataemissao between ( select x.dt_ini
+                                                            from roman.semana_dias x 
+                                                            where x.idsemana = ( select s.idsemana - 6
+                                                                                 from roman.semana_dias s
+                                                                                 where trunc(sysdate) between s.dt_ini and s.dt_fim ))  and ( select x.dt_fim 
+                                                                                                                                              from roman.semana_dias x 
+                                                                                                                                              where x.idsemana = ( select s.idsemana - 1
+                                                                                                                                                                   from roman.semana_dias s
+                                                                                                                                                                   where trunc(sysdate) between s.dt_ini and s.dt_fim ) )   --define o ciclo de 6 semanas.                                                                                                                                                                                                  
+                       group by w.idproduto, w.idprodutodetalhado, w.idestoque,w.idfilialfavorita_est ) venda -- Traz a venda realizada nas ultimas 6 semanas descartando a semana atual.
+                     , favorita.estoques e
+                     , favorita.produtosdetalhados p
+                where e.idestoque  = venda.idestoque  -- (+)
+                  and e.idprodutodetalhado  = p.idprodutodetalhado
+                  and (:P646_PRODUTO is null or p.idproduto = :P646_PRODUTO)
+                  and (e.idfilialfavorita = :P646_FILIAL and pck_util.fnc_verificaacesso(58312,v('APP_USER')) = 'S' 
+                    or e.idfilialfavorita = :P646_FILIAL and e.idfilialfavorita = ( select f.idfilialfavorita
+                                                                                   from favorita.filiaisfavorita f
+                                                                                   where f.tipofilial = 'L' 
+                                                                                     and f.idfilialfavorita = ( select u.Idfilialfavorita
+                                                                                                                from  catal.usuarios u 
+                                                                                                                 where u.usuario = v('APP_USER') ) ) ) 
+                group by p.idproduto,p.idprodutodetalhado,venda.idfilialfavorita_est ) x
+                --where 1 = 2
+                order by x.nomeproduto
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        pagination {
+            type: rowRangesXToY
+        }
+        performance {
+            maxRowsToProcess: 1000000
+        }
+        advanced {
+            savedReportMappingIdentifier: 3493213528452839202
+        }
+
+        column COBERTURA (
+            type: plainText
+            heading {
+                heading: Cobertura
+                alignment: center
+            }
+            layout {
+                sequence: 50
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: E
+            }
+        )
+
+        column "Categoria Site" (
+            type: plainText
+            heading {
+                heading: Categoria Site
+                alignment: center
+            }
+            layout {
+                sequence: 90
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: K
+            }
+        )
+
+        column DISPONIVEL (
+            type: plainText
+            heading {
+                heading: Disponível
+                alignment: center
+            }
+            layout {
+                sequence: 30
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: C
+            }
+        )
+
+        column DISP_CD_ABASTECEDOR (
+            type: plainText
+            heading {
+                heading: Disp CD Abastecedor
+                alignment: center
+            }
+            layout {
+                sequence: 70
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: H
+            }
+        )
+
+        column "FAVORITA.PCK_UTIL_FAV.FNC_NOMEFILIALFAVORITA(X.FILIAL)" (
+            type: plainText
+            heading {
+                heading: Loja
+                alignment: center
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: G
+            }
+        )
+
+        column IDPRODUTO (
+            type: plainText
+            heading {
+                heading: Id Produto
+                alignment: center
+            }
+            layout {
+                sequence: 10
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: A
+            }
+        )
+
+        column NOMEPRODUTO (
+            type: plainText
+            heading {
+                heading: Produto
+                alignment: center
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: B
+            }
+        )
+
+        column "Produto Detalhado" (
+            type: plainText
+            heading {
+                heading: Produto Detalhado
+                alignment: center
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            source {
+                dataType: varchar2
+            }
+            advanced {
+                endUserAlias: J
+            }
+        )
+
+        column QUANTIDADEVENDIDA (
+            type: plainText
+            heading {
+                heading: Quantidade Vendida
+                alignment: center
+            }
+            layout {
+                sequence: 40
+                columnAlignment: center
+            }
+            source {
+                dataType: number
+            }
+            advanced {
+                endUserAlias: D
+            }
+        )
+
+        page {
+            size: a4
+            units: millimeters
+            width: 210
+            height: 297
+            borderWidth: 0.5
+            borderColor: #666666
+        }
+        columnHeadings {
+            fontWeight: normal
+            backgroundColor: #9bafde
+        }
+        columns {
+            backgroundColor: #efefef
+        }
+
+        savedReport 34932205 (
+            visibility: primaryDefault
+            view {
+                rowsPerPage: 50
+            }
+
+            displayColumn COBERTURA (
+                sequence: 7
+            )
+
+            displayColumn "Categoria Site" (
+                sequence: 4
+            )
+
+            displayColumn DISPONIVEL (
+                sequence: 5
+            )
+
+            displayColumn DISP_CD_ABASTECEDOR (
+                sequence: 8
+            )
+
+            displayColumn "FAVORITA.PCK_UTIL_FAV.FNC_NOMEFILIALFAVORITA(X.FILIAL)" (
+                sequence: 1
+            )
+
+            displayColumn NOMEPRODUTO (
+                sequence: 2
+            )
+
+            displayColumn "Produto Detalhado" (
+                sequence: 3
+            )
+
+            displayColumn QUANTIDADEVENDIDA (
+                sequence: 6
+            )
+
+        )
+
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: rightColumn
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    pageItem P646_DATA_FIM (
+        type: hidden
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            formatMask: DD/MM/YYYY
+        }
+    )
+
+    pageItem P646_DATA_INICIO (
+        type: hidden
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            formatMask: DD/MM/YYYY
+        }
+    )
+
+    pageItem P646_FILIAL (
+        type: popupLov
+        label {
+            label: <b>Filial Favorita</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select distinct(pck_util_fav.fnc_nomefilialfavorita(f.idfilialfavorita)) as display_value
+                     , f.idfilialfavorita                                                as return_value
+                  from favorita.filiaisfavorita f
+                 where f.tipofilial = 'L'
+                   and (   pck_util.fnc_verificaacesso(58312,v('APP_USER')) = 'S' /* Se tiver acesso liberado consulta todas as lojas favorita.*/
+                        or f.idfilialfavorita = (select u.Idfilialfavorita from catal.usuarios u where u.usuario = v('APP_USER'))); 
+                ```
+            displayExtraValues: false
+            displayNullValue: false
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P646_PRODUTO (
+        type: popupLov
+        label {
+            label: <b>Produto</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select p.nomeproduto as displayValue
+                     , p.idproduto   as RetornValue
+                from favorita.produtos p
+                order by p.nomeproduto
+                ```
+            nullDisplayValue: - Todos -
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional-above
+            templateOptions: [
+                #DEFAULT#
+                t-Form-fieldContainer--stretchInputs
+            ]
+            width: 30
+        }
+    )
+
+    button filtrar (
+        buttonName: FILTRAR
+        label: Filtrar
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--large
+                t-Button--stretch
+                t-Button--gapTop
+            ]
+        }
+        behavior {
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    validation valida-campo-filial (
+        name: Valida Campo Filial
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: itemIsNotNull
+            item: P646_FILIAL
+        }
+        error {
+            errorMessage: A loja precisa ser selecionada!
+        }
+        serverSideCondition {
+            whenButtonPressed: @filtrar
+        }
+    )
+
+    process inicializa-campos (
+        name: inicializa campos
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                
+                    -- data inicial
+                    select to_char(x.dt_ini,'DD/MM/YYYY')
+                      into :P646_DATA_INICIO
+                      from roman.semana_dias x 
+                     where x.idsemana = ( select s.idsemana - 5
+                                            from roman.semana_dias s
+                                           where trunc(sysdate) between s.dt_ini and s.dt_fim );
+                
+                    -- data final
+                    select to_char(x.dt_fim,'DD/MM/YYYY')
+                      into :P646_DATA_FIM
+                      from roman.semana_dias x 
+                     where x.idsemana = ( select s.idsemana 
+                                            from roman.semana_dias s
+                                           where trunc(sysdate) between s.dt_ini and s.dt_fim );
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+        advanced {
+            executionMappingIdentifier: 45691534708105934
+        }
+    )
+
+)
+

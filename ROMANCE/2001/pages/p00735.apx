@@ -1,0 +1,1674 @@
+page 735 (
+    name: Cadastro de Metas RMC Distribuidor
+    title: Cadastro de Metas Distribuidor
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: unrestricted
+    }
+
+    region botoes (
+        name: Botoes
+        type: staticContent
+        layout {
+            sequence: 10
+            parentRegion: @filtros
+            slot: subRegions
+        }
+    )
+
+    region filtros (
+        name: Filtros
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--accent1
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            regionDisplaySelector: true
+        }
+    )
+
+    region report (
+        name: Report 1
+        type: interactiveGrid
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                 select tipo
+                      , idmetadesafiodistribuidor
+                      , idrepresentante 
+                      , case when idrepresentante is null
+                             then 'TOTAIS DOS DISTRIBUIDORES'
+                             else
+                               pck_romance.fnc_nomerepresentante(idrepresentante) || ' - '||idrepresentante
+                        end nomerepresentante
+                      , desafiocalculadoromance
+                      , desafioperccrescimento
+                      , desafiocalculadoatual
+                      , case when desafiocalculadoatual > desafiocalculadoromance 
+                             then 'VERDE'
+                             when desafiocalculadoatual < desafiocalculadoromance 
+                             then 'VERMELHO'
+                             else
+                               null
+                        end cor
+                      , case when tipo = 1 then
+                               (select sum(nvl(M.MEDIASEMANAL,0))
+                                  from METASDESAFIODISTRIBUIDORES M
+                                 where m.cicloromance = :P735_CICLOROMANCE
+                                   and m.idfilial     = :P0_IDFILIAL )
+                             else
+                               mediasemanal
+                        end mediasemanal 
+                      , saldoMeta saldoMetaFranquia
+                      , percdistrib
+                --      , percatual
+                   from (
+                     select 0 tipo
+                          , 1 IDMETADESAFIODISTRIBUIDOR 
+                          , NULL IDFILIAL 
+                          , null idrepresentante 
+                          , SUM(M.DESAFIOCALCULADOROMANCE) DESAFIOCALCULADOROMANCE
+                          , 0  DESAFIOPERCCRESCIMENTO 
+                          , SUM(nvl(M.DESAFIOCALCULADOATUAL,0)) DESAFIOCALCULADOATUAL
+                          , NULL MEDIASEMANAL --nvl(M.MEDIASEMANAL,0) MEDIASEMANAL,
+                          , 0 percdistrib
+                --          , 0 percatual
+                          , (select desafiocalculadoatual
+                               from metasdesafioromance
+                              where idfilial = :P0_IDFILIAL 
+                                and cicloromance = :P735_CICLOROMANCE ) desafiofranquia
+                          , SUM(nvl(M.DESAFIOCALCULADOATUAL,0)) - 
+                            (select desafiocalculadoatual
+                               from metasdesafioromance
+                              where idfilial = :P0_IDFILIAL 
+                                and cicloromance = :P735_CICLOROMANCE )  saldoMeta
+                       from METASDESAFIODISTRIBUIDORES M
+                          , REPRESENTANTES R
+                      where m.cicloromance = :P735_CICLOROMANCE
+                        and m.idfilial     = :P0_IDFILIAL
+                        and r.idrepresentante = m.idrepresentante
+                        and r.ativo = 'S'
+                        and r.idpessoa not in (select idpessoa
+                                                 from gerentes 
+                                                where idfilial = m.idfilial
+                                                  and idpessoa not in (36372, 86481) ) -- 12895299
+                        group by m.idfilial 
+                ---
+                UNION
+                ---
+                 select 2 tipo
+                      , M.IDMETADESAFIODISTRIBUIDOR
+                      , M.IDFILIAL
+                      , M.IDREPRESENTANTE
+                      , M.DESAFIOCALCULADOROMANCE
+                      , M.DESAFIOPERCCRESCIMENTO
+                      , nvl(M.DESAFIOCALCULADOATUAL,0) DESAFIOCALCULADOATUAL
+                      , nvl(M.MEDIASEMANAL,0) MEDIASEMANAL
+                      , round(pck_romance.FNC_DIVISOR_ZERO( M.DESAFIOCALCULADOROMANCE, sum(M.DESAFIOCALCULADOROMANCE) over (partition by m.idfilial )) * 100,2) percdistrib
+                      , 0 desafiofranquia
+                      , null saldoMeta
+                   from METASDESAFIODISTRIBUIDORES M
+                      , REPRESENTANTES R
+                  where m.cicloromance = :P735_CICLOROMANCE
+                    and r.idrepresentante = m.idrepresentante
+                    and r.ativo = 'S'
+                    and r.idpessoa not in (select idpessoa
+                                             from gerentes 
+                                            where idfilial = m.idfilial
+                                              and idpessoa not in (36372, 86481) ) -- 12895299
+                    and m.idfilial     = :P0_IDFILIAL )
+                ```
+            pageItemsToSubmit: P735_CICLOROMANCE
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/interactive-report
+            templateOptions: #DEFAULT#
+        }
+        readOnly {
+            type: item=value
+            item: P735_CICLOCONGELADO
+            value: S
+        }
+        edit {
+            enabled: true
+            allowedOperations: update
+        }
+        componentAppearance {
+            showNullValuesAs: -
+        }
+        toolbar {
+            controls: [
+                searchCol
+                searchField
+                actionsMenu
+                resetButton
+                saveButton
+            ]
+        }
+        download {
+            formats: [
+                csv
+                html
+            ]
+        }
+        advanced {
+            savedReportMappingIdentifier: 7301541113879832650
+        }
+
+        savedReport PRIMARY (
+            visibility: primary
+            view {
+                default: grid
+                settingsAreaExpanded: false
+            }
+            singleRowView {
+                displayedColumns: true
+            }
+
+            displayColumn (
+                column: @COR
+                layout {
+                    show: false
+                    sequence: 9
+                }
+            )
+
+            displayColumn (
+                column: @NOMEREPRESENTANTE
+                layout {
+                    width: 407
+                    sequence: 3
+                }
+            )
+
+            displayColumn (
+                column: @IDMETADESAFIODISTRIBUIDOR
+                layout {
+                    sequence: 14
+                }
+            )
+
+            displayColumn (
+                column: @IDREPRESENTANTE
+                layout {
+                    width: 398
+                    sequence: 1
+                }
+            )
+
+            displayColumn (
+                column: @TIPO
+                layout {
+                    show: false
+                    sequence: 3
+                }
+            )
+
+            displayColumn (
+                column: @SALDOMETAFRANQUIA
+                layout {
+                    width: 207
+                    sequence: 10
+                }
+            )
+
+            displayColumn (
+                column: @PERCDISTRIB
+                layout {
+                    width: 153
+                    sequence: 6
+                }
+            )
+
+            displayColumn (
+                column: @DESAFIOCALCULADOROMANCE
+                layout {
+                    width: 220
+                    sequence: 4
+                }
+            )
+
+            displayColumn (
+                column: @DESAFIOPERCCRESCIMENTO
+                layout {
+                    width: 190
+                    sequence: 7
+                }
+            )
+
+            displayColumn (
+                column: @DESAFIOCALCULADOATUAL
+                layout {
+                    width: 163
+                    sequence: 7
+                }
+            )
+
+            displayColumn (
+                column: @MEDIASEMANAL
+                layout {
+                    width: 175
+                    sequence: 9
+                }
+            )
+
+            displayColumn (
+                column: @APEX$ROW_ACTION
+                layout {
+                    show: false
+                    frozen: true
+                    sequence: 0
+                }
+            )
+
+            sort (
+                column: @IDREPRESENTANTE
+                sort {
+                    nulls: last
+                    sequence: 2
+                }
+            )
+
+            sort (
+                column: @TIPO
+                sort {
+                    nulls: last
+                    sequence: 1
+                }
+            )
+
+            aggregate sum (
+                column: @DESAFIOCALCULADOROMANCE
+            )
+
+            aggregate sum-2 (
+                column: @PERCDISTRIB
+                showGrandTotal: true
+            )
+
+            highlight meta-maior (
+                name: Meta Maior
+                condition {
+                    column: @COR
+                    value: VERDE
+                }
+                highlight {
+                    type: cell
+                    column: @DESAFIOCALCULADOATUAL
+                }
+                colors {
+                    background: #99FF99
+                }
+                execution {
+                    sequence: 10
+                }
+            )
+
+            highlight meta-menor (
+                name: Meta Menor
+                condition {
+                    column: @COR
+                    value: VERMELHO
+                }
+                highlight {
+                    type: cell
+                    column: @DESAFIOCALCULADOATUAL
+                }
+                colors {
+                    background: #FF7755
+                }
+                execution {
+                    sequence: 15
+                }
+            )
+
+            highlight totais (
+                name: Totais
+                condition {
+                    column: @TIPO
+                    value: 1
+                }
+                colors {
+                    background: #FFDD44
+                }
+                execution {
+                    sequence: 5
+                }
+            )
+
+        )
+
+        column APEX$ROW_ACTION (
+            type: actionsMenu
+            layout {
+                sequence: 20
+            }
+        )
+
+        column APEX$ROW_SELECTOR (
+            type: rowSelector
+            layout {
+                sequence: 10
+            }
+        )
+
+        column COR (
+            type: displayOnly
+            heading {
+                heading: Cor
+            }
+            layout {
+                sequence: 200
+            }
+            source {
+                databaseColumn: COR
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+            }
+        )
+
+        column DESAFIOCALCULADOATUAL (
+            type: numberField
+            heading {
+                heading: Desafio DISTR
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 90
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: DESAFIOCALCULADOATUAL
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column DESAFIOCALCULADOROMANCE (
+            type: numberField
+            heading {
+                heading: Realizado ano anterior
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 70
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: DESAFIOCALCULADOROMANCE
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: always
+                execute: forEachRow
+            }
+        )
+
+        column DESAFIOPERCCRESCIMENTO (
+            type: numberField
+            heading {
+                heading: % Crescimento
+                alignment: center
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 80
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999990D000
+            }
+            source {
+                databaseColumn: DESAFIOPERCCRESCIMENTO
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+            readOnly {
+                type: itemIsNotNull
+                item: DATACONGELADO
+                execute: forEachRow
+            }
+        )
+
+        column IDMETADESAFIODISTRIBUIDOR (
+            type: hidden
+            layout {
+                sequence: 160
+            }
+            source {
+                databaseColumn: IDMETADESAFIODISTRIBUIDOR
+                dataType: number
+                primaryKey: true
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column IDREPRESENTANTE (
+            type: hidden
+            layout {
+                sequence: 170
+            }
+            source {
+                databaseColumn: IDREPRESENTANTE
+                dataType: number
+            }
+            exportPrinting {
+                includeInExportPrint: false
+            }
+        )
+
+        column MEDIASEMANAL (
+            type: numberField
+            heading {
+                heading: Média Semanal
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 100
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: MEDIASEMANAL
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column NOMEREPRESENTANTE (
+            type: displayOnly
+            heading {
+                heading: Distribuidor
+            }
+            layout {
+                sequence: 210
+            }
+            source {
+                databaseColumn: NOMEREPRESENTANTE
+                dataType: varchar2
+            }
+            columnFilter {
+                performanceImpactingOperators: [
+                    contains
+                    startsWith
+                    caseInsensitive
+                    regexp
+                ]
+                lovType: none
+            }
+            enableUsersTo {
+                sort: false
+            }
+        )
+
+        column PERCDISTRIB (
+            type: displayOnly
+            heading {
+                heading: % Contribuição
+                alignment: center
+            }
+            layout {
+                sequence: 220
+                columnAlignment: center
+            }
+            appearance {
+                formatMask: 999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: PERCDISTRIB
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column SALDOMETAFRANQUIA (
+            type: numberField
+            heading {
+                heading: Saldo Meta Franquia
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 190
+                columnAlignment: end
+            }
+            appearance {
+                formatMask: S999G999G999G999G990D00
+            }
+            source {
+                databaseColumn: SALDOMETAFRANQUIA
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+        column TIPO (
+            type: numberField
+            heading {
+                heading: Tipo
+                alignment: end
+            }
+            settings {
+                numberAlignment: end
+                virtualKeyboard: text
+            }
+            layout {
+                sequence: 180
+                columnAlignment: end
+            }
+            source {
+                databaseColumn: TIPO
+                dataType: number
+            }
+            columnFilter {
+                lovType: none
+            }
+        )
+
+    )
+
+    pageItem P735_CICLOCONGELADO (
+        type: displayOnly
+        label {
+            label: Ciclo Congelado
+            alignment: left
+        }
+        settings {
+            sendOnPageSubmit: false
+        }
+        layout {
+            sequence: 40
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P735_CICLOROMANCE (
+        type: selectList
+        label {
+            label: <b>Informe o Ciclo</b>
+            alignment: left
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT DIS D, RET R
+                  FROM ( 
+                        SELECT CASE WHEN SD.CICLOROMANCE IS NOT NULL THEN
+                                   CICLOROMANCE || ' - Semana  ' ||
+                                   (select semanacompleta semanaini
+                                      from semana_dias 
+                                     where idsemana = (select min(idsemana)
+                                                         from semana_dias
+                                                        where cicloromance = sd.cicloromance)) 
+                                   || ' Até ' ||
+                                   (select semanacompleta semanaini
+                                      from semana_dias 
+                                     where idsemana = (select max(idsemana)
+                                                         from semana_dias
+                                                        where cicloromance = sd.cicloromance))  
+                                ELSE NULL
+                                END  DIS
+                             --
+                             , CICLOROMANCE RET
+                          FROM (
+                                 SELECT distinct s.cicloromance 
+                                   FROM semana_dias s
+                                      , metasdesafioromance m
+                                  WHERE s.cicloromance is not null
+                                    AND s.cicloromance = m.cicloromance
+                                    AND m.datacongelado is not null
+                                    AND m.idfilial = :P0_IDFILIAL
+                                    --AND m.ano = substr(:P735_CICLOROMANCE,4,4)
+                                    AND not exists (select 1
+                                                      from metasdesafiodistribuidores x
+                                                     where x.idfilial     = m.idfilial
+                                                       and x.cicloromance = m.cicloromance)
+                                    AND m.idmetadesafioromance = (select MIN(idmetadesafioromance)
+                                                                    from metasdesafioromance mr
+                                                                   where idfilial = :P0_IDFILIAL
+                                                                     and datacongelado is not null
+                                                                     and not exists (select 1
+                                                                                       from metasdesafiodistribuidores x
+                                                                                      where x.idfilial     = mr.idfilial
+                                                                                        and x.cicloromance = mr.cicloromance))
+                                 /*UNION
+                                 --
+                                 select cicloromance
+                                   from semana_dias
+                                  where sysdate between dt_ini and dt_fim
+                                    and not exists (select 1
+                                                      from metasdesafioromance m
+                                                     where m.idfilial = :P0_IDFILIAL
+                                                       and m.datacongelado is not null) */
+                                  ) SD
+                
+                          --
+                          ORDER BY to_number(substr(cicloromance,4,4)), 
+                                   to_number(substr(cicloromance,1,2)) )
+                  WHERE RET IS NOT NULL
+                ```
+        }
+        layout {
+            sequence: 10
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/required
+            templateOptions: #DEFAULT#
+            height: 1
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P735_DATACONGELADO (
+        type: displayOnly
+        label {
+            label: Data Congelado
+            alignment: left
+        }
+        settings {
+            sendOnPageSubmit: false
+        }
+        layout {
+            sequence: 50
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P735_DATACRIACAOCICLO (
+        type: displayOnly
+        label {
+            label: Data Criação
+            alignment: left
+        }
+        settings {
+            sendOnPageSubmit: false
+        }
+        layout {
+            sequence: 20
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P735_DESAFIOFRANQUIA (
+        type: displayOnly
+        label {
+            label: Desafio Franquia
+            alignment: left
+        }
+        settings {
+            sendOnPageSubmit: false
+        }
+        layout {
+            sequence: 70
+            region: @filtros
+            slot: regionBody
+            alignment: left
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+            formatMask: 999G999G999G999G990D00
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P735_USUARIOCONGELAMENTO (
+        type: displayOnly
+        label {
+            label: Usuário Congelamento
+            alignment: left
+        }
+        settings {
+            sendOnPageSubmit: false
+        }
+        layout {
+            sequence: 60
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P735_USUARIOCRIACAO (
+        type: displayOnly
+        label {
+            label: Usuário Criação
+            alignment: left
+        }
+        settings {
+            sendOnPageSubmit: false
+        }
+        layout {
+            sequence: 30
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    pageItem P735_VALORINATIVOS (
+        type: displayOnly
+        label {
+            label: Valor Realizado Inativos
+            alignment: left
+        }
+        settings {
+            sendOnPageSubmit: false
+        }
+        layout {
+            sequence: 80
+            region: @filtros
+            slot: regionBody
+            alignment: left
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional
+            templateOptions: #DEFAULT#
+        }
+        security {
+            encryptSessionState: false
+        }
+    )
+
+    button atualizarciclo (
+        buttonName: AtualizarCiclo
+        label: Atualizar Ciclo
+        layout {
+            sequence: 30
+            region: @botoes
+            slot: belowBox
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--primary
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from metasdesafiodistribuidores
+                 where cicloromance   = :P735_CICLOROMANCE
+                   and idfilial       = :P0_IDFILIAL
+                   and rownum         = 1
+                   and ciclocongelado = 'N'
+                   AND 1=2
+                ```
+        }
+        comments {
+            comments: Somente ciclos ABERTOS podem ser atualizados
+        }
+    )
+
+    button congelarciclo (
+        buttonName: CONGELARCICLO
+        label: Congelar Ciclo
+        layout {
+            sequence: 40
+            region: @botoes
+            slot: belowBox
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from metasdesafiodistribuidores
+                 where cicloromance   = :P735_CICLOROMANCE
+                   and idfilial       = :P0_IDFILIAL
+                   and rownum         = 1
+                   and ciclocongelado = 'N'
+                   and exists ( select 1
+                                 from roman.acessos a
+                                where a.idaplicacao = 2785
+                                  and a.usuario = v('APP_USER') )
+                ```
+        }
+        comments {
+            comments: Somente ciclos ABERTOS podem ser atualizados
+        }
+    )
+
+    button descongelarciclo (
+        buttonName: DescongelarCiclo
+        label: Descongelar Ciclo
+        layout {
+            sequence: 50
+            region: @botoes
+            slot: belowBox
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--success
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from metasdesafiodistribuidores
+                 where cicloromance   = :P735_CICLOROMANCE
+                   and idfilial       = :P0_IDFILIAL
+                   and rownum         = 1
+                   and ciclocongelado = 'S'
+                   and exists ( select 1
+                                  from roman.acessos a
+                                 where a.idaplicacao = 2785
+                                   and a.usuario = v('APP_USER') )
+                ```
+        }
+        comments {
+            comments: Somente ciclos ABERTOS podem ser atualizados
+        }
+    )
+
+    button gerarciclo (
+        buttonName: GerarCiclo
+        label: Gerar Novo Ciclo
+        layout {
+            sequence: 20
+            region: @botoes
+            slot: belowBox
+        }
+        appearance {
+            buttonTemplate: @/text
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+        serverSideCondition {
+            type: noRowsReturned
+            sqlQuery:
+                ```sql
+                select 1
+                  from metasdesafiodistribuidores
+                 where cicloromance = :P735_CICLOROMANCE
+                   and idfilial     = :P0_IDFILIAL
+                   and rownum       = 1
+                ```
+        }
+    )
+
+    button voltar (
+        buttonName: Voltar
+        label: Voltar
+        layout {
+            sequence: 60
+            region: @botoes
+            slot: belowBox
+            horizontalAlignment: left
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: [
+                #DEFAULT#
+                t-Button--warning
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 734
+                action: resetPagination
+            }
+            warnOnUnsavedChanges: doNotCheck
+        }
+    )
+
+    dynamicAction atualiza-regiao (
+        name: Atualiza_Regiao
+        execution {
+            sequence: 80
+        }
+        when {
+            selectionType: items
+            items: P735_CICLOROMANCE
+        }
+
+        action native-submit-page (
+            action: submitPage
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction atualizacampos (
+        name: AtualizaCampos
+        execution {
+            sequence: 60
+        }
+        when {
+            selectionType: items
+            items: P735_CICLOROMANCE
+        }
+
+        action native-set-value (
+            action: setValue
+            settings {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select to_char(desafiocalculadoatual,'999g999g999g990d00')
+                         , to_char(valorinativos,'999g999g999g990d00')
+                      from metasdesafioromance
+                     where idfilial = :P0_IDFILIAL
+                       and cicloromance = :P735_CICLOROMANCE
+                    ```
+                itemsToSubmit: P735_CICLOROMANCE
+            }
+            affectedElements {
+                selectionType: items
+                items: [
+                    P735_DESAFIOFRANQUIA
+                    P735_VALORINATIVOS
+                ]
+            }
+            execution {
+                sequence: 20
+            }
+        )
+
+        action native-set-value-2 (
+            action: setValue
+            settings {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select to_char(datacriacao,'dd/mm/rrrr hh24:mi:ss'),
+                           usuariocriacao,
+                           decode(ciclocongelado,'S','Sim','Não'),
+                           to_char(datacongelado,'dd/mm/rrrr hh24:mi:ss'),
+                           usuariocongelamento
+                      from metasdesafiodistribuidores
+                     where cicloromance = :P735_CICLOROMANCE
+                       and idfilial     = :P0_IDFILIAL
+                       and rownum = 1
+                    ```
+                itemsToSubmit: P735_CICLOROMANCE
+                escapeSpecialChars: false
+            }
+            affectedElements {
+                selectionType: items
+                items: [
+                    P735_DATACRIACAOCICLO
+                    P735_USUARIOCRIACAO
+                    P735_CICLOCONGELADO
+                    P735_DATACONGELADO
+                    P735_USUARIOCONGELAMENTO
+                ]
+            }
+            execution {
+                sequence: 30
+            }
+        )
+
+    )
+
+    dynamicAction confirmaatualizar (
+        name: ConfirmaAtualizar
+        execution {
+            sequence: 30
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @atualizarciclo
+        }
+
+        action native-confirm (
+            action: confirm
+            settings {
+                message: Confirma ATUALIZAR Ciclo?
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: ATUALIZARCICLO
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction confirmacongelar (
+        name: ConfirmaCongelar
+        execution {
+            sequence: 41
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @congelarciclo
+        }
+
+        action native-confirm (
+            action: confirm
+            settings {
+                message: Confirma CONGELAR o ciclo?
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: CONGELARCICLO
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction confirmadescongelar (
+        name: ConfirmaDescongelar
+        execution {
+            sequence: 70
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @descongelarciclo
+        }
+
+        action native-confirm (
+            action: confirm
+            settings {
+                message: Confirma DESCONGELAR ciclo informado?
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: DESCONGELARCICLO
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction gerarciclo (
+        name: GerarCiclo
+        execution {
+            sequence: 90
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @gerarciclo
+        }
+
+        action native-confirm (
+            action: confirm
+            settings {
+                message: Confirma GERAR novo ciclo?
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action native-submit-page (
+            action: submitPage
+            settings {
+                requestButtonName: GERARCICLO
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction new (
+        name: New_1
+        execution {
+            sequence: 120
+        }
+        when {
+            selectionType: columns
+            interactiveGrid: @report
+            columns: DESAFIOPERCCRESCIMENTO
+        }
+
+        action native-set-value (
+            action: setValue
+            settings {
+                type: plsqlExpression
+                plsqlExpression:
+                    ```plsql
+                    -- to_char( 
+                    --         TO_NUMBER(:DESAFIOCALCULADOROMANCE,'99999999999999999D00') * 
+                    --         (TO_NUMBER(:DESAFIOPERCCRESCIMENTO,'99999999999999999D00') /100 ) + TO_NUMBER(:DESAFIOCALCULADOROMANCE,'99999999999999999D00') 
+                    --        ,'999G999G999G999G990D00')
+                    ( to_number(REPLACE(:DESAFIOCALCULADOROMANCE,'.','')) * to_number(REPLACE(:DESAFIOPERCCRESCIMENTO,'.','')) / 100) + 
+                    to_number(REPLACE(:DESAFIOCALCULADOROMANCE,'.',''))
+                    ```
+                itemsToSubmit: [
+                    DESAFIOPERCCRESCIMENTO
+                    DESAFIOCALCULADOROMANCE
+                ]
+            }
+            affectedElements {
+                selectionType: columns
+                columns: DESAFIOCALCULADOATUAL
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction new-2 (
+        name: New_2
+        execution {
+            sequence: 110
+        }
+        when {
+            event: custom
+            customEvent: interactivegridsave
+            selectionType: region
+            region: @report
+        }
+
+        action native-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @report
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction selecionaconteudo (
+        name: SelecionaConteudo
+        execution {
+            sequence: 100
+        }
+        when {
+            event: focusin
+            selectionType: columns
+            interactiveGrid: @report
+            columns: DESAFIOPERCCRESCIMENTO
+        }
+
+        action native-javascript-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    var fieldLength = Number(this.triggeringElement.value.length); //Get the content’s length
+                    
+                    //select the whole content of the field
+                    this.triggeringElement.selectionStart = 0;
+                    this.triggeringElement.selectionEnd = fieldLength;
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    process atualizarciclo (
+        name: AtualizarCiclo
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                 verro varchar2(1);
+                begin
+                  begin
+                    select case 
+                             when sum(DESAFIOCALCULADOROMANCE) > sum(DESAFIOCALCULADOATUAL) then
+                               'S'
+                             else
+                               'N'
+                           end 
+                      into verro 
+                      from METASDESAFIODISTRIBUIDORES M
+                     where cicloromance = :P735_CICLOROMANCE
+                       and idfilial     = :P0_IDFILIAL;
+                    
+                  end;
+                  if verro = 'N' then
+                    pck_metasromance.prc_gerametasdesafiodistrib(:P0_IDFILIAL,
+                                                                 :P735_CICLOROMANCE,
+                                                                 V('APP_USER'),
+                                                                 'N');
+                    commit;
+                  else
+                    raise_application_error(-20001,'Valor do desafio atual deve ser maior que desafio romance!');
+                  end if;
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+            point: afterSubmit
+        }
+        successMessage {
+            successMessage: Ciclo atualizado com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 2434729338839861625
+        }
+        serverSideCondition {
+            type: request=Value
+            value: ATUALIZARCICLO
+        }
+    )
+
+    process congelarciclo (
+        name: CongelarCiclo
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                vtotaldesafio number;
+                vtotalfranquia number;
+                begin
+                
+                  vtotalfranquia := TO_NUMBER(REPLACE(:P735_DESAFIOFRANQUIA, '.', ''), '99999999999999999d99')  ;
+                  if nvl(vtotalfranquia,0) = 0 then
+                    select desafiocalculadoatual
+                      into vtotalfranquia
+                      from metasdesafioromance
+                     where idfilial = :P0_IDFILIAL
+                       and cicloromance = :P735_CICLOROMANCE;
+                  end if;
+                  --
+                  select SUM(nvl(M.DESAFIOCALCULADOATUAL,0))
+                  --     , SUM(nvl(M.DESAFIOCALCULADOROMANCE,0))
+                    into vtotaldesafio
+                  --     , vtotalfranquia
+                    from METASDESAFIODISTRIBUIDORES M
+                   where m.cicloromance = :P735_CICLOROMANCE
+                     and m.idfilial     = :P0_IDFILIAL;
+                        
+                  --raise_application_error(-20001,'vtotaldesafio=' || vtotaldesafio || '  vtotalfranquia='|| vtotalfranquia);
+                  if vtotaldesafio < vtotalfranquia then
+                    --raise_application_error(-20001,'vtotaldesafio=' ||trunc(vtotaldesafio) || '  vtotalfranquia='|| trunc(vtotalfranquia) );
+                  
+                    apex_error.add_error( p_message => '<p class="custom-success-message">A Soma do desafio dos distribuidores deve ser igual ou maior que o desafio da franquia </p>'
+                                        , p_display_location => apex_error.c_inline_in_notification);
+                  else
+                
+                    pck_metasromance.prc_gerametasdesafiodistrib(:P0_IDFILIAL,
+                                                                 :P735_CICLOROMANCE,
+                                                                 V('APP_USER'),
+                                                                 'S');
+                    commit;
+                  end if;
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+            point: afterSubmit
+        }
+        successMessage {
+            successMessage: Ciclo CONGELADO com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 2434729736636861625
+        }
+        serverSideCondition {
+            type: request=Value
+            value: CONGELARCICLO
+        }
+    )
+
+    process descongelarciclo (
+        name: DescongelarCiclo
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  pck_metasromance.prc_gerametasdesafiodistrib(:P0_IDFILIAL,
+                                                               :P735_CICLOROMANCE,
+                                                               V('APP_USER'),
+                                                               'D');
+                  commit;
+                end;
+                ```
+        }
+        execution {
+            sequence: 40
+            point: afterSubmit
+        }
+        successMessage {
+            successMessage: Ciclo DESCONGELADO com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 2434728591867861625
+        }
+        serverSideCondition {
+            type: request=Value
+            value: DESCONGELARCICLO
+        }
+    )
+
+    process gerarciclo (
+        name: GerarCiclo
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  if :P735_CICLOROMANCE IS NOT NULL then
+                    pck_metasromance.prc_gerametasdesafiodistrib(:P0_IDFILIAL,
+                                                                 :P735_CICLOROMANCE,
+                                                                 V('APP_USER'),
+                                                                 'N');
+                    commit;
+                  else
+                    raise_application_error(-20001,'*** OBRIGATÓRIO INFORMAR O CICLO ***');
+                  end if;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: afterSubmit
+        }
+        successMessage {
+            successMessage: Novo ciclo gerado com sucesso!
+        }
+        advanced {
+            executionMappingIdentifier: 2434728991813861625
+        }
+        serverSideCondition {
+            type: request=Value
+            value: GERARCICLO
+        }
+    )
+
+    process new (
+        name: New
+        type: executeCode
+        source {
+            plsqlCode: null;
+        }
+        execution {
+            sequence: 50
+            point: afterSubmit
+        }
+        advanced {
+            executionMappingIdentifier: 3202156369157791724
+        }
+        serverSideCondition {
+            type: never
+        }
+    )
+
+    process report-1-save-interactive-grid-data (
+        name: Report 1 - Save Interactive Grid Data
+        type: executeCode
+        editableRegion: @report
+        source {
+            plsqlCode:
+                ```plsql
+                DECLARE
+                 VPERC NUMBER;
+                 VDESAFIO NUMBER;
+                 VCALCULADO number;
+                
+                BEGIN
+                  --
+                  VPERC      := replace(:DESAFIOPERCCRESCIMENTO,'.',''); --TO_NUMBER(:DESAFIOPERCCRESCIMENTO,'999G999G999G999D000');
+                  VDESAFIO   := replace(:DESAFIOCALCULADOROMANCE,'.',''); --TO_NUMBER(:DESAFIOCALCULADOROMANCE,'999G999G999G999D000');
+                  VCALCULADO := replace(:DESAFIOCALCULADOATUAL,'.',''); --TO_NUMBER(:DESAFIOCALCULADOATUAL,'999G999G999G999D000');
+                  --
+                  UPDATE METASDESAFIODISTRIBUIDORES
+                     SET DESAFIOCALCULADOROMANCE = VDESAFIO
+                --       , DESAFIOPERCCRESCIMENTO  = VPERC
+                       , DESAFIOPERCCRESCIMENTO  = case when vdesafio > 0 
+                                                        then (VCALCULADO * 100 / VDESAFIO ) - 100
+                                                        else 0
+                                                   end
+                       , DESAFIOCALCULADOATUAL   = VCALCULADO
+                       , MEDIASEMANAL            = VCALCULADO / 6
+                   WHERE IDMETADESAFIODISTRIBUIDOR = :IDMETADESAFIODISTRIBUIDOR 
+                     AND IDMETADESAFIODISTRIBUIDOR > 1 ;
+                  --
+                  COMMIT;
+                  --
+                END;
+                ```
+        }
+        execution {
+            sequence: 10
+        }
+        advanced {
+            executionMappingIdentifier: 2434728113974861626
+        }
+    )
+
+    branch (
+        name: Go To Page 735
+        execution {
+            sequence: 10
+            point: afterSubmit
+        }
+        behavior {
+            target: {
+                page: 735
+                items: {
+                    P735_CICLOROMANCE: &P735_CICLOROMANCE.
+                    P735_DATACONGELADO: sysdate
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: CONGELARCICLO
+        }
+    )
+
+    branch (
+        name: Go To Page 735
+        execution {
+            sequence: 20
+            point: afterSubmit
+        }
+        behavior {
+            target: {
+                page: 735
+                items: {
+                    P735_CICLOROMANCE: &P735_CICLOROMANCE.
+                    P735_DATACONGELADO:
+                }
+                action: resetPagination
+            }
+        }
+        serverSideCondition {
+            type: request=Value
+            value: DESCONGELARCICLO
+        }
+    )
+
+)
+
